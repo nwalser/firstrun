@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import type { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ClickHouseClient, configFromEnv } from "./clickhouse/client.js";
@@ -23,20 +24,41 @@ function sqlFiles(dir: string): string[] {
 }
 
 /** ClickHouse takes one statement per request. */
-function statements(sql: string): string[] {
+export function statements(sql: string): string[] {
   return sql
     .split(/;\s*\n/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0 && !/^(--[^\n]*\n?)*$/.test(s));
 }
 
-async function waitForClickHouse(ch: ClickHouseClient, timeoutMs = 60_000): Promise<void> {
+export async function waitForClickHouse(ch: ClickHouseClient, timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await ch.ping()) return;
     await Bun.sleep(500);
   }
   throw new Error("ClickHouse did not come up. Is `docker compose up -d` running?");
+}
+
+/** Exported so tests can migrate a throwaway database. */
+export async function applyClickHouseMigrations(
+  ch: ClickHouseClient,
+  log: (line: string) => void = () => {}
+): Promise<void> {
+  const dir = join(here, "clickhouse");
+  for (const file of sqlFiles(dir)) {
+    const sql = readFileSync(join(dir, file), "utf8");
+    for (const stmt of statements(sql)) await ch.command(stmt);
+    log(`  clickhouse  ${file}`);
+  }
+}
+
+export function applySqliteMigrations(db: Database, log: (line: string) => void = () => {}): void {
+  const dir = join(here, "sqlite");
+  for (const file of sqlFiles(dir)) {
+    db.exec(readFileSync(join(dir, file), "utf8"));
+    log(`  sqlite      ${file}`);
+  }
 }
 
 async function migrateClickHouse(): Promise<void> {
@@ -52,22 +74,12 @@ async function migrateClickHouse(): Promise<void> {
     // the normal case, so this is not worth failing the run over.
   }
 
-  const dir = join(here, "clickhouse");
-  for (const file of sqlFiles(dir)) {
-    const sql = readFileSync(join(dir, file), "utf8");
-    for (const stmt of statements(sql)) await ch.command(stmt);
-    console.log(`  clickhouse  ${file}`);
-  }
+  await applyClickHouseMigrations(ch, console.log);
 }
 
 function migrateSqlite(): void {
-  const path = sqlitePathFromEnv();
-  const db = openSqlite(path);
-  const dir = join(here, "sqlite");
-  for (const file of sqlFiles(dir)) {
-    db.exec(readFileSync(join(dir, file), "utf8"));
-    console.log(`  sqlite      ${file}`);
-  }
+  const db = openSqlite(sqlitePathFromEnv());
+  applySqliteMigrations(db, console.log);
   db.close();
 }
 
@@ -78,4 +90,4 @@ if (import.meta.main) {
   console.log("done");
 }
 
-export { migrateClickHouse, migrateSqlite, statements };
+export { migrateClickHouse, migrateSqlite };
