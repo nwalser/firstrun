@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ClickHouseClient, toChDateTime } from "./clickhouse/client.js";
 
 /**
@@ -10,7 +11,9 @@ import { ClickHouseClient, toChDateTime } from "./clickhouse/client.js";
  * changes.
  */
 
-const QUERY_DIR = join(import.meta.dir, "clickhouse", "queries");
+// Resolved from this module's own URL rather than `import.meta.dir` so the
+// same file works under Bun and under Node.
+const QUERY_DIR = join(dirname(fileURLToPath(import.meta.url)), "clickhouse", "queries");
 const cache = new Map<string, string>();
 
 export function sql(name: string): string {
@@ -91,19 +94,34 @@ export async function funnel(
   return { exact: pick("exact"), estimated: pick("estimated") };
 }
 
-export interface Day7Result {
+export interface Day7Counts {
+  /** The cohort: people with both a download and a first run. */
   first_run: number;
   day7: number;
 }
 
+export interface Day7Result {
+  exact: Day7Counts;
+  estimated: Day7Counts;
+}
+
 export async function day7(ch: ClickHouseClient, w: Window): Promise<Day7Result> {
-  const rows = await ch.query<{ first_run: string; day7: string }>(sql("day7"), {
+  const rows = await ch.query<{
+    kind: "exact" | "estimated";
+    first_run: string;
+    day7: string;
+  }>(sql("day7"), {
     project: w.projectId,
     from: toChDateTime(w.from),
     to: toChDateTime(w.to),
   });
-  const r = rows[0];
-  return { first_run: n(r?.first_run ?? 0), day7: n(r?.day7 ?? 0) };
+
+  const pick = (kind: "exact" | "estimated"): Day7Counts => {
+    const r = rows.find((x) => x.kind === kind);
+    return { first_run: n(r?.first_run ?? 0), day7: n(r?.day7 ?? 0) };
+  };
+
+  return { exact: pick("exact"), estimated: pick("estimated") };
 }
 
 export interface VersionRow {

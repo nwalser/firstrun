@@ -56,6 +56,20 @@ export function createApp(ctx: Ctx) {
   app.get("/v1/health", (c) => c.json({ ok: true }));
 
   /**
+   * Project metadata, so the dashboard can name what it is showing.
+   *
+   * The dashboard reads ClickHouse directly -- the funnel queries are the
+   * product and go straight to the source -- but it has no business opening the
+   * transactional store, which is the write side and is on its way to being
+   * Postgres. One small endpoint is cheaper than that coupling.
+   */
+  app.get("/v1/projects/:id", (c) => {
+    const project = ctx.repos.projects.get(c.req.param("id"));
+    if (!project) return c.json({ error: "unknown project" }, 404);
+    return c.json({ id: project.id, name: project.name, asset_name: project.asset_name });
+  });
+
+  /**
    * Everything a client sends, in either shape.
    *
    * One endpoint rather than two because the web tag's URL is the thing

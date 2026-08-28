@@ -1,17 +1,31 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
+/** `<repo>/db` -> `<repo>`. */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/**
+ * Relative paths resolve against the repo root, not the current working
+ * directory.
+ *
+ * `bun run dev` starts ingest from `apps/ingest` and migrations from the root.
+ * With cwd-relative resolution those are two different databases, and the
+ * symptom is "no such table: projects" from a process that is looking at a file
+ * nobody migrated.
+ */
 export function sqlitePathFromEnv(env: Record<string, string | undefined> = process.env): string {
-  return env.SQLITE_PATH ?? "./data/firstrun.sqlite";
+  const configured = env.SQLITE_PATH ?? "./data/firstrun.sqlite";
+  if (configured === ":memory:" || isAbsolute(configured)) return configured;
+  return join(REPO_ROOT, configured);
 }
 
 /**
  * Opens (and creates) the transactional store.
  *
- * WAL because ingest writes tokens and dedup rows while the dashboard reads
- * project names, and a reader blocking a claim would turn a first run into a
- * lost join.
+ * WAL because ingest writes tokens and dedup rows while other processes read,
+ * and a reader blocking a claim would turn a first run into a lost join.
  */
 export function openSqlite(path: string = sqlitePathFromEnv()): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
