@@ -40,11 +40,29 @@ export async function waitForClickHouse(ch: ClickHouseClient, timeoutMs = 60_000
   throw new Error("ClickHouse did not come up. Is `docker compose up -d` running?");
 }
 
-/** Exported so tests can migrate a throwaway database. */
+/**
+ * Creates the database if it is not there.
+ *
+ * The compose file makes it on the container's first start, so this only
+ * matters on a hand-rolled server or after someone dropped it -- which is
+ * exactly when a migration run that silently assumed it existed is most
+ * confusing.
+ */
+export async function ensureDatabase(ch: ClickHouseClient, database: string): Promise<void> {
+  try {
+    await ch.withDatabase("default").command(`CREATE DATABASE IF NOT EXISTS ${database}`);
+  } catch {
+    // Not permitted on a locked-down server. The database already existing is
+    // the normal case, so this is not worth failing the run over.
+  }
+}
+
+/** Exported so tests and the ingest boot path can migrate any database. */
 export async function applyClickHouseMigrations(
   ch: ClickHouseClient,
   log: (line: string) => void = () => {}
 ): Promise<void> {
+  await ensureDatabase(ch, ch.database);
   const dir = join(here, "clickhouse");
   for (const file of sqlFiles(dir)) {
     const sql = readFileSync(join(dir, file), "utf8");
@@ -62,18 +80,8 @@ export function applySqliteMigrations(db: Database, log: (line: string) => void 
 }
 
 async function migrateClickHouse(): Promise<void> {
-  const config = configFromEnv();
-  const ch = new ClickHouseClient(config);
+  const ch = new ClickHouseClient(configFromEnv());
   await waitForClickHouse(ch);
-
-  // The compose file creates the database, but a hand-rolled server might not.
-  try {
-    await ch.withDatabase("default").command(`CREATE DATABASE IF NOT EXISTS ${config.database}`);
-  } catch {
-    // Not permitted on a locked-down server; the database already existing is
-    // the normal case, so this is not worth failing the run over.
-  }
-
   await applyClickHouseMigrations(ch, console.log);
 }
 

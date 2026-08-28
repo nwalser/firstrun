@@ -47,6 +47,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
 export class ClickHouseClient {
   constructor(private readonly config: ClickHouseConfig = configFromEnv()) {}
 
+  /** The database this client talks to. */
+  get database(): string {
+    return this.config.database;
+  }
+
   /** SELECT. Returns parsed rows. */
   async query<T = Record<string, unknown>>(sql: string, params: ChParams = {}): Promise<T[]> {
     const body = sql.trim().replace(/;\s*$/, "") + "\nFORMAT JSONEachRow";
