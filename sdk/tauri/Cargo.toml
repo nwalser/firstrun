@@ -1,0 +1,17 @@
+[package]
+name = "firstrun-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop SDK: claims the download token on first run and ships events from a disk-backed queue."
+publish = false
+license = "LicenseRef-Proprietary"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
