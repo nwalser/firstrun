@@ -23,9 +23,11 @@ const RESET = "\x1b[0m";
 
 const services: Service[] = [
   {
+    // Started from the repo root so --watch covers the workspace packages it
+    // imports, not just the files under apps/ingest.
     name: "ingest",
-    cmd: ["bun", "--watch", "src/server.ts"],
-    cwd: "apps/ingest",
+    cmd: ["bun", "--watch", "apps/ingest/src/server.ts"],
+    cwd: ".",
     colour: "\x1b[36m",
   },
   {
@@ -35,6 +37,22 @@ const services: Service[] = [
     colour: "\x1b[35m",
   },
 ];
+
+/** Prefixes each line so two servers sharing one terminal stay legible. */
+async function pipe(stream: ReadableStream<Uint8Array>, prefix: string): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let rest = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    rest += decoder.decode(value, { stream: true });
+    const lines = rest.split("\n");
+    rest = lines.pop() ?? "";
+    for (const line of lines) console.log(prefix + line);
+  }
+  if (rest) console.log(prefix + rest);
+}
 
 const children = services.map((service) => {
   const proc = spawn({
@@ -47,17 +65,7 @@ const children = services.map((service) => {
 
   const prefix = `${service.colour}${service.name}${RESET} `;
   for (const stream of [proc.stdout, proc.stderr]) {
-    void (async () => {
-      const decoder = new TextDecoder();
-      let rest = "";
-      for await (const chunk of stream) {
-        rest += decoder.decode(chunk, { stream: true });
-        const lines = rest.split("\n");
-        rest = lines.pop() ?? "";
-        for (const line of lines) console.log(prefix + line);
-      }
-      if (rest) console.log(prefix + rest);
-    })();
+    void pipe(stream, prefix);
   }
 
   return proc;

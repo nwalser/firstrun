@@ -65,7 +65,7 @@ describe("token join", () => {
     const person = await resolver.resolve(PROJECT, install("i2"));
     const seeds = [seedPersonId(PROJECT, install("i2")), seedPersonId(PROJECT, web("v2"))];
     expect(person).toBe(canonicalOf(seeds));
-    expect(person).toBe([...seeds].sort()[0]);
+    expect(person).toBe([...seeds].sort()[0]!);
   });
 
   test("the same edges in the opposite order land on the same person", async () => {

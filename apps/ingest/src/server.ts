@@ -1,8 +1,26 @@
+import { applyClickHouseMigrations, applySqliteMigrations, openSqlite, sqlitePathFromEnv, waitForClickHouse } from "@firstrun/db";
 import { squash } from "@firstrun/identity";
 import { createApp } from "./app.js";
 import { createContext } from "./context.js";
 
 const ctx = createContext();
+
+/**
+ * Migrations run on boot.
+ *
+ * Every one of them is idempotent, and the alternative is a clean clone where
+ * `docker compose up && bun run dev` produces a server that answers requests
+ * and then throws "no such table" at the first one. `bun run migrate` still
+ * exists for running them without a server.
+ */
+await waitForClickHouse(ctx.ch);
+await applyClickHouseMigrations(ctx.ch);
+{
+  const db = openSqlite(sqlitePathFromEnv());
+  applySqliteMigrations(db);
+  db.close();
+}
+
 const app = createApp(ctx);
 
 /**

@@ -15,10 +15,12 @@ Milestone 1 builds only the join, plus one screen that shows it.
 ```bash
 docker compose up -d      # clickhouse only
 bun install
-bun run migrate           # clickhouse + sqlite schema
-bun run seed              # ~3,400 visitors → ~19 purchases of synthetic data
+bun run seed              # ~3,400 visitors -> 19 purchases of synthetic data
 bun run dev               # ingest on :4318, dashboard on :3000
 ```
+
+Migrations apply themselves on boot, so `bun run dev` works on a clean clone.
+`bun run migrate` runs them without starting a server.
 
 Then open the funnel:
 
@@ -53,7 +55,16 @@ The ones that matter:
 - `packages/identity/test/estimate-never-mutates.test.ts` — an `estimate` edge must never change a `person_id`.
 - `apps/ingest/test/join-e2e.test.ts` — visitor → token → claim resolves to **one** person carrying both ids, counted once in the funnel.
 - `apps/ingest/test/late-event.test.ts` — an event stamped three days ago lands in the three-days-ago bucket.
+- `apps/ingest/test/estimate-e2e.test.ts` — an untokened install is matched, reported as its own number, and still resolves to a different person.
+- `packages/web-tag/test/consent.test.ts` — before consent, nothing is stored and nothing is sent.
 - `packages/web-tag/test/size.test.ts` — the tag stays under 3KB gzipped. Also enforced in CI.
+
+The ingest tests need ClickHouse running. They do not skip when it is missing;
+they fail and say so.
+
+```bash
+cargo test --manifest-path sdk/tauri/Cargo.toml
+```
 
 ## Read this before changing anything
 
