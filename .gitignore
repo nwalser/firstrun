@@ -1,0 +1,49 @@
+# deps
+node_modules/
+.pnp/
+.pnp.js
+
+# build output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+
+# rust
+target/
+**/target/
+Cargo.lock
+
+# local data
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+data/
+.clickhouse/
+
+# env
+.env
+.env.*
+!.env.example
+
+# bun
+bun.lockb
+.bun/
+
+# editors / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs
+*.log
+npm-debug.log*
+logs/
+
+# test artifacts
+coverage/
+.tmp/

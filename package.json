@@ -1,0 +1,23 @@
+{
+  "name": "firstrun",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "db"
+  ],
+  "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "migrate": "bun run db/migrate.ts",
+    "seed": "bun run db/seed.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:web-tag": "bun run --cwd packages/web-tag build",
+    "check:size": "bun run --cwd packages/web-tag check-size"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}

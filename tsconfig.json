@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["bun"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": false,
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@firstrun/schema": ["packages/schema/src/index.ts"],
+      "@firstrun/identity": ["packages/identity/src/index.ts"],
+      "@firstrun/db": ["db/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "**/dist", "**/.next", "sdk/tauri"]
+}
