@@ -8,6 +8,13 @@
       "when": 1787996795097,
       "tag": "0000_gifted_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787998648956,
+      "tag": "0001_moaning_swordsman",
+      "breakpoints": true
     }
   ]
 }

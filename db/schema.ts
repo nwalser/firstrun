@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   bigint,
   bigserial,
+  customType,
   index,
   jsonb,
   pgEnum,
@@ -28,6 +29,16 @@ import {
  *   project     ONE PRODUCT, and one namespace of people
  *   source      one thing that sends events: a website, a desktop app
  */
+
+/**
+ * `bytea`, which drizzle-orm does not ship a column type for.
+ *
+ * `pg` gives us a Buffer on the way out and takes one on the way in, so the
+ * mapping is the identity function and the only thing this adds is the type.
+ */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
 
 // ---------------------------------------------------------------------------
 // Enumerations. Genuinely closed sets, so the database enforces them.
@@ -101,6 +112,20 @@ export const workspaces = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
+
+    /**
+     * The workspace logo, in the database rather than on disk or in a bucket.
+     *
+     * Railway's filesystem is ephemeral, so a file written on one deploy is gone
+     * on the next; object storage is a managed dependency the deployment
+     * decision rules out. The image is downscaled to 256px client-side before it
+     * ever reaches us, so these rows are a few tens of kilobytes and Postgres
+     * does not care. `logo_updated_at` is the cache key for serving it.
+     */
+    logo: bytea("logo"),
+    logoMimeType: text("logo_mime_type"),
+    logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("workspaces_slug_key").on(t.slug)]

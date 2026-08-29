@@ -7,7 +7,7 @@ import {
   preflight,
 } from "@firstrun/ingest";
 import { finishGithubLogin, logout, startGithubLogin } from "./lib/auth.server.js";
-import { ensureReady, getCtx } from "./lib/context.server.js";
+import { ensureReady, getCtx, getStore } from "./lib/context.server.js";
 import { readWebTag } from "./lib/web-tag.server.js";
 
 /**
@@ -27,6 +27,11 @@ import { readWebTag } from "./lib/web-tag.server.js";
 const renderApp = createStartHandler(defaultStreamHandler);
 
 const DL = /^\/dl\/([^/]+)\/([^/]+)$/;
+/**
+ * Under /api/ rather than /w/<slug>/logo, which would be swallowed by the UI
+ * route for a project called "logo".
+ */
+const LOGO = /^\/api\/logo\/([^/]+)$/;
 
 async function route(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
@@ -43,6 +48,29 @@ async function route(request: Request): Promise<Response | null> {
   if (path === "/auth/github") return startGithubLogin(request);
   if (path === "/auth/github/callback") return finishGithubLogin(request);
   if (path === "/auth/logout") return logout(request);
+
+  const logo = LOGO.exec(path);
+  if (logo) {
+    await ensureReady();
+    const { workspaceLogo } = await import("@firstrun/db");
+    const found = await workspaceLogo(getStore().db, decodeURIComponent(logo[1]!));
+    if (!found) return new Response(null, { status: 404 });
+
+    // A logo is not a secret and does not change often, but it can be replaced.
+    // The ETag is its timestamp, so a swap is picked up immediately and an
+    // unchanged one is never re-sent.
+    const etag = `"${found.updatedAt.getTime()}"`;
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
+    return new Response(new Uint8Array(found.bytes), {
+      headers: {
+        "Content-Type": found.mimeType,
+        "Cache-Control": "public, max-age=60, must-revalidate",
+        ETag: etag,
+      },
+    });
+  }
 
   const isData = path.startsWith("/v1/") || path.startsWith("/dl/") || path === "/t.js";
   if (!isData) return null;

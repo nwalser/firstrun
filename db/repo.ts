@@ -152,6 +152,15 @@ export interface WorkspaceWithRole extends Workspace {
   role: MemberRole;
 }
 
+/** Selecting the bytes on every page load would be wasteful; the stamp is enough. */
+export const workspaceColumns = {
+  id: workspaces.id,
+  name: workspaces.name,
+  slug: workspaces.slug,
+  logoUpdatedAt: workspaces.logoUpdatedAt,
+  createdAt: workspaces.createdAt,
+};
+
 export async function listWorkspaces(db: Database, userId: string): Promise<WorkspaceWithRole[]> {
   const rows = await db
     .select({ workspace: workspaces, role: workspaceMembers.role })
@@ -211,6 +220,62 @@ export async function createWorkspace(
     });
     return created;
   });
+}
+
+/**
+ * The workspace logo.
+ *
+ * Stored as bytes, served from `/api/logo/:slug`, and cache-busted with
+ * `logoUpdatedAt` so a replaced logo shows up immediately without the URL
+ * changing. The image is downscaled client-side before it gets here, so the
+ * only server-side limit is a backstop against something pathological.
+ */
+export const MAX_LOGO_BYTES = 512 * 1024;
+
+export async function setWorkspaceLogo(
+  db: Database,
+  workspaceId: string,
+  bytes: Buffer,
+  mimeType: string
+): Promise<{ ok: true } | { error: string }> {
+  if (bytes.byteLength > MAX_LOGO_BYTES) {
+    return { error: `That image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)}KB).` };
+  }
+  if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(mimeType)) {
+    return { error: "Logos must be a PNG, JPEG, WebP or SVG." };
+  }
+  await db
+    .update(workspaces)
+    .set({ logo: bytes, logoMimeType: mimeType, logoUpdatedAt: new Date() })
+    .where(eq(workspaces.id, workspaceId));
+  return { ok: true };
+}
+
+export async function clearWorkspaceLogo(db: Database, workspaceId: string): Promise<void> {
+  await db
+    .update(workspaces)
+    .set({ logo: null, logoMimeType: null, logoUpdatedAt: null })
+    .where(eq(workspaces.id, workspaceId));
+}
+
+/** Public: a logo is not a secret, and the serving route has no session. */
+export async function workspaceLogo(
+  db: Database,
+  slug: string
+): Promise<{ bytes: Buffer; mimeType: string; updatedAt: Date } | null> {
+  const rows = await db
+    .select({
+      logo: workspaces.logo,
+      mimeType: workspaces.logoMimeType,
+      updatedAt: workspaces.logoUpdatedAt,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.slug, slug))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row?.logo || !row.mimeType) return null;
+  return { bytes: row.logo, mimeType: row.mimeType, updatedAt: row.updatedAt ?? new Date(0) };
 }
 
 // ---------------------------------------------------------------------------

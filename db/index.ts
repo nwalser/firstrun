@@ -5,3 +5,4 @@ export * from "./events.js";
 export * from "./queries.js";
 export * from "./identity-store.js";
 export { applyMigrations, waitForPostgres } from "./migrate.js";
+export { loadRootEnv } from "./env.js";

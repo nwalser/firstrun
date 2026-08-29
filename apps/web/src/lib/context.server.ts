@@ -1,15 +1,22 @@
-import { applyMigrations, createStore, PostgresIdentityStore, type Store } from "@firstrun/db";
+import { applyMigrations, createStore, loadRootEnv, PostgresIdentityStore, type Store } from "@firstrun/db";
 import { IdentityResolver, squash } from "@firstrun/identity";
 import { configFromEnv, type Ctx } from "@firstrun/ingest";
 
 /**
  * Server-side singletons.
  *
+ * The root `.env` is loaded here, at module scope, before anything reads
+ * configuration. `bun run dev` starts this app with its cwd set to apps/web, so
+ * Bun's own .env loading looks in the wrong directory and every setting quietly
+ * falls back to its default.
+ *
  * One pool and one resolver for the process, built on first use. The ingest
  * handlers and the dashboard share them because they share a database and, on
  * Railway, a service -- splitting them later is a routing change, not a
  * rewrite.
  */
+
+loadRootEnv();
 
 let store: Store | null = null;
 let ctx: Ctx | null = null;
