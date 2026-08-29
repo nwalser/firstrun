@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
+import { readFile } from "node:fs/promises";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 import { createStore, databaseUrl, type Store } from "./client.js";
+import { migrationsDir, viewsFile } from "./paths.js";
 
 /**
  * Applies the Drizzle migrations, then the analytics views.
@@ -13,8 +12,6 @@ import { createStore, databaseUrl, type Store } from "./client.js";
  * of those plus a command you have to know about. Drizzle's ledger makes
  * re-running a no-op.
  */
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 export async function waitForPostgres(url: string = databaseUrl(), timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -31,7 +28,7 @@ export async function waitForPostgres(url: string = databaseUrl(), timeoutMs = 6
           `Postgres did not come up at ${url.replace(/:\/\/[^@]*@/, "://***@")}. Is \`docker compose up -d\` running?`
         );
       }
-      await Bun.sleep(500);
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
 }
@@ -39,20 +36,24 @@ export async function waitForPostgres(url: string = databaseUrl(), timeoutMs = 6
 /**
  * Views that the analytics queries read.
  *
+ * Read with node:fs rather than Bun.file: this same module is evaluated inside
+ * Vite's SSR module runner during development, where the Bun globals are not
+ * present even though the process is Bun.
+ *
  * Kept out of the Drizzle schema because Drizzle models tables, and a view
  * whose body is the interesting part would end up as an opaque string in a
  * migration either way. Idempotent, so it is applied on every boot and always
  * matches the file rather than whatever shape it had when it was first created.
  */
 export async function applyViews(store: Store): Promise<void> {
-  await store.query(await Bun.file(join(HERE, "views.sql")).text());
+  await store.query(await readFile(viewsFile(), "utf8"));
 }
 
 export async function applyMigrations(url: string = databaseUrl()): Promise<void> {
   await waitForPostgres(url);
   const store = createStore(url);
   try {
-    await migrate(store.db, { migrationsFolder: join(HERE, "migrations") });
+    await migrate(store.db, { migrationsFolder: migrationsDir() });
     await applyViews(store);
   } finally {
     await store.close();

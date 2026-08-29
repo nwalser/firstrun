@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   TIMESERIES_EVENT,
   type DashboardLayout,
   type TimeseriesMetric,
 } from "@firstrun/schema";
 import type { Queryable } from "./client.js";
+import { queriesDir } from "./paths.js";
 
 /**
  * The analytics queries are real SQL files, not an ORM.
@@ -16,13 +16,12 @@ import type { Queryable } from "./client.js";
  * should say why. Drizzle owns the schema; it does not own these.
  */
 
-const QUERY_DIR = join(dirname(fileURLToPath(import.meta.url)), "queries");
 const cache = new Map<string, string>();
 
 export function sqlText(name: string): string {
   let text = cache.get(name);
   if (!text) {
-    text = readFileSync(join(QUERY_DIR, `${name}.sql`), "utf8");
+    text = readFileSync(join(queriesDir(), `${name}.sql`), "utf8");
     cache.set(name, text);
   }
   return text;

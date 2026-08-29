@@ -1,0 +1,24 @@
+{
+  "name": "@firstrun/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "build": "vite build",
+    "start": "bun run server.ts"
+  },
+  "dependencies": {
+    "@firstrun/db": "workspace:*",
+    "@firstrun/identity": "workspace:*",
+    "@firstrun/ingest": "workspace:*",
+    "@firstrun/schema": "workspace:*",
+    "@tanstack/solid-router": "^1.170.30",
+    "@tanstack/solid-start": "^1.168.47",
+    "solid-js": "^1.9.15"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5",
+    "vite-plugin-solid": "^2.11.6"
+  }
+}
