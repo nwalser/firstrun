@@ -4,9 +4,9 @@ import { EventEnvelope, type Surface } from "./envelope.js";
 /**
  * What clients put on the wire.
  *
- * Clients send a SOURCE KEY, never a workspace id. The key is public by
+ * Clients send a SOURCE KEY, never a project id. The key is public by
  * necessity -- it ships in a script tag -- so it identifies and never
- * authorises, and the edge is the only thing that knows which workspace it
+ * authorises, and the edge is the only thing that knows which project it
  * belongs to. Internal ids stay internal.
  */
 
@@ -81,7 +81,7 @@ export type AppBatch = z.infer<typeof AppBatch>;
 
 /** What the edge learned by looking the source key up. */
 export interface NormalizeContext {
-  workspaceId: string;
+  projectId: string;
   sourceId: string;
   /** Server-stamped. Never used for bucketing -- see CLAUDE.md rule 2. */
   ingestTime: number;
@@ -92,7 +92,7 @@ export function normalizeWeb(batch: CompactBatch, ctx: NormalizeContext): EventE
   const surface: Surface = "web";
   return batch.e.map((e) =>
     EventEnvelope.parse({
-      workspace_id: ctx.workspaceId,
+      project_id: ctx.projectId,
       source_id: ctx.sourceId,
       event_id: e.i,
       event_name: e.n,
@@ -123,7 +123,7 @@ export function normalizeApp(batch: AppBatch, ctx: NormalizeContext): EventEnvel
   const surface: Surface = "app";
   return batch.events.map((e) =>
     EventEnvelope.parse({
-      workspace_id: ctx.workspaceId,
+      project_id: ctx.projectId,
       source_id: ctx.sourceId,
       event_id: e.event_id,
       event_name: e.event_name,

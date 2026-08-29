@@ -11,7 +11,7 @@
 -- Bucketed on event_time, never ingest_time: a laptop shut for a week uploads
 -- its day-7 launch on day 14 and still counts as day 7. See CLAUDE.md rule 2.
 --
--- $1 workspace_id, $2 from, $3 to, $4 source_id (nullable)
+-- $1 project_id, $2 from, $3 to, $4 source_id (nullable)
 WITH remap AS (
     SELECT e.from_id AS install_id,
            min(wp.person_id::text)::uuid AS person_id
@@ -19,10 +19,10 @@ WITH remap AS (
       JOIN (
             SELECT web_visitor_id, min(person_id::text)::uuid AS person_id
               FROM events_resolved
-             WHERE workspace_id = $1 AND web_visitor_id IS NOT NULL
+             WHERE project_id = $1 AND web_visitor_id IS NOT NULL
              GROUP BY web_visitor_id
            ) wp ON wp.web_visitor_id = e.to_id
-     WHERE e.workspace_id = $1
+     WHERE e.project_id = $1
        AND e.method = 'estimate'
        AND e.from_type = 'install'
        AND e.to_type = 'web_visitor'
@@ -35,7 +35,7 @@ scoped AS (
            COALESCE(r.person_id, ev.person_id) AS person_est
       FROM events_resolved ev
       LEFT JOIN remap r ON r.install_id = ev.install_id
-     WHERE ev.workspace_id = $1
+     WHERE ev.project_id = $1
        AND ev.event_time >= $2
        AND ev.event_time <  $3
        AND ($4::uuid IS NULL OR ev.source_id = $4::uuid)

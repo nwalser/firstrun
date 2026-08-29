@@ -28,10 +28,10 @@ export function sqlText(name: string): string {
 }
 
 export interface Window {
-  workspaceId: string;
+  projectId: string;
   from: Date;
   to: Date;
-  /** null means the whole workspace, across every source. */
+  /** null means the whole project, across every source. */
   sourceId?: string | null;
 }
 
@@ -72,7 +72,7 @@ export async function funnel(
   windowInterval = DEFAULT_FUNNEL_WINDOW
 ): Promise<FunnelResult> {
   const rows = await sql.query<any>(sqlText("funnel"), [
-    w.workspaceId,
+    w.projectId,
     w.from,
     w.to,
     windowInterval,
@@ -110,7 +110,7 @@ export interface Day7Result {
 
 export async function day7(sql: Queryable, w: Window): Promise<Day7Result> {
   const rows = await sql.query<any>(sqlText("day7"), [
-    w.workspaceId,
+    w.projectId,
     w.from,
     w.to,
     w.sourceId ?? null,
@@ -137,12 +137,12 @@ export interface VersionRow {
 
 export async function versions(
   sql: Queryable,
-  workspaceId: string,
+  projectId: string,
   now: Date,
   quietDays = 14,
   sourceId: string | null = null
 ): Promise<VersionRow[]> {
-  const rows = await sql.query<any>(sqlText("versions"), [workspaceId, now, quietDays, sourceId]);
+  const rows = await sql.query<any>(sqlText("versions"), [projectId, now, quietDays, sourceId]);
   return rows.map((r: any) => ({
     app_version: r.app_version,
     installs: num(r.installs),
@@ -168,7 +168,7 @@ export async function timeseries(
   metric: TimeseriesMetric
 ): Promise<SeriesPoint[]> {
   const rows = await sql.query<any>(sqlText("timeseries"), [
-    w.workspaceId,
+    w.projectId,
     w.from,
     w.to,
     TIMESERIES_EVENT[metric],
@@ -189,7 +189,7 @@ export interface RetentionPoint {
 
 export async function retention(sql: Queryable, w: Window, maxDay = 30): Promise<RetentionPoint[]> {
   const rows = await sql.query<any>(sqlText("retention"), [
-    w.workspaceId,
+    w.projectId,
     w.from,
     w.to,
     maxDay,
@@ -228,14 +228,14 @@ export interface Snapshot {
  */
 export async function snapshot(
   sql: Queryable,
-  workspaceId: string,
+  projectId: string,
   layout: DashboardLayout,
   now: Date = new Date()
 ): Promise<Snapshot> {
   const day = 24 * 60 * 60 * 1000;
   const to = new Date(now.getTime() + day);
   const from = new Date(to.getTime() - layout.rangeDays * day);
-  const w: Window = { workspaceId, from, to, sourceId: layout.sourceId };
+  const w: Window = { projectId, from, to, sourceId: layout.sourceId };
 
   const types = new Set(layout.widgets.map((x) => x.type));
   const wantsFunnel = types.has("funnel") || types.has("metric") || types.has("join_health");
@@ -268,7 +268,7 @@ export async function snapshot(
     wantsDay7
       ? day7(sql, w)
       : Promise.resolve({ exact: { first_run: 0, day7: 0 }, estimated: { first_run: 0, day7: 0 } }),
-    wantsVersions ? versions(sql, workspaceId, now, quietDays, layout.sourceId) : Promise.resolve([]),
+    wantsVersions ? versions(sql, projectId, now, quietDays, layout.sourceId) : Promise.resolve([]),
     Promise.all(seriesMetrics.map((m) => timeseries(sql, w, m))),
     maxRetentionDay > 0 ? retention(sql, w, maxRetentionDay) : Promise.resolve([]),
     wantsCompare ? funnel(sql, previousWindow) : Promise.resolve(null),

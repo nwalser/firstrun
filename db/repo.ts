@@ -7,11 +7,14 @@ import {
   downloadHints,
   downloadTokens,
   events,
+  projects,
   sessions,
   sources,
   users,
   workspaceMembers,
   workspaces,
+  type MemberRole,
+  type Project,
   type Source,
   type User,
   type Workspace,
@@ -21,7 +24,7 @@ import {
  * Everything that is not an analytics query.
  *
  * Grouped by the thing it is about rather than by table, so a caller asks for
- * "the workspaces this user can see" instead of assembling a join. Drizzle
+ * "the projects this user can see" instead of assembling a join. Drizzle
  * handles the SQL; what lives here is the intent.
  */
 
@@ -112,7 +115,7 @@ export async function upsertGithubUser(db: Database, profile: GithubProfile): Pr
 }
 
 // ---------------------------------------------------------------------------
-// Workspaces
+// Slugs
 // ---------------------------------------------------------------------------
 
 function slugify(name: string): string {
@@ -121,11 +124,32 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
-  return base || "workspace";
+  return base || "untitled";
 }
 
+/**
+ * Collisions are suffixed rather than rejected.
+ *
+ * The name belongs to the user; the slug belongs to us. Refusing "Themia"
+ * because someone else already took it would be our implementation detail
+ * leaking into their form.
+ */
+async function uniqueSlug(
+  taken: (slug: string) => Promise<boolean>,
+  name: string
+): Promise<string> {
+  const base = slugify(name);
+  let slug = base;
+  for (let n = 2; await taken(slug); n++) slug = `${base}-${n}`;
+  return slug;
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces and access
+// ---------------------------------------------------------------------------
+
 export interface WorkspaceWithRole extends Workspace {
-  role: "owner" | "member";
+  role: MemberRole;
 }
 
 export async function listWorkspaces(db: Database, userId: string): Promise<WorkspaceWithRole[]> {
@@ -139,18 +163,17 @@ export async function listWorkspaces(db: Database, userId: string): Promise<Work
 }
 
 /**
- * Membership is checked here, not by the caller.
+ * Access is checked here, not by the caller.
  *
- * Every route that loads a workspace goes through this, so "can this person see
- * this workspace" has exactly one answer in exactly one place. A route that
- * forgets gets `null` and renders a not-found, which is the safe direction.
+ * Every route that loads a workspace or a project goes through this file, so
+ * "can this person see this" has one answer in one place. A route that forgets
+ * gets `null` and renders a not-found, which is the safe direction to fail in.
  */
 export async function workspaceForUser(
   db: Database,
-  slugOrId: string,
+  slug: string,
   userId: string
 ): Promise<WorkspaceWithRole | null> {
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slugOrId);
   const rows = await db
     .select({ workspace: workspaces, role: workspaceMembers.role })
     .from(workspaces)
@@ -158,7 +181,7 @@ export async function workspaceForUser(
       workspaceMembers,
       and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId))
     )
-    .where(isUuid ? eq(workspaces.id, slugOrId) : eq(workspaces.slug, slugOrId))
+    .where(eq(workspaces.slug, slug))
     .limit(1);
   const row = rows[0];
   return row ? { ...row.workspace, role: row.role } : null;
@@ -170,25 +193,188 @@ export async function createWorkspace(
   ownerId: string
 ): Promise<Workspace> {
   return db.transaction(async (tx) => {
-    // Slug collisions are resolved by suffixing rather than rejected: the name
-    // is the user's, the slug is ours, and refusing "Themia" because someone
-    // else already took it would be our problem leaking into their form.
-    const base = slugify(name);
-    let slug = base;
-    for (let n = 2; ; n++) {
-      const taken = await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
-      if (taken.length === 0) break;
-      slug = `${base}-${n}`;
-    }
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, candidate))
+        .limit(1);
+      return hit.length > 0;
+    }, name);
 
     const created = (await tx.insert(workspaces).values({ name, slug }).returning())[0]!;
+    // Whoever creates it can change it. Everyone invited later starts at read.
     await tx.insert(workspaceMembers).values({
       workspaceId: created.id,
       userId: ownerId,
-      role: "owner",
+      role: "admin",
     });
+    return created;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Members
+// ---------------------------------------------------------------------------
+
+export interface MemberRow {
+  userId: string;
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: MemberRole;
+}
+
+export async function listMembers(db: Database, workspaceId: string): Promise<MemberRow[]> {
+  const rows = await db
+    .select({ user: users, role: workspaceMembers.role, createdAt: workspaceMembers.createdAt })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(eq(workspaceMembers.workspaceId, workspaceId))
+    .orderBy(workspaceMembers.createdAt);
+  return rows.map((r) => ({
+    userId: r.user.id,
+    login: r.user.login,
+    name: r.user.name,
+    avatarUrl: r.user.avatarUrl,
+    role: r.role,
+  }));
+}
+
+/** Invite by GitHub login. The user must have signed in here at least once. */
+export async function addMemberByLogin(
+  db: Database,
+  workspaceId: string,
+  login: string,
+  role: MemberRole
+): Promise<{ ok: true } | { error: string }> {
+  const found = await db.select().from(users).where(eq(users.login, login)).limit(1);
+  const user = found[0];
+  if (!user) {
+    return {
+      error: `No account for "${login}" yet. They have to sign in once before they can be added.`,
+    };
+  }
+  await db
+    .insert(workspaceMembers)
+    .values({ workspaceId, userId: user.id, role })
+    .onConflictDoUpdate({
+      target: [workspaceMembers.workspaceId, workspaceMembers.userId],
+      set: { role },
+    });
+  return { ok: true };
+}
+
+export async function setMemberRole(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+  role: MemberRole
+): Promise<{ ok: true } | { error: string }> {
+  if (role !== "admin" && (await isLastAdmin(db, workspaceId, userId))) {
+    return { error: "A workspace needs at least one admin." };
+  }
+  await db
+    .update(workspaceMembers)
+    .set({ role })
+    .where(
+      and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId))
+    );
+  return { ok: true };
+}
+
+export async function removeMember(
+  db: Database,
+  workspaceId: string,
+  userId: string
+): Promise<{ ok: true } | { error: string }> {
+  if (await isLastAdmin(db, workspaceId, userId)) {
+    return { error: "A workspace needs at least one admin." };
+  }
+  await db
+    .delete(workspaceMembers)
+    .where(
+      and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId))
+    );
+  return { ok: true };
+}
+
+/**
+ * Guards the one irreversible mistake this model allows: demoting or removing
+ * the only admin, which leaves a workspace nobody can administer.
+ */
+async function isLastAdmin(db: Database, workspaceId: string, userId: string): Promise<boolean> {
+  const admins = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.role, "admin")));
+  return admins.length === 1 && admins[0]!.userId === userId;
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export interface ProjectWithRole extends Project {
+  /** The role the current user holds in the owning workspace. */
+  role: MemberRole;
+  workspaceSlug: string;
+  workspaceName: string;
+}
+
+export async function listProjects(db: Database, workspaceId: string): Promise<Project[]> {
+  return db
+    .select()
+    .from(projects)
+    .where(eq(projects.workspaceId, workspaceId))
+    .orderBy(projects.createdAt);
+}
+
+export async function projectForUser(
+  db: Database,
+  workspaceSlug: string,
+  projectSlug: string,
+  userId: string
+): Promise<ProjectWithRole | null> {
+  const rows = await db
+    .select({ project: projects, workspace: workspaces, role: workspaceMembers.role })
+    .from(projects)
+    .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
+    .innerJoin(
+      workspaceMembers,
+      and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId))
+    )
+    .where(and(eq(workspaces.slug, workspaceSlug), eq(projects.slug, projectSlug)))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...row.project,
+    role: row.role,
+    workspaceSlug: row.workspace.slug,
+    workspaceName: row.workspace.name,
+  };
+}
+
+export async function createProject(
+  db: Database,
+  workspaceId: string,
+  name: string
+): Promise<Project> {
+  return db.transaction(async (tx) => {
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspaceId), eq(projects.slug, candidate)))
+        .limit(1);
+      return hit.length > 0;
+    }, name);
+
+    const created = (await tx.insert(projects).values({ workspaceId, name, slug }).returning())[0]!;
     await tx.insert(dashboards).values({
-      workspaceId: created.id,
+      projectId: created.id,
       name: "Overview",
       layout: defaultLayout(),
     });
@@ -196,34 +382,42 @@ export async function createWorkspace(
   });
 }
 
+export async function deleteProject(db: Database, projectId: string): Promise<void> {
+  await db.delete(projects).where(eq(projects.id, projectId));
+}
+
 // ---------------------------------------------------------------------------
 // Sources
 // ---------------------------------------------------------------------------
 
-export async function listSources(db: Database, workspaceId: string): Promise<Source[]> {
+export async function listSources(db: Database, projectId: string): Promise<Source[]> {
   return db
     .select()
     .from(sources)
-    .where(eq(sources.workspaceId, workspaceId))
+    .where(eq(sources.projectId, projectId))
     .orderBy(sources.createdAt);
 }
 
 export async function createSource(
   db: Database,
-  workspaceId: string,
+  projectId: string,
   name: string,
   kind: "web" | "desktop",
   assetName: string | null
 ): Promise<Source> {
   const rows = await db
     .insert(sources)
-    .values({ workspaceId, name, kind, assetName, ingestKey: mintSourceKey(kind) })
+    .values({ projectId, name, kind, assetName, ingestKey: mintSourceKey(kind) })
     .returning();
   return rows[0]!;
 }
 
-export async function deleteSource(db: Database, workspaceId: string, sourceId: string): Promise<void> {
-  await db.delete(sources).where(and(eq(sources.workspaceId, workspaceId), eq(sources.id, sourceId)));
+export async function deleteSource(
+  db: Database,
+  projectId: string,
+  sourceId: string
+): Promise<void> {
+  await db.delete(sources).where(and(eq(sources.projectId, projectId), eq(sources.id, sourceId)));
 }
 
 /** What the edge calls on every request that carries a key. */
@@ -243,16 +437,16 @@ export interface DashboardRecord {
 }
 
 /**
- * A workspace always has a dashboard.
+ * A project always has a dashboard.
  *
- * Created lazily rather than failing, so a workspace made before the default
+ * Created lazily rather than failing, so a project made before the default
  * layout changed, or made by the seed, still opens.
  */
-export async function dashboardFor(db: Database, workspaceId: string): Promise<DashboardRecord> {
+export async function dashboardFor(db: Database, projectId: string): Promise<DashboardRecord> {
   const rows = await db
     .select()
     .from(dashboards)
-    .where(eq(dashboards.workspaceId, workspaceId))
+    .where(eq(dashboards.projectId, projectId))
     .orderBy(dashboards.createdAt)
     .limit(1);
 
@@ -262,27 +456,27 @@ export async function dashboardFor(db: Database, workspaceId: string): Promise<D
     return {
       id: existing.id,
       name: existing.name,
-      // A layout written by an older version of the catalogue should degrade to
-      // the default, not crash the only screen in the product.
+      // A layout written by an older version of the catalogue degrades to the
+      // default rather than crashing the only screen in the product.
       layout: parsed.success ? parsed.data : defaultLayout(),
     };
   }
 
   const created = (
-    await db.insert(dashboards).values({ workspaceId, name: "Overview", layout: defaultLayout() }).returning()
+    await db.insert(dashboards).values({ projectId, name: "Overview", layout: defaultLayout() }).returning()
   )[0]!;
   return { id: created.id, name: created.name, layout: defaultLayout() };
 }
 
 export async function saveLayout(
   db: Database,
-  workspaceId: string,
+  projectId: string,
   layout: DashboardLayout
 ): Promise<void> {
   await db
     .update(dashboards)
     .set({ layout, updatedAt: new Date() })
-    .where(eq(dashboards.workspaceId, workspaceId));
+    .where(eq(dashboards.projectId, projectId));
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +485,7 @@ export async function saveLayout(
 
 export interface NewToken {
   token: string;
-  workspaceId: string;
+  projectId: string;
   sourceId: string | null;
   webVisitorId: string | null;
   asset: string;
@@ -334,14 +528,14 @@ export async function expireDownloadTokens(db: Database, now: Date): Promise<voi
 
 export async function recordDownloadHint(
   db: Database,
-  hint: { workspaceId: string; webVisitorId: string; ipHash: string; os: string | null }
+  hint: { projectId: string; webVisitorId: string; ipHash: string; os: string | null }
 ): Promise<void> {
   await db.insert(downloadHints).values(hint);
 }
 
 export async function candidateHints(
   db: Database,
-  workspaceId: string,
+  projectId: string,
   ipHash: string,
   os: string | null,
   since: Date,
@@ -352,7 +546,7 @@ export async function candidateHints(
     .from(downloadHints)
     .where(
       and(
-        eq(downloadHints.workspaceId, workspaceId),
+        eq(downloadHints.projectId, projectId),
         eq(downloadHints.ipHash, ipHash),
         gte(downloadHints.createdAt, since),
         lte(downloadHints.createdAt, until),
@@ -369,10 +563,10 @@ export async function pruneDownloadHints(db: Database, olderThan: Date): Promise
 }
 
 /** Used by the seed and by tests to start from a known state. */
-export async function clearWorkspaceData(db: Database, workspaceId: string): Promise<void> {
-  await db.delete(events).where(eq(events.workspaceId, workspaceId));
-  await db.execute(raw`DELETE FROM identity_edges WHERE workspace_id = ${workspaceId}::uuid`);
-  await db.execute(raw`DELETE FROM person_overrides WHERE workspace_id = ${workspaceId}::uuid`);
-  await db.delete(downloadTokens).where(eq(downloadTokens.workspaceId, workspaceId));
-  await db.delete(downloadHints).where(eq(downloadHints.workspaceId, workspaceId));
+export async function clearProjectData(db: Database, projectId: string): Promise<void> {
+  await db.delete(events).where(eq(events.projectId, projectId));
+  await db.execute(raw`DELETE FROM identity_edges WHERE project_id = ${projectId}::uuid`);
+  await db.execute(raw`DELETE FROM person_overrides WHERE project_id = ${projectId}::uuid`);
+  await db.delete(downloadTokens).where(eq(downloadTokens.projectId, projectId));
+  await db.delete(downloadHints).where(eq(downloadHints.projectId, projectId));
 }

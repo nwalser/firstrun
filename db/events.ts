@@ -16,7 +16,7 @@ import type { Queryable } from "./client.js";
  */
 
 const COLUMNS = [
-  "workspace_id",
+  "project_id",
   "event_id",
   "source_id",
   "event_name",
@@ -43,7 +43,7 @@ const COLUMNS = [
 
 /** Casts for the columns Postgres cannot infer from a bare parameter. */
 const CASTS: Partial<Record<(typeof COLUMNS)[number], string>> = {
-  workspace_id: "::uuid",
+  project_id: "::uuid",
   event_id: "::uuid",
   source_id: "::uuid",
   surface: "::surface",
@@ -53,7 +53,7 @@ const CASTS: Partial<Record<(typeof COLUMNS)[number], string>> = {
 
 function valuesFor(e: StoredEvent): unknown[] {
   return [
-    e.workspace_id,
+    e.project_id,
     e.event_id,
     e.source_id,
     e.event_name,
@@ -93,7 +93,7 @@ export async function insertEvents(sql: Queryable, events: readonly StoredEvent[
   const rows = await sql.query<{ event_id: string }>(
     `INSERT INTO events (${COLUMNS.join(", ")})
      VALUES ${tuples.join(", ")}
-     ON CONFLICT (workspace_id, event_id) DO NOTHING
+     ON CONFLICT (project_id, event_id) DO NOTHING
      RETURNING event_id`,
     params
   );

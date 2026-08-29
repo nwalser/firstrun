@@ -9,7 +9,7 @@
 -- An install's version is the last one it reported, not the one it installed
 -- with. Quiet means nothing on event_time for $3 days.
 --
--- $1 workspace_id, $2 now, $3 quiet_days, $4 source_id (nullable)
+-- $1 project_id, $2 now, $3 quiet_days, $4 source_id (nullable)
 WITH per_install AS (
     SELECT DISTINCT ON (install_id)
            install_id,
@@ -17,7 +17,7 @@ WITH per_install AS (
            person_id,
            max(event_time) OVER (PARTITION BY install_id) AS last_seen_at
       FROM events_resolved
-     WHERE workspace_id = $1
+     WHERE project_id = $1
        AND surface = 'app'
        AND install_id IS NOT NULL
        AND app_version IS NOT NULL

@@ -12,7 +12,7 @@
 -- matters in the window where one has been written and another has not.
 CREATE OR REPLACE VIEW events_resolved AS
 SELECT
-    e.workspace_id,
+    e.project_id,
     e.event_id,
     e.source_id,
     e.event_name,
@@ -37,14 +37,14 @@ SELECT
     COALESCE(oa.person_id, oi.person_id, ow.person_id, e.person_id) AS person_id
 FROM events AS e
 LEFT JOIN person_overrides AS oa
-       ON oa.workspace_id = e.workspace_id
+       ON oa.project_id = e.project_id
       AND oa.distinct_type = 'account'
       AND oa.distinct_id = e.account_id
 LEFT JOIN person_overrides AS oi
-       ON oi.workspace_id = e.workspace_id
+       ON oi.project_id = e.project_id
       AND oi.distinct_type = 'install'
       AND oi.distinct_id = e.install_id
 LEFT JOIN person_overrides AS ow
-       ON ow.workspace_id = e.workspace_id
+       ON ow.project_id = e.project_id
       AND ow.distinct_type = 'web_visitor'
       AND ow.distinct_id = e.web_visitor_id;

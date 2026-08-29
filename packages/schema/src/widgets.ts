@@ -137,7 +137,7 @@ export type Widget = z.infer<typeof Widget>;
 export const DashboardLayout = z.object({
   /** How far back every widget looks. One range for the whole board. */
   rangeDays: z.number().int().min(1).max(365).default(30),
-  /** Only show events from this source. `null` is the whole workspace. */
+  /** Only show events from this source. `null` is the whole project. */
   sourceId: z.string().uuid().nullish().transform((v) => v ?? null),
   widgets: z.array(Widget).max(24).default([]),
 });
@@ -192,7 +192,7 @@ export const WIDGET_CATALOGUE: CatalogueEntry[] = [
 ];
 
 /**
- * What a workspace gets before anyone has touched it.
+ * What a project gets before anyone has touched it.
  *
  * The funnel first, because it is the reason this product exists. Everything
  * below it is context for the drop-off the funnel just showed you.

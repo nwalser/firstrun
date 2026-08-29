@@ -11,7 +11,7 @@ import { z } from "zod";
  *    bucket or window on `ingest_time`.
  *  - There is no `person_id` field. `person_id` is derived by
  *    `@firstrun/identity` server-side. A client that sends one is refused.
- *  - `workspace_id` is the identity namespace; `source_id` only records which
+ *  - `project_id` is the identity namespace; `source_id` only records which
  *    ingestion site an event came from. A person spans sources by design --
  *    that is the whole product.
  */
@@ -28,7 +28,7 @@ const Millis = z.union([
 const NullableStr = z.string().min(1).max(512).nullish().transform((v) => v ?? null);
 
 export const EventEnvelope = z.object({
-  workspace_id: z.string().uuid(),
+  project_id: z.string().uuid(),
   source_id: z.string().uuid().nullish().transform((v) => v ?? null),
   event_id: z.string().uuid(),
   event_name: z.string().min(1).max(128),

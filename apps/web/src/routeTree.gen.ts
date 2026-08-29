@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
-import { Route as WSlugIndexRouteImport } from './routes/w.$slug.index'
-import { Route as WSlugSourcesRouteImport } from './routes/w.$slug.sources'
+import { Route as WWslugIndexRouteImport } from './routes/w.$wslug.index'
+import { Route as WWslugMembersRouteImport } from './routes/w.$wslug.members'
+import { Route as WWslugPslugIndexRouteImport } from './routes/w.$wslug.$pslug.index'
+import { Route as WWslugPslugSourcesRouteImport } from './routes/w.$wslug.$pslug.sources'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -30,14 +32,24 @@ const NewRoute = NewRouteImport.update({
   path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WSlugIndexRoute = WSlugIndexRouteImport.update({
-  id: '/w/$slug/',
-  path: '/w/$slug/',
+const WWslugIndexRoute = WWslugIndexRouteImport.update({
+  id: '/w/$wslug/',
+  path: '/w/$wslug/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WSlugSourcesRoute = WSlugSourcesRouteImport.update({
-  id: '/w/$slug/sources',
-  path: '/w/$slug/sources',
+const WWslugMembersRoute = WWslugMembersRouteImport.update({
+  id: '/w/$wslug/members',
+  path: '/w/$wslug/members',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WWslugPslugIndexRoute = WWslugPslugIndexRouteImport.update({
+  id: '/w/$wslug/$pslug/',
+  path: '/w/$wslug/$pslug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WWslugPslugSourcesRoute = WWslugPslugSourcesRouteImport.update({
+  id: '/w/$wslug/$pslug/sources',
+  path: '/w/$wslug/$pslug/sources',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -45,38 +57,68 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
-  '/w/$slug/sources': typeof WSlugSourcesRoute
-  '/w/$slug/': typeof WSlugIndexRoute
+  '/w/$wslug/members': typeof WWslugMembersRoute
+  '/w/$wslug/': typeof WWslugIndexRoute
+  '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRoute
+  '/w/$wslug/$pslug/': typeof WWslugPslugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
-  '/w/$slug/sources': typeof WSlugSourcesRoute
-  '/w/$slug': typeof WSlugIndexRoute
+  '/w/$wslug/members': typeof WWslugMembersRoute
+  '/w/$wslug': typeof WWslugIndexRoute
+  '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRoute
+  '/w/$wslug/$pslug': typeof WWslugPslugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
-  '/w/$slug/sources': typeof WSlugSourcesRoute
-  '/w/$slug/': typeof WSlugIndexRoute
+  '/w/$wslug/members': typeof WWslugMembersRoute
+  '/w/$wslug/': typeof WWslugIndexRoute
+  '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRoute
+  '/w/$wslug/$pslug/': typeof WWslugPslugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/new' | '/w/$slug/sources' | '/w/$slug/'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/new'
+    | '/w/$wslug/members'
+    | '/w/$wslug/'
+    | '/w/$wslug/$pslug/sources'
+    | '/w/$wslug/$pslug/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/new' | '/w/$slug/sources' | '/w/$slug'
-  id: '__root__' | '/' | '/login' | '/new' | '/w/$slug/sources' | '/w/$slug/'
+  to:
+    | '/'
+    | '/login'
+    | '/new'
+    | '/w/$wslug/members'
+    | '/w/$wslug'
+    | '/w/$wslug/$pslug/sources'
+    | '/w/$wslug/$pslug'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/new'
+    | '/w/$wslug/members'
+    | '/w/$wslug/'
+    | '/w/$wslug/$pslug/sources'
+    | '/w/$wslug/$pslug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
-  WSlugSourcesRoute: typeof WSlugSourcesRoute
-  WSlugIndexRoute: typeof WSlugIndexRoute
+  WWslugMembersRoute: typeof WWslugMembersRoute
+  WWslugIndexRoute: typeof WWslugIndexRoute
+  WWslugPslugSourcesRoute: typeof WWslugPslugSourcesRoute
+  WWslugPslugIndexRoute: typeof WWslugPslugIndexRoute
 }
 
 declare module '@tanstack/solid-router' {
@@ -102,18 +144,32 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/w/$slug/': {
-      id: '/w/$slug/'
-      path: '/w/$slug'
-      fullPath: '/w/$slug/'
-      preLoaderRoute: typeof WSlugIndexRouteImport
+    '/w/$wslug/': {
+      id: '/w/$wslug/'
+      path: '/w/$wslug'
+      fullPath: '/w/$wslug/'
+      preLoaderRoute: typeof WWslugIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/w/$slug/sources': {
-      id: '/w/$slug/sources'
-      path: '/w/$slug/sources'
-      fullPath: '/w/$slug/sources'
-      preLoaderRoute: typeof WSlugSourcesRouteImport
+    '/w/$wslug/members': {
+      id: '/w/$wslug/members'
+      path: '/w/$wslug/members'
+      fullPath: '/w/$wslug/members'
+      preLoaderRoute: typeof WWslugMembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/w/$wslug/$pslug/': {
+      id: '/w/$wslug/$pslug/'
+      path: '/w/$wslug/$pslug'
+      fullPath: '/w/$wslug/$pslug/'
+      preLoaderRoute: typeof WWslugPslugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/w/$wslug/$pslug/sources': {
+      id: '/w/$wslug/$pslug/sources'
+      path: '/w/$wslug/$pslug/sources'
+      fullPath: '/w/$wslug/$pslug/sources'
+      preLoaderRoute: typeof WWslugPslugSourcesRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -123,8 +179,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   NewRoute: NewRoute,
-  WSlugSourcesRoute: WSlugSourcesRoute,
-  WSlugIndexRoute: WSlugIndexRoute,
+  WWslugMembersRoute: WWslugMembersRoute,
+  WWslugIndexRoute: WWslugIndexRoute,
+  WWslugPslugSourcesRoute: WWslugPslugSourcesRoute,
+  WWslugPslugIndexRoute: WWslugPslugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

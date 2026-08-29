@@ -31,7 +31,7 @@ export class PostgresIdentityStore implements IdentityStore {
     const rows = edges.map((e) => {
       const base = params.length;
       params.push(
-        e.workspace_id,
+        e.project_id,
         e.from.type,
         e.from.id,
         e.to.type,
@@ -47,9 +47,9 @@ export class PostgresIdentityStore implements IdentityStore {
     // an account edge collapses instead of accumulating.
     await this.sql.query(
       `INSERT INTO identity_edges
-         (workspace_id, from_type, from_id, to_type, to_id, method, confidence, created_at)
+         (project_id, from_type, from_id, to_type, to_id, method, confidence, created_at)
        VALUES ${rows.join(", ")}
-       ON CONFLICT (workspace_id, method, from_type, from_id, to_type, to_id) DO NOTHING`,
+       ON CONFLICT (project_id, method, from_type, from_id, to_type, to_id) DO NOTHING`,
       params
     );
   }
@@ -63,7 +63,7 @@ export class PostgresIdentityStore implements IdentityStore {
    * anywhere a caller could forget.
    */
   async exactEdgesTouching(
-    workspaceId: string,
+    projectId: string,
     distincts: readonly Distinct[]
   ): Promise<IdentityEdge[]> {
     if (distincts.length === 0) return [];
@@ -80,15 +80,15 @@ export class PostgresIdentityStore implements IdentityStore {
     }>(
       `SELECT from_type, from_id, to_type, to_id, method, confidence, created_at
          FROM identity_edges
-        WHERE workspace_id = $1
+        WHERE project_id = $1
           AND method IN ('token', 'account')
           AND ( (from_type::text || ' ' || from_id) = ANY($2::text[])
              OR (to_type::text   || ' ' || to_id)   = ANY($2::text[]) )`,
-      [workspaceId, keys]
+      [projectId, keys]
     );
 
     return rows.map((r) => ({
-      workspace_id: workspaceId,
+      project_id: projectId,
       from: { type: r.from_type, id: r.from_id },
       to: { type: r.to_type, id: r.to_id },
       method: r.method,
@@ -98,7 +98,7 @@ export class PostgresIdentityStore implements IdentityStore {
   }
 
   async getOverrides(
-    workspaceId: string,
+    projectId: string,
     distincts: readonly Distinct[]
   ): Promise<Map<string, string>> {
     if (distincts.length === 0) return new Map();
@@ -109,9 +109,9 @@ export class PostgresIdentityStore implements IdentityStore {
     }>(
       `SELECT distinct_type, distinct_id, person_id
          FROM person_overrides
-        WHERE workspace_id = $1
+        WHERE project_id = $1
           AND (distinct_type::text || ' ' || distinct_id) = ANY($2::text[])`,
-      [workspaceId, distincts.map(distinctKey)]
+      [projectId, distincts.map(distinctKey)]
     );
     return new Map(rows.map((r) => [r.distinct_type + " " + r.distinct_id, r.person_id]));
   }
@@ -122,16 +122,16 @@ export class PostgresIdentityStore implements IdentityStore {
     const params: unknown[] = [];
     const values = rows.map((r) => {
       const base = params.length;
-      params.push(r.workspace_id, r.distinct.type, r.distinct.id, r.person_id, r.version);
+      params.push(r.project_id, r.distinct.type, r.distinct.id, r.person_id, r.version);
       return `($${base + 1}::uuid, $${base + 2}::distinct_type, $${base + 3}, $${base + 4}::uuid, $${base + 5})`;
     });
 
     // Highest version wins, so an older write arriving late cannot undo a newer
     // merge.
     await this.sql.query(
-      `INSERT INTO person_overrides (workspace_id, distinct_type, distinct_id, person_id, version)
+      `INSERT INTO person_overrides (project_id, distinct_type, distinct_id, person_id, version)
        VALUES ${values.join(", ")}
-       ON CONFLICT (workspace_id, distinct_type, distinct_id) DO UPDATE
+       ON CONFLICT (project_id, distinct_type, distinct_id) DO UPDATE
           SET person_id = EXCLUDED.person_id, version = EXCLUDED.version
         WHERE person_overrides.version <= EXCLUDED.version`,
       params
@@ -140,20 +140,20 @@ export class PostgresIdentityStore implements IdentityStore {
 
   async pendingOverrides(limit = 10_000): Promise<PersonOverride[]> {
     const rows = await this.sql.query<{
-      workspace_id: string;
+      project_id: string;
       distinct_type: DistinctType;
       distinct_id: string;
       person_id: string;
       version: string;
     }>(
-      `SELECT workspace_id, distinct_type, distinct_id, person_id, version
+      `SELECT project_id, distinct_type, distinct_id, person_id, version
          FROM person_overrides
-        ORDER BY workspace_id, distinct_type, distinct_id
+        ORDER BY project_id, distinct_type, distinct_id
         LIMIT $1`,
       [limit]
     );
     return rows.map((r) => ({
-      workspace_id: r.workspace_id,
+      project_id: r.project_id,
       distinct: { type: r.distinct_type, id: r.distinct_id },
       person_id: r.person_id,
       version: Number(r.version),
@@ -162,7 +162,7 @@ export class PostgresIdentityStore implements IdentityStore {
 
   /** The UPDATE squash exists to perform. Returns rows actually changed. */
   async rewriteEventPersons(
-    workspaceId: string,
+    projectId: string,
     personId: string,
     distincts: readonly Distinct[]
   ): Promise<number> {
@@ -174,13 +174,13 @@ export class PostgresIdentityStore implements IdentityStore {
     const rows = await this.sql.query<{ event_id: string }>(
       `UPDATE events
           SET person_id = $2
-        WHERE workspace_id = $1
+        WHERE project_id = $1
           AND person_id <> $2
           AND ( web_visitor_id = ANY($3::text[])
              OR install_id     = ANY($4::text[])
              OR account_id     = ANY($5::text[]) )
       RETURNING event_id`,
-      [workspaceId, personId, web, install, account]
+      [projectId, personId, web, install, account]
     );
     return rows.length;
   }
@@ -193,10 +193,10 @@ export class PostgresIdentityStore implements IdentityStore {
     const maxVersion = rows.reduce((m, r) => Math.max(m, r.version), 0);
     await this.sql.query(
       `DELETE FROM person_overrides
-        WHERE workspace_id = $1
+        WHERE project_id = $1
           AND (distinct_type::text || ' ' || distinct_id) = ANY($2::text[])
           AND version <= $3`,
-      [rows[0]!.workspace_id, rows.map((r) => distinctKey(r.distinct)), maxVersion]
+      [rows[0]!.project_id, rows.map((r) => distinctKey(r.distinct)), maxVersion]
     );
   }
 }

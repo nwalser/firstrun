@@ -1,5 +1,5 @@
 {
-  "id": "23e0120b-e993-416a-a24e-a1cdd3076024",
+  "id": "0cc10415-e4a6-4b6f-a7e6-774de0f4bd3b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -15,8 +15,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -51,11 +51,11 @@
         }
       },
       "indexes": {
-        "dashboards_workspace_idx": {
-          "name": "dashboards_workspace_idx",
+        "dashboards_project_idx": {
+          "name": "dashboards_project_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -68,12 +68,12 @@
         }
       },
       "foreignKeys": {
-        "dashboards_workspace_id_workspaces_id_fk": {
-          "name": "dashboards_workspace_id_workspaces_id_fk",
+        "dashboards_project_id_projects_id_fk": {
+          "name": "dashboards_project_id_projects_id_fk",
           "tableFrom": "dashboards",
-          "tableTo": "workspaces",
+          "tableTo": "projects",
           "columnsFrom": [
-            "workspace_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -98,8 +98,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -135,7 +135,7 @@
           "name": "download_hints_lookup_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -160,12 +160,12 @@
         }
       },
       "foreignKeys": {
-        "download_hints_workspace_id_workspaces_id_fk": {
-          "name": "download_hints_workspace_id_workspaces_id_fk",
+        "download_hints_project_id_projects_id_fk": {
+          "name": "download_hints_project_id_projects_id_fk",
           "tableFrom": "download_hints",
-          "tableTo": "workspaces",
+          "tableTo": "projects",
           "columnsFrom": [
-            "workspace_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -190,8 +190,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -239,7 +239,7 @@
           "name": "download_tokens_visitor_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -273,12 +273,12 @@
         }
       },
       "foreignKeys": {
-        "download_tokens_workspace_id_workspaces_id_fk": {
-          "name": "download_tokens_workspace_id_workspaces_id_fk",
+        "download_tokens_project_id_projects_id_fk": {
+          "name": "download_tokens_project_id_projects_id_fk",
           "tableFrom": "download_tokens",
-          "tableTo": "workspaces",
+          "tableTo": "projects",
           "columnsFrom": [
-            "workspace_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -310,8 +310,8 @@
       "name": "events",
       "schema": "",
       "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -457,7 +457,7 @@
           "name": "events_time_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -478,7 +478,7 @@
           "name": "events_person_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -499,7 +499,7 @@
           "name": "events_name_time_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -526,7 +526,7 @@
           "name": "events_install_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -547,7 +547,7 @@
           "name": "events_visitor_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -566,12 +566,12 @@
         }
       },
       "foreignKeys": {
-        "events_workspace_id_workspaces_id_fk": {
-          "name": "events_workspace_id_workspaces_id_fk",
+        "events_project_id_projects_id_fk": {
+          "name": "events_project_id_projects_id_fk",
           "tableFrom": "events",
-          "tableTo": "workspaces",
+          "tableTo": "projects",
           "columnsFrom": [
-            "workspace_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -594,10 +594,10 @@
         }
       },
       "compositePrimaryKeys": {
-        "events_workspace_id_event_id_pk": {
-          "name": "events_workspace_id_event_id_pk",
+        "events_project_id_event_id_pk": {
+          "name": "events_project_id_event_id_pk",
           "columns": [
-            "workspace_id",
+            "project_id",
             "event_id"
           ]
         }
@@ -611,8 +611,8 @@
       "name": "identity_edges",
       "schema": "",
       "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -669,7 +669,7 @@
           "name": "edges_from_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -696,7 +696,7 @@
           "name": "edges_to_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -721,12 +721,12 @@
         }
       },
       "foreignKeys": {
-        "identity_edges_workspace_id_workspaces_id_fk": {
-          "name": "identity_edges_workspace_id_workspaces_id_fk",
+        "identity_edges_project_id_projects_id_fk": {
+          "name": "identity_edges_project_id_projects_id_fk",
           "tableFrom": "identity_edges",
-          "tableTo": "workspaces",
+          "tableTo": "projects",
           "columnsFrom": [
-            "workspace_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -736,10 +736,10 @@
         }
       },
       "compositePrimaryKeys": {
-        "identity_edges_workspace_id_method_from_type_from_id_to_type_to_id_pk": {
-          "name": "identity_edges_workspace_id_method_from_type_from_id_to_type_to_id_pk",
+        "identity_edges_project_id_method_from_type_from_id_to_type_to_id_pk": {
+          "name": "identity_edges_project_id_method_from_type_from_id_to_type_to_id_pk",
           "columns": [
-            "workspace_id",
+            "project_id",
             "method",
             "from_type",
             "from_id",
@@ -757,8 +757,8 @@
       "name": "person_overrides",
       "schema": "",
       "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -791,9 +791,114 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "person_overrides_workspace_id_workspaces_id_fk": {
-          "name": "person_overrides_workspace_id_workspaces_id_fk",
+        "person_overrides_project_id_projects_id_fk": {
+          "name": "person_overrides_project_id_projects_id_fk",
           "tableFrom": "person_overrides",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "person_overrides_project_id_distinct_type_distinct_id_pk": {
+          "name": "person_overrides_project_id_distinct_type_distinct_id_pk",
+          "columns": [
+            "project_id",
+            "distinct_type",
+            "distinct_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.projects": {
+      "name": "projects",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "projects_workspace_slug_key": {
+          "name": "projects_workspace_slug_key",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "projects_workspace_idx": {
+          "name": "projects_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "projects_workspace_id_workspaces_id_fk": {
+          "name": "projects_workspace_id_workspaces_id_fk",
+          "tableFrom": "projects",
           "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
@@ -805,16 +910,7 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "person_overrides_workspace_id_distinct_type_distinct_id_pk": {
-          "name": "person_overrides_workspace_id_distinct_type_distinct_id_pk",
-          "columns": [
-            "workspace_id",
-            "distinct_type",
-            "distinct_id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -914,8 +1010,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "workspace_id": {
-          "name": "workspace_id",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -969,11 +1065,11 @@
           "method": "btree",
           "with": {}
         },
-        "sources_workspace_idx": {
-          "name": "sources_workspace_idx",
+        "sources_project_idx": {
+          "name": "sources_project_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -986,12 +1082,12 @@
         }
       },
       "foreignKeys": {
-        "sources_workspace_id_workspaces_id_fk": {
-          "name": "sources_workspace_id_workspaces_id_fk",
+        "sources_project_id_projects_id_fk": {
+          "name": "sources_project_id_projects_id_fk",
           "tableFrom": "sources",
-          "tableTo": "workspaces",
+          "tableTo": "projects",
           "columnsFrom": [
-            "workspace_id"
+            "project_id"
           ],
           "columnsTo": [
             "id"
@@ -1101,7 +1197,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'member'"
+          "default": "'read'"
         },
         "created_at": {
           "name": "created_at",
@@ -1249,8 +1345,8 @@
       "name": "member_role",
       "schema": "public",
       "values": [
-        "owner",
-        "member"
+        "admin",
+        "read"
       ]
     },
     "public.source_kind": {

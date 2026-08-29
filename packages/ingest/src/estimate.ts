@@ -28,11 +28,11 @@ export interface EstimateResult {
  * The raw address is not written anywhere. This exists to be compared against
  * another hash of the same address for thirty minutes.
  */
-export function hashIp(salt: string, workspaceId: string, ip: string): string {
+export function hashIp(salt: string, projectId: string, ip: string): string {
   return createHash("sha256")
     .update(salt)
     .update("\0")
-    .update(workspaceId)
+    .update(projectId)
     .update("\0")
     .update(ip)
     .digest("hex");
@@ -50,7 +50,7 @@ export function confidenceFor(candidates: number): number {
 
 export async function estimateFirstRun(
   ctx: Ctx,
-  args: { workspaceId: string; installId: string; os: string | null; ip: string | null; at: number }
+  args: { projectId: string; installId: string; os: string | null; ip: string | null; at: number }
 ): Promise<EstimateResult> {
   const none = (reason: EstimateResult["reason"]): EstimateResult => ({
     matched: false,
@@ -62,10 +62,10 @@ export async function estimateFirstRun(
 
   if (!args.ip) return none("no-ip");
 
-  const ipHash = hashIp(ctx.config.ipHashSalt, args.workspaceId, args.ip);
+  const ipHash = hashIp(ctx.config.ipHashSalt, args.projectId, args.ip);
   const candidates = await candidateHints(
     ctx.store.db,
-    args.workspaceId,
+    args.projectId,
     ipHash,
     args.os,
     new Date(args.at - ctx.config.estimateWindowMs),
@@ -84,7 +84,7 @@ export async function estimateFirstRun(
 
   const from: Distinct = { type: "install", id: args.installId };
   const to: Distinct = { type: "web_visitor", id: best.webVisitorId };
-  await ctx.resolver.link(args.workspaceId, from, to, "estimate", confidence);
+  await ctx.resolver.link(args.projectId, from, to, "estimate", confidence);
 
   return {
     matched: true,

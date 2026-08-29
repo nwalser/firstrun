@@ -1,14 +1,14 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
-import { createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
+import { Button, Input, Label } from "../components/ui/index.js";
 import { createWorkspaceFn, getSession } from "../lib/api.js";
 
 /**
  * Creating a workspace.
  *
- * A workspace is one identity namespace: everything inside it -- the marketing
- * site, the desktop app, a second app -- resolves to the same people. That is
- * said here rather than buried in docs, because it is the decision someone
- * makes wrong when they create one workspace per platform.
+ * A workspace holds people and projects. It is not the identity namespace --
+ * that is the project, one level down -- so the copy here talks about access,
+ * and the copy on the new-project screen talks about people.
  */
 export const Route = createFileRoute("/new")({
   beforeLoad: async () => {
@@ -31,39 +31,39 @@ function NewWorkspace() {
     setError(null);
     const result = await createWorkspaceFn({ data: name() });
     setBusy(false);
-    if ("error" in result) {
+    if (!result.ok) {
       setError(result.error);
       return;
     }
-    navigate({ to: "/w/$slug", params: { slug: result.slug } });
+    navigate({ to: "/w/$wslug", params: { wslug: result.slug } });
   }
 
   return (
-    <main class="center-page">
-      <form class="center-card" onSubmit={submit}>
-        <h1>New workspace</h1>
-        <p class="lede">
-          One workspace per product, not per platform. Your site and your app belong in the same
-          one — a person who visits and then installs has to be a single person, and that only
-          works inside one workspace.
+    <main class="flex min-h-dvh items-center justify-center p-6">
+      <form class="w-full max-w-sm rounded-xl border bg-card p-7" onSubmit={submit}>
+        <h1 class="text-lg font-semibold tracking-tight">New workspace</h1>
+        <p class="mt-1.5 text-sm text-muted-foreground">
+          A workspace is who: the people who can see things, and the projects they can see. Each
+          product inside it gets its own project.
         </p>
 
-        <div class="field" style={{ "margin-top": "20px" }}>
-          <label for="name">Name</label>
-          <input
+        <div class="mt-6 flex flex-col gap-2">
+          <Label for="name">Name</Label>
+          <Input
             id="name"
-            type="text"
-            placeholder="Themia"
+            placeholder="Acme"
             value={name()}
             onInput={(e) => setName(e.currentTarget.value)}
           />
         </div>
 
-        {error() && <p class="meta" style={{ color: "var(--warn)" }}>{error()}</p>}
+        <Show when={error()}>
+          {(message) => <p class="mt-3 text-sm text-destructive">{message()}</p>}
+        </Show>
 
-        <button class="btn" data-variant="primary" disabled={busy() || !name().trim()} style={{ "margin-top": "18px" }}>
+        <Button class="mt-5 w-full" disabled={busy() || !name().trim()}>
           {busy() ? "Creating…" : "Create workspace"}
-        </button>
+        </Button>
       </form>
     </main>
   );

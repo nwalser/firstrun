@@ -17,7 +17,7 @@ export interface LinkResult {
 }
 
 export interface ObserveInput {
-  workspace_id: string;
+  project_id: string;
   web_visitor_id?: string | null;
   install_id?: string | null;
   account_id?: string | null;
@@ -47,13 +47,13 @@ export class IdentityResolver {
    * Estimate edges are excluded by the store, not by a filter here, so there is
    * exactly one place to get this wrong and it has a test on it.
    */
-  async component(workspaceId: string, seeds: readonly Distinct[]): Promise<Distinct[]> {
+  async component(projectId: string, seeds: readonly Distinct[]): Promise<Distinct[]> {
     const seen = new Map<string, Distinct>();
     for (const s of seeds) seen.set(distinctKey(s), s);
 
     let frontier: Distinct[] = [...seeds];
     while (frontier.length > 0) {
-      const edges = await this.store.exactEdgesTouching(workspaceId, frontier);
+      const edges = await this.store.exactEdgesTouching(projectId, frontier);
       const next: Distinct[] = [];
       for (const edge of edges) {
         for (const d of [edge.from, edge.to]) {
@@ -70,9 +70,9 @@ export class IdentityResolver {
   }
 
   /** The canonical person for a distinct. Lowest seed uuid in its component. */
-  async resolve(workspaceId: string, distinct: Distinct): Promise<string> {
-    const members = await this.component(workspaceId, [distinct]);
-    return canonicalOf(members.map((m) => seedPersonId(workspaceId, m)));
+  async resolve(projectId: string, distinct: Distinct): Promise<string> {
+    const members = await this.component(projectId, [distinct]);
+    return canonicalOf(members.map((m) => seedPersonId(projectId, m)));
   }
 
   /**
@@ -86,7 +86,7 @@ export class IdentityResolver {
    * overrides, and does not touch any person id.
    */
   async link(
-    workspaceId: string,
+    projectId: string,
     from: Distinct,
     to: Distinct,
     method: EdgeMethod,
@@ -103,7 +103,7 @@ export class IdentityResolver {
     }
 
     const edge: IdentityEdge = {
-      workspace_id: workspaceId,
+      project_id: projectId,
       from,
       to,
       method,
@@ -118,19 +118,19 @@ export class IdentityResolver {
       return { method, person_id: null, moved: [] };
     }
 
-    const members = await this.component(workspaceId, [from, to]);
-    const canonical = canonicalOf(members.map((m) => seedPersonId(workspaceId, m)));
+    const members = await this.component(projectId, [from, to]);
+    const canonical = canonicalOf(members.map((m) => seedPersonId(projectId, m)));
 
-    const existing = await this.store.getOverrides(workspaceId, members);
+    const existing = await this.store.getOverrides(projectId, members);
     const version = this.nextVersion();
     const rows: PersonOverride[] = [];
     const moved: Distinct[] = [];
 
     for (const m of members) {
       const key = distinctKey(m);
-      const effective = existing.get(key) ?? seedPersonId(workspaceId, m);
+      const effective = existing.get(key) ?? seedPersonId(projectId, m);
       if (effective === canonical) continue;
-      rows.push({ workspace_id: workspaceId, distinct: m, person_id: canonical, version });
+      rows.push({ project_id: projectId, distinct: m, person_id: canonical, version });
       moved.push(m);
     }
 
@@ -147,32 +147,32 @@ export class IdentityResolver {
    * making every caller remember to. Then we resolve.
    */
   async observe(input: ObserveInput): Promise<string> {
-    const { workspace_id } = input;
+    const { project_id } = input;
     const web = input.web_visitor_id ? ({ type: "web_visitor", id: input.web_visitor_id } as const) : null;
     const install = input.install_id ? ({ type: "install", id: input.install_id } as const) : null;
     const account = input.account_id ? ({ type: "account", id: input.account_id } as const) : null;
 
     if (account) {
-      if (install) await this.linkIfNew(workspace_id, install, account, "account");
-      if (web) await this.linkIfNew(workspace_id, web, account, "account");
+      if (install) await this.linkIfNew(project_id, install, account, "account");
+      if (web) await this.linkIfNew(project_id, web, account, "account");
     }
 
     const primary = install ?? web ?? account;
     if (!primary) throw new Error("an event needs at least one distinct to belong to a person");
-    return this.resolve(workspace_id, primary);
+    return this.resolve(project_id, primary);
   }
 
   /** Avoid rewriting the same account edge on every single event. */
   private async linkIfNew(
-    workspaceId: string,
+    projectId: string,
     a: Distinct,
     b: Distinct,
     method: EdgeMethod
   ): Promise<void> {
-    const members = await this.component(workspaceId, [a]);
+    const members = await this.component(projectId, [a]);
     const bKey = distinctKey(b);
     if (members.some((m) => distinctKey(m) === bKey)) return;
-    await this.link(workspaceId, a, b, method);
+    await this.link(projectId, a, b, method);
   }
 
   private nextVersion(): number {

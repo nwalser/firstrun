@@ -1,11 +1,11 @@
 CREATE TYPE "public"."distinct_type" AS ENUM('web_visitor', 'install', 'account');--> statement-breakpoint
 CREATE TYPE "public"."edge_method" AS ENUM('token', 'account', 'estimate');--> statement-breakpoint
-CREATE TYPE "public"."member_role" AS ENUM('owner', 'member');--> statement-breakpoint
+CREATE TYPE "public"."member_role" AS ENUM('admin', 'read');--> statement-breakpoint
 CREATE TYPE "public"."source_kind" AS ENUM('web', 'desktop');--> statement-breakpoint
 CREATE TYPE "public"."surface" AS ENUM('web', 'app');--> statement-breakpoint
 CREATE TABLE "dashboards" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"name" text DEFAULT 'Overview' NOT NULL,
 	"layout" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE "dashboards" (
 --> statement-breakpoint
 CREATE TABLE "download_hints" (
 	"id" bigserial PRIMARY KEY NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"web_visitor_id" text NOT NULL,
 	"ip_hash" text NOT NULL,
 	"os" text,
@@ -23,7 +23,7 @@ CREATE TABLE "download_hints" (
 --> statement-breakpoint
 CREATE TABLE "download_tokens" (
 	"token" text PRIMARY KEY NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"source_id" uuid,
 	"web_visitor_id" text,
 	"asset" text NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE "download_tokens" (
 );
 --> statement-breakpoint
 CREATE TABLE "events" (
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"event_id" uuid NOT NULL,
 	"source_id" uuid,
 	"event_name" text NOT NULL,
@@ -56,11 +56,11 @@ CREATE TABLE "events" (
 	"utm_medium" text,
 	"utm_campaign" text,
 	"props" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	CONSTRAINT "events_workspace_id_event_id_pk" PRIMARY KEY("workspace_id","event_id")
+	CONSTRAINT "events_project_id_event_id_pk" PRIMARY KEY("project_id","event_id")
 );
 --> statement-breakpoint
 CREATE TABLE "identity_edges" (
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"from_type" "distinct_type" NOT NULL,
 	"from_id" text NOT NULL,
 	"to_type" "distinct_type" NOT NULL,
@@ -68,16 +68,24 @@ CREATE TABLE "identity_edges" (
 	"method" "edge_method" NOT NULL,
 	"confidence" real NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "identity_edges_workspace_id_method_from_type_from_id_to_type_to_id_pk" PRIMARY KEY("workspace_id","method","from_type","from_id","to_type","to_id")
+	CONSTRAINT "identity_edges_project_id_method_from_type_from_id_to_type_to_id_pk" PRIMARY KEY("project_id","method","from_type","from_id","to_type","to_id")
 );
 --> statement-breakpoint
 CREATE TABLE "person_overrides" (
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"distinct_type" "distinct_type" NOT NULL,
 	"distinct_id" text NOT NULL,
 	"person_id" uuid NOT NULL,
 	"version" bigint NOT NULL,
-	CONSTRAINT "person_overrides_workspace_id_distinct_type_distinct_id_pk" PRIMARY KEY("workspace_id","distinct_type","distinct_id")
+	CONSTRAINT "person_overrides_project_id_distinct_type_distinct_id_pk" PRIMARY KEY("project_id","distinct_type","distinct_id")
+);
+--> statement-breakpoint
+CREATE TABLE "projects" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"workspace_id" uuid NOT NULL,
+	"name" text NOT NULL,
+	"slug" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "sessions" (
@@ -89,7 +97,7 @@ CREATE TABLE "sessions" (
 --> statement-breakpoint
 CREATE TABLE "sources" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
 	"name" text NOT NULL,
 	"kind" "source_kind" NOT NULL,
 	"asset_name" text,
@@ -110,7 +118,7 @@ CREATE TABLE "users" (
 CREATE TABLE "workspace_members" (
 	"workspace_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
-	"role" "member_role" DEFAULT 'member' NOT NULL,
+	"role" "member_role" DEFAULT 'read' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "workspace_members_workspace_id_user_id_pk" PRIMARY KEY("workspace_id","user_id")
 );
@@ -122,33 +130,36 @@ CREATE TABLE "workspaces" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "dashboards" ADD CONSTRAINT "dashboards_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "download_hints" ADD CONSTRAINT "download_hints_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "download_tokens" ADD CONSTRAINT "download_tokens_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "dashboards" ADD CONSTRAINT "dashboards_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "download_hints" ADD CONSTRAINT "download_hints_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "download_tokens" ADD CONSTRAINT "download_tokens_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "download_tokens" ADD CONSTRAINT "download_tokens_source_id_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."sources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "events" ADD CONSTRAINT "events_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "events" ADD CONSTRAINT "events_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "events" ADD CONSTRAINT "events_source_id_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."sources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "identity_edges" ADD CONSTRAINT "identity_edges_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "person_overrides" ADD CONSTRAINT "person_overrides_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "identity_edges" ADD CONSTRAINT "identity_edges_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "person_overrides" ADD CONSTRAINT "person_overrides_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "projects" ADD CONSTRAINT "projects_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "sources" ADD CONSTRAINT "sources_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sources" ADD CONSTRAINT "sources_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "workspace_members" ADD CONSTRAINT "workspace_members_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "dashboards_workspace_idx" ON "dashboards" USING btree ("workspace_id");--> statement-breakpoint
-CREATE INDEX "download_hints_lookup_idx" ON "download_hints" USING btree ("workspace_id","ip_hash","created_at");--> statement-breakpoint
-CREATE INDEX "download_tokens_visitor_idx" ON "download_tokens" USING btree ("workspace_id","web_visitor_id");--> statement-breakpoint
+CREATE INDEX "dashboards_project_idx" ON "dashboards" USING btree ("project_id");--> statement-breakpoint
+CREATE INDEX "download_hints_lookup_idx" ON "download_hints" USING btree ("project_id","ip_hash","created_at");--> statement-breakpoint
+CREATE INDEX "download_tokens_visitor_idx" ON "download_tokens" USING btree ("project_id","web_visitor_id");--> statement-breakpoint
 CREATE INDEX "download_tokens_expiry_idx" ON "download_tokens" USING btree ("expires_at");--> statement-breakpoint
-CREATE INDEX "events_time_idx" ON "events" USING btree ("workspace_id","event_time");--> statement-breakpoint
-CREATE INDEX "events_person_idx" ON "events" USING btree ("workspace_id","person_id");--> statement-breakpoint
-CREATE INDEX "events_name_time_idx" ON "events" USING btree ("workspace_id","event_name","event_time");--> statement-breakpoint
-CREATE INDEX "events_install_idx" ON "events" USING btree ("workspace_id","install_id");--> statement-breakpoint
-CREATE INDEX "events_visitor_idx" ON "events" USING btree ("workspace_id","web_visitor_id");--> statement-breakpoint
-CREATE INDEX "edges_from_idx" ON "identity_edges" USING btree ("workspace_id","from_type","from_id");--> statement-breakpoint
-CREATE INDEX "edges_to_idx" ON "identity_edges" USING btree ("workspace_id","to_type","to_id");--> statement-breakpoint
+CREATE INDEX "events_time_idx" ON "events" USING btree ("project_id","event_time");--> statement-breakpoint
+CREATE INDEX "events_person_idx" ON "events" USING btree ("project_id","person_id");--> statement-breakpoint
+CREATE INDEX "events_name_time_idx" ON "events" USING btree ("project_id","event_name","event_time");--> statement-breakpoint
+CREATE INDEX "events_install_idx" ON "events" USING btree ("project_id","install_id");--> statement-breakpoint
+CREATE INDEX "events_visitor_idx" ON "events" USING btree ("project_id","web_visitor_id");--> statement-breakpoint
+CREATE INDEX "edges_from_idx" ON "identity_edges" USING btree ("project_id","from_type","from_id");--> statement-breakpoint
+CREATE INDEX "edges_to_idx" ON "identity_edges" USING btree ("project_id","to_type","to_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "projects_workspace_slug_key" ON "projects" USING btree ("workspace_id","slug");--> statement-breakpoint
+CREATE INDEX "projects_workspace_idx" ON "projects" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "sessions_expiry_idx" ON "sessions" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "sources_ingest_key_key" ON "sources" USING btree ("ingest_key");--> statement-breakpoint
-CREATE INDEX "sources_workspace_idx" ON "sources" USING btree ("workspace_id");--> statement-breakpoint
+CREATE INDEX "sources_project_idx" ON "sources" USING btree ("project_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_github_id_key" ON "users" USING btree ("github_id");--> statement-breakpoint
 CREATE INDEX "members_user_idx" ON "workspace_members" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "workspaces_slug_key" ON "workspaces" USING btree ("slug");

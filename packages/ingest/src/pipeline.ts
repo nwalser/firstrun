@@ -40,11 +40,11 @@ export async function ingestEnvelopes(
       continue;
     }
 
-    const key = [e.workspace_id, e.web_visitor_id, e.install_id, e.account_id].join(" ");
+    const key = [e.project_id, e.web_visitor_id, e.install_id, e.account_id].join(" ");
     let personId = persons.get(key);
     if (!personId) {
       personId = await ctx.resolver.observe({
-        workspace_id: e.workspace_id,
+        project_id: e.project_id,
         web_visitor_id: e.web_visitor_id,
         install_id: e.install_id,
         account_id: e.account_id,

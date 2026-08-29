@@ -11,8 +11,8 @@ import { createStore } from "./client.js";
 import { PostgresIdentityStore } from "./identity-store.js";
 import { insertEvents } from "./events.js";
 import { applyMigrations } from "./migrate.js";
-import { clearWorkspaceData } from "./repo.js";
-import { dashboards, downloadTokens, sources, users, workspaceMembers, workspaces } from "./schema.js";
+import { clearProjectData } from "./repo.js";
+import { dashboards, downloadTokens, projects, sources, users, workspaceMembers, workspaces } from "./schema.js";
 
 /**
  * A synthetic workspace shaped like the first real subject: a Windows desktop
@@ -27,7 +27,8 @@ import { dashboards, downloadTokens, sources, users, workspaceMembers, workspace
  * workspace and a diff in the numbers means a diff in the code.
  */
 
-const SEED_WORKSPACE_ID = "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40";
+const SEED_WORKSPACE_ID = "3d8e1a47-5c62-4f19-a83b-11c4de90f277";
+const SEED_PROJECT_ID = "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40";
 const SEED_WEB_SOURCE_ID = "1b6f0c58-3f2a-4a91-8f2d-9c1e77a04b11";
 const SEED_APP_SOURCE_ID = "2c7a1d69-4e3b-4b02-9a3e-0d2f88b15c22";
 const SEED_WEB_KEY = "fr_web_5eed000000000001";
@@ -260,7 +261,7 @@ function envelope(
   e: Partial<EventEnvelope> & Pick<EventEnvelope, "event_name" | "event_time" | "surface">
 ): EventEnvelope {
   return {
-    workspace_id: SEED_WORKSPACE_ID,
+    project_id: SEED_PROJECT_ID,
     source_id: e.surface === "app" ? SEED_APP_SOURCE_ID : SEED_WEB_SOURCE_ID,
     event_id: crypto.randomUUID(),
     ingest_time: e.event_time,
@@ -301,20 +302,25 @@ async function main(): Promise<void> {
 
     await db
       .insert(workspaces)
-      .values({ id: SEED_WORKSPACE_ID, name: "Themia", slug: "themia" })
-      .onConflictDoUpdate({ target: workspaces.id, set: { name: "Themia" } });
+      .values({ id: SEED_WORKSPACE_ID, name: "Nathaniel", slug: "nathaniel" })
+      .onConflictDoUpdate({ target: workspaces.id, set: { name: "Nathaniel" } });
 
     await db
       .insert(workspaceMembers)
-      .values({ workspaceId: SEED_WORKSPACE_ID, userId: user.id, role: "owner" })
+      .values({ workspaceId: SEED_WORKSPACE_ID, userId: user.id, role: "admin" })
       .onConflictDoNothing();
+
+    await db
+      .insert(projects)
+      .values({ id: SEED_PROJECT_ID, workspaceId: SEED_WORKSPACE_ID, name: "Themia", slug: "themia" })
+      .onConflictDoUpdate({ target: projects.id, set: { name: "Themia" } });
 
     await db
       .insert(sources)
       .values([
         {
           id: SEED_WEB_SOURCE_ID,
-          workspaceId: SEED_WORKSPACE_ID,
+          projectId: SEED_PROJECT_ID,
           name: "themia.app",
           kind: "web",
           assetName: null,
@@ -322,7 +328,7 @@ async function main(): Promise<void> {
         },
         {
           id: SEED_APP_SOURCE_ID,
-          workspaceId: SEED_WORKSPACE_ID,
+          projectId: SEED_PROJECT_ID,
           name: "Themia for Windows",
           kind: "desktop",
           assetName: ASSET_NAME,
@@ -334,16 +340,16 @@ async function main(): Promise<void> {
     const existingDashboard = await db
       .select({ id: dashboards.id })
       .from(dashboards)
-      .where(eq(dashboards.workspaceId, SEED_WORKSPACE_ID))
+      .where(eq(dashboards.projectId, SEED_PROJECT_ID))
       .limit(1);
     if (existingDashboard.length === 0) {
       await db
         .insert(dashboards)
-        .values({ workspaceId: SEED_WORKSPACE_ID, name: "Overview", layout: defaultLayout() });
+        .values({ projectId: SEED_PROJECT_ID, name: "Overview", layout: defaultLayout() });
     }
 
     console.log("clearing previous seed");
-    await clearWorkspaceData(db, SEED_WORKSPACE_ID);
+    await clearProjectData(db, SEED_PROJECT_ID);
 
     console.log("generating");
     const { people, edges } = generate();
@@ -353,7 +359,7 @@ async function main(): Promise<void> {
     const store = new MemoryIdentityStore();
     const resolver = new IdentityResolver(store);
     for (const [from, to, method, confidence] of edges) {
-      await resolver.link(SEED_WORKSPACE_ID, from, to, method, confidence);
+      await resolver.link(SEED_PROJECT_ID, from, to, method, confidence);
     }
 
     const personCache = new Map<string, string>();
@@ -361,7 +367,7 @@ async function main(): Promise<void> {
       const key = d.type + " " + d.id;
       let p = personCache.get(key);
       if (!p) {
-        p = await resolver.resolve(SEED_WORKSPACE_ID, d);
+        p = await resolver.resolve(SEED_PROJECT_ID, d);
         personCache.set(key, p);
       }
       return p;
@@ -398,7 +404,7 @@ async function main(): Promise<void> {
 
       tokenRows.push({
         token: p.token,
-        workspaceId: SEED_WORKSPACE_ID,
+        projectId: SEED_PROJECT_ID,
         sourceId: SEED_APP_SOURCE_ID,
         webVisitorId: p.visitorId,
         asset: ASSET_NAME,
@@ -488,7 +494,8 @@ async function main(): Promise<void> {
     const purchases = people.filter((p) => p.purchasedAt !== undefined).length;
 
     console.log("");
-    console.log(`  workspace      Themia (${SEED_WORKSPACE_ID})`);
+    console.log(`  workspace      Nathaniel`);
+    console.log(`  project        Themia`);
     console.log(`  user           ${SEED_USER_LOGIN}`);
     console.log(`  visitors       ${people.length}`);
     console.log(`  downloads      ${tokenRows.length}`);
@@ -499,7 +506,7 @@ async function main(): Promise<void> {
     console.log(`  events         ${eventRows.length}`);
     console.log("");
     console.log(`  bun run dev:login ${SEED_USER_LOGIN}`);
-    console.log(`  http://localhost:3000/w/themia`);
+    console.log(`  http://localhost:3000/w/nathaniel/themia`);
   } finally {
     await close();
   }
@@ -507,4 +514,4 @@ async function main(): Promise<void> {
 
 if (import.meta.main) await main();
 
-export { SEED_APP_KEY, SEED_WEB_KEY, SEED_WORKSPACE_ID };
+export { SEED_APP_KEY, SEED_PROJECT_ID, SEED_WEB_KEY, SEED_WORKSPACE_ID };

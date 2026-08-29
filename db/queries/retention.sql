@@ -9,11 +9,11 @@
 -- three days ago cannot have a day-7, and counting them as churned would drag
 -- the tail of the curve toward zero for no reason other than the calendar.
 --
--- $1 workspace_id, $2 from, $3 to, $4 max_day, $5 source_id (nullable)
+-- $1 project_id, $2 from, $3 to, $4 max_day, $5 source_id (nullable)
 WITH firsts AS (
     SELECT person_id, min(event_time) AS first_run_at
       FROM events_resolved
-     WHERE workspace_id = $1
+     WHERE project_id = $1
        AND event_name = 'app_first_run'
        AND event_time >= $2
        AND event_time <  $3
@@ -25,7 +25,7 @@ activity AS (
            floor(extract(epoch FROM (e.event_time - f.first_run_at)) / 86400)::int AS day
       FROM firsts f
       JOIN events_resolved e
-        ON e.workspace_id = $1
+        ON e.project_id = $1
        AND e.person_id = f.person_id
        AND e.surface = 'app'
        AND e.event_time >= f.first_run_at

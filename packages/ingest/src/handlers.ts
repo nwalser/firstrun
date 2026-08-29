@@ -103,7 +103,7 @@ export async function handleEvents(req: Request, ctx: Ctx): Promise<Response> {
   if (!source) return json({ error: "unknown source key" }, 404);
 
   const context = {
-    workspaceId: source.workspaceId,
+    projectId: source.projectId,
     sourceId: source.id,
     ingestTime,
   };
@@ -143,7 +143,7 @@ export async function handleDownload(req: Request, ctx: Ctx, socketIp?: string):
 
   await createDownloadToken(ctx.store.db, {
     token,
-    workspaceId: source.workspaceId,
+    projectId: source.projectId,
     sourceId: source.id,
     webVisitorId: vid,
     asset,
@@ -157,9 +157,9 @@ export async function handleDownload(req: Request, ctx: Ctx, socketIp?: string):
   // that never sees its own filename. Never used for an exact join.
   if (vid && ip) {
     await recordDownloadHint(ctx.store.db, {
-      workspaceId: source.workspaceId,
+      projectId: source.projectId,
       webVisitorId: vid,
-      ipHash: hashIp(ctx.config.ipHashSalt, source.workspaceId, ip),
+      ipHash: hashIp(ctx.config.ipHashSalt, source.projectId, ip),
       os,
     });
   }
@@ -169,7 +169,7 @@ export async function handleDownload(req: Request, ctx: Ctx, socketIp?: string):
   if (vid) {
     await ingestEnvelopes(ctx, [
       EventEnvelope.parse({
-        workspace_id: source.workspaceId,
+        project_id: source.projectId,
         source_id: source.id,
         event_id: crypto.randomUUID(),
         event_name: EVENT.DOWNLOAD_STARTED,
@@ -254,7 +254,7 @@ export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Pr
   const source = await sourceByKey(ctx.store.db, sourceKey);
   if (!source) return json({ error: "unknown source key" }, 404);
 
-  const workspaceId = source.workspaceId;
+  const projectId = source.projectId;
   const token = typeof body.token === "string" && isToken(body.token) ? body.token : null;
   const tokenRow = token ? await downloadToken(ctx.store.db, token) : null;
 
@@ -270,7 +270,7 @@ export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Pr
 
   const tokenUsable =
     tokenRow &&
-    tokenRow.workspaceId === workspaceId &&
+    tokenRow.projectId === projectId &&
     tokenRow.expiresAt.getTime() >= now &&
     tokenRow.webVisitorId;
 
@@ -280,7 +280,7 @@ export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Pr
     // claim costs an edge write and changes nothing.
     await claimDownloadToken(ctx.store.db, token!, new Date(now));
     await ctx.resolver.link(
-      workspaceId,
+      projectId,
       { type: "install", id: installId },
       { type: "web_visitor", id: tokenRow!.webVisitorId! },
       "token"
@@ -288,7 +288,7 @@ export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Pr
     join = { method: "token", confidence: 1, web_visitor_id: tokenRow!.webVisitorId };
   } else {
     const est = await estimateFirstRun(ctx, {
-      workspaceId,
+      projectId,
       installId,
       os: str(body.os),
       ip: clientIp(req, socketIp),
@@ -301,7 +301,7 @@ export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Pr
 
   await ingestEnvelopes(ctx, [
     EventEnvelope.parse({
-      workspace_id: workspaceId,
+      project_id: projectId,
       source_id: source.id,
       event_id: typeof body.event_id === "string" ? body.event_id : crypto.randomUUID(),
       event_name: EVENT.APP_FIRST_RUN,
@@ -319,6 +319,6 @@ export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Pr
     }),
   ]);
 
-  const personId = await ctx.resolver.resolve(workspaceId, { type: "install", id: installId });
+  const personId = await ctx.resolver.resolve(projectId, { type: "install", id: installId });
   return json({ person_id: personId, join });
 }

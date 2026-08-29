@@ -15,23 +15,18 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * One database for everything.
- *
- * Events, identity, auth and configuration used to be split across ClickHouse
- * and SQLite. At the shape this serves -- a desktop app with a few thousand
- * monthly visitors -- that split bought nothing and cost a second client, a
- * second migration runner, and a seam where the two could disagree. Postgres
- * does all of it, and the squash job becomes an ordinary transactional UPDATE
- * instead of an asynchronous mutation.
- *
- * The crossover is somewhere in the tens of millions of events per workspace.
- * When it arrives, the analytics tables move behind the same repository seam
- * that is here now.
+ * One database for everything: events, identity, auth and configuration.
  *
  * Drizzle owns the DDL. It does NOT own the analytics queries -- the funnel and
  * retention SQL lives in db/queries/*.sql, because those queries are the
  * product and should be readable by someone who knows SQL and nothing about
  * this codebase.
+ *
+ * The hierarchy is workspace > project > source:
+ *
+ *   workspace   who can see things, and who can change them
+ *   project     ONE PRODUCT, and one namespace of people
+ *   source      one thing that sends events: a website, a desktop app
  */
 
 // ---------------------------------------------------------------------------
@@ -45,10 +40,17 @@ export const edgeMethodEnum = pgEnum("edge_method", ["token", "account", "estima
 
 export const distinctTypeEnum = pgEnum("distinct_type", ["web_visitor", "install", "account"]);
 
-/** What kind of thing is sending events. A workspace usually has both. */
+/** What kind of thing is sending events. A project usually has both. */
 export const sourceKindEnum = pgEnum("source_kind", ["web", "desktop"]);
 
-export const memberRoleEnum = pgEnum("member_role", ["owner", "member"]);
+/**
+ * Two roles, and only two for now.
+ *
+ * `admin` can change things: projects, sources, dashboards, who else is in.
+ * `read` can look. Anything finer is a guess about how teams will actually use
+ * this, and a permission model is much easier to widen than to narrow.
+ */
+export const memberRoleEnum = pgEnum("member_role", ["admin", "read"]);
 
 // ---------------------------------------------------------------------------
 // Accounts
@@ -72,7 +74,7 @@ export const users = pgTable(
 export const sessions = pgTable(
   "sessions",
   {
-    /** Opaque random token. Stored hashed; the cookie holds the plaintext. */
+    /** SHA-256 of the token. The cookie holds the plaintext; this never does. */
     id: text("id").primaryKey(),
     userId: uuid("user_id")
       .notNull()
@@ -84,16 +86,14 @@ export const sessions = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Workspaces and their ingestion sources
+// Workspaces: the access boundary
 // ---------------------------------------------------------------------------
 
 /**
- * A workspace is ONE identity namespace.
+ * A workspace is who, not what.
  *
- * This is the load-bearing decision in the whole model. A person is resolved
- * within a workspace, never within a source -- if the website and the desktop
- * app had separate person spaces, the web-to-install join could not exist, and
- * the join is the entire product. Sources are ingestion endpoints, nothing more.
+ * It holds people and the projects they can see. It is deliberately NOT an
+ * identity namespace -- that lives on the project, one level down.
  */
 export const workspaces = pgTable(
   "workspaces",
@@ -106,6 +106,13 @@ export const workspaces = pgTable(
   (t) => [uniqueIndex("workspaces_slug_key").on(t.slug)]
 );
 
+/**
+ * Membership is per workspace, not per project.
+ *
+ * Someone who can see a workspace can see everything in it. Per-project access
+ * is a real thing teams eventually want, and adding it later means adding rows;
+ * starting with it means guessing at a shape nobody has asked for yet.
+ */
 export const workspaceMembers = pgTable(
   "workspace_members",
   {
@@ -115,10 +122,43 @@ export const workspaceMembers = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: memberRoleEnum("role").notNull().default("member"),
+    role: memberRoleEnum("role").notNull().default("read"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), index("members_user_idx").on(t.userId)]
+);
+
+// ---------------------------------------------------------------------------
+// Projects: the identity namespace
+// ---------------------------------------------------------------------------
+
+/**
+ * A project is one product, and ONE NAMESPACE OF PEOPLE.
+ *
+ * This is the load-bearing decision in the whole model. Every source inside a
+ * project resolves to the same people -- if the website and the desktop app had
+ * separate person spaces, the web-to-install join could not exist, and that
+ * join is the entire product.
+ *
+ * So: one project per product, never one per platform. Two products in one
+ * workspace are two projects, and a visitor to one is not a visitor to the
+ * other.
+ */
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("projects_workspace_slug_key").on(t.workspaceId, t.slug),
+    index("projects_workspace_idx").on(t.workspaceId),
+  ]
 );
 
 /**
@@ -132,9 +172,9 @@ export const sources = pgTable(
   "sources",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     kind: sourceKindEnum("kind").notNull(),
     /** Installer basename for desktop sources, e.g. `Themia-Setup`. */
@@ -144,33 +184,32 @@ export const sources = pgTable(
   },
   (t) => [
     uniqueIndex("sources_ingest_key_key").on(t.ingestKey),
-    index("sources_workspace_idx").on(t.workspaceId),
+    index("sources_project_idx").on(t.projectId),
   ]
 );
 
 /**
- * The one screen, as configured by whoever owns the workspace.
+ * The dashboard for a project.
  *
  * `layout` is an ordered array of widgets from a fixed catalogue -- see
  * packages/schema/src/widgets.ts. Deliberately a catalogue and not a query
  * builder: every widget answers a question this product exists to answer, and
- * none of them let you assemble an arbitrary query. A generic explore view is
- * the failure mode here, and the line between "arrangeable" and "Grafana with
- * extra steps" is exactly that catalogue.
+ * none of them assemble an arbitrary query. A generic explore view is the
+ * failure mode here, and that catalogue is the line.
  */
 export const dashboards = pgTable(
   "dashboards",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull().default("Overview"),
     layout: jsonb("layout").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("dashboards_workspace_idx").on(t.workspaceId)]
+  (t) => [index("dashboards_project_idx").on(t.projectId)]
 );
 
 // ---------------------------------------------------------------------------
@@ -182,9 +221,9 @@ export const downloadTokens = pgTable(
   "download_tokens",
   {
     token: text("token").primaryKey(),
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
     webVisitorId: text("web_visitor_id"),
     asset: text("asset").notNull(),
@@ -193,7 +232,7 @@ export const downloadTokens = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
   },
   (t) => [
-    index("download_tokens_visitor_idx").on(t.workspaceId, t.webVisitorId),
+    index("download_tokens_visitor_idx").on(t.projectId, t.webVisitorId),
     index("download_tokens_expiry_idx").on(t.expiresAt),
   ]
 );
@@ -208,15 +247,15 @@ export const downloadHints = pgTable(
   "download_hints",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     webVisitorId: text("web_visitor_id").notNull(),
     ipHash: text("ip_hash").notNull(),
     os: text("os"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("download_hints_lookup_idx").on(t.workspaceId, t.ipHash, t.createdAt)]
+  (t) => [index("download_hints_lookup_idx").on(t.projectId, t.ipHash, t.createdAt)]
 );
 
 // ---------------------------------------------------------------------------
@@ -228,22 +267,20 @@ export const downloadHints = pgTable(
  *
  * `event_time` is client-stamped and authoritative; `ingest_time` is
  * server-stamped and read only while debugging. Nothing sorts, buckets, windows
- * or retains on ingest time -- an app offline for three days must land in the
- * bucket it happened in. See CLAUDE.md rule 2.
+ * or retains on ingest time. See CLAUDE.md rule 2.
  *
- * The primary key is (workspace_id, event_id), which makes dedup a property of
+ * The primary key is (project_id, event_id), which makes dedup a property of
  * the schema rather than a table someone has to remember to check. The desktop
- * SDK replays its disk queue after a crash, so duplicates are the normal case;
- * `ON CONFLICT DO NOTHING` handles them and reports how many were new.
+ * SDK replays its disk queue after a crash, so duplicates are the normal case.
  *
  * `person_id` is derived by @firstrun/identity. A client never sends one.
  */
 export const events = pgTable(
   "events",
   {
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     eventId: uuid("event_id").notNull(),
     sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
 
@@ -273,12 +310,12 @@ export const events = pgTable(
     props: jsonb("props").notNull().default({}),
   },
   (t) => [
-    primaryKey({ columns: [t.workspaceId, t.eventId] }),
-    index("events_time_idx").on(t.workspaceId, t.eventTime),
-    index("events_person_idx").on(t.workspaceId, t.personId),
-    index("events_name_time_idx").on(t.workspaceId, t.eventName, t.eventTime),
-    index("events_install_idx").on(t.workspaceId, t.installId),
-    index("events_visitor_idx").on(t.workspaceId, t.webVisitorId),
+    primaryKey({ columns: [t.projectId, t.eventId] }),
+    index("events_time_idx").on(t.projectId, t.eventTime),
+    index("events_person_idx").on(t.projectId, t.personId),
+    index("events_name_time_idx").on(t.projectId, t.eventName, t.eventTime),
+    index("events_install_idx").on(t.projectId, t.installId),
+    index("events_visitor_idx").on(t.projectId, t.webVisitorId),
   ]
 );
 
@@ -292,9 +329,9 @@ export const events = pgTable(
 export const identityEdges = pgTable(
   "identity_edges",
   {
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     fromType: distinctTypeEnum("from_type").notNull(),
     fromId: text("from_id").notNull(),
     toType: distinctTypeEnum("to_type").notNull(),
@@ -305,9 +342,9 @@ export const identityEdges = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.workspaceId, t.method, t.fromType, t.fromId, t.toType, t.toId] }),
-    index("edges_from_idx").on(t.workspaceId, t.fromType, t.fromId),
-    index("edges_to_idx").on(t.workspaceId, t.toType, t.toId),
+    primaryKey({ columns: [t.projectId, t.method, t.fromType, t.fromId, t.toType, t.toId] }),
+    index("edges_from_idx").on(t.projectId, t.fromType, t.fromId),
+    index("edges_to_idx").on(t.projectId, t.toType, t.toId),
   ]
 );
 
@@ -316,21 +353,21 @@ export const identityEdges = pgTable(
  *
  * An exact link writes here immediately so queries are correct within a second,
  * and the squash job later folds it into events.person_id and deletes what it
- * drained. Small and hot by construction: a row exists only between a merge and
- * the next squash. If this table is large, squash is not running.
+ * drained. Small and hot by construction: if this table is large, squash is not
+ * running.
  */
 export const personOverrides = pgTable(
   "person_overrides",
   {
-    workspaceId: uuid("workspace_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     distinctType: distinctTypeEnum("distinct_type").notNull(),
     distinctId: text("distinct_id").notNull(),
     personId: uuid("person_id").notNull(),
     version: bigint("version", { mode: "number" }).notNull(),
   },
-  (t) => [primaryKey({ columns: [t.workspaceId, t.distinctType, t.distinctId] })]
+  (t) => [primaryKey({ columns: [t.projectId, t.distinctType, t.distinctId] })]
 );
 
 // ---------------------------------------------------------------------------
@@ -344,8 +381,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const workspacesRelations = relations(workspaces, ({ many }) => ({
   members: many(workspaceMembers),
-  sources: many(sources),
-  dashboards: many(dashboards),
+  projects: many(projects),
 }));
 
 export const workspaceMembersRelations = relations(workspaceMembers, ({ one }) => ({
@@ -356,8 +392,14 @@ export const workspaceMembersRelations = relations(workspaceMembers, ({ one }) =
   user: one(users, { fields: [workspaceMembers.userId], references: [users.id] }),
 }));
 
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [projects.workspaceId], references: [workspaces.id] }),
+  sources: many(sources),
+  dashboards: many(dashboards),
+}));
+
 export const sourcesRelations = relations(sources, ({ one }) => ({
-  workspace: one(workspaces, { fields: [sources.workspaceId], references: [workspaces.id] }),
+  project: one(projects, { fields: [sources.projectId], references: [projects.id] }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -366,6 +408,8 @@ export const sessionsRelations = relations(sessions, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type Workspace = typeof workspaces.$inferSelect;
+export type Project = typeof projects.$inferSelect;
 export type Source = typeof sources.$inferSelect;
 export type Dashboard = typeof dashboards.$inferSelect;
 export type DownloadToken = typeof downloadTokens.$inferSelect;
+export type MemberRole = (typeof memberRoleEnum.enumValues)[number];

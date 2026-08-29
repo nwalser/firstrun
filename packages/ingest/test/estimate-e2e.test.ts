@@ -67,11 +67,11 @@ describe("an install that arrives with no token", () => {
   });
 
   test("but the visitor and the install are still two people", async () => {
-    const asWeb = await stack.ctx.resolver.resolve(stack.workspaceId, {
+    const asWeb = await stack.ctx.resolver.resolve(stack.projectId, {
       type: "web_visitor",
       id: visitorId,
     });
-    const asInstall = await stack.ctx.resolver.resolve(stack.workspaceId, {
+    const asInstall = await stack.ctx.resolver.resolve(stack.projectId, {
       type: "install",
       id: installId,
     });
@@ -80,8 +80,8 @@ describe("an install that arrives with no token", () => {
 
   test("and no override was written", async () => {
     const rows = await stack.store.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM person_overrides WHERE workspace_id = $1`,
-      [stack.workspaceId]
+      `SELECT count(*)::int AS n FROM person_overrides WHERE project_id = $1`,
+      [stack.projectId]
     );
     expect(rows[0]!.n).toBe(0);
   });
@@ -89,7 +89,7 @@ describe("an install that arrives with no token", () => {
   test("the funnel reports the guess as its own number, next to the exact one", async () => {
     const now = Date.now();
     const result = await funnel(stack.store, {
-      workspaceId: stack.workspaceId,
+      projectId: stack.projectId,
       from: new Date(now - 30 * 864e5),
       to: new Date(now + 864e5),
     });

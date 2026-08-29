@@ -47,8 +47,8 @@ describe("a late-arriving event", () => {
               to_char(ingest_time AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS ingest_day,
               (date_trunc('day', ingest_time) - date_trunc('day', event_time)) AS drift
          FROM events
-        WHERE workspace_id = $1 AND install_id = $2`,
-      [stack.workspaceId, installId]
+        WHERE project_id = $1 AND install_id = $2`,
+      [stack.projectId, installId]
     );
 
     expect(rows.length).toBe(1);
@@ -64,12 +64,12 @@ describe("a late-arriving event", () => {
       `SELECT to_char(date_trunc('day', event_time) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
               count(*)::int AS n
          FROM events_resolved
-        WHERE workspace_id = $1
+        WHERE project_id = $1
           AND event_time >= $2
           AND event_time <  $3
         GROUP BY 1
         ORDER BY 1`,
-      [stack.workspaceId, new Date(Date.now() - 4 * DAY), new Date(Date.now() - 2 * DAY)]
+      [stack.projectId, new Date(Date.now() - 4 * DAY), new Date(Date.now() - 2 * DAY)]
     );
 
     expect(rows.length).toBe(1);
@@ -81,8 +81,8 @@ describe("a late-arriving event", () => {
     const rows = await stack.store.query<{ n: number }>(
       `SELECT count(*)::int AS n
          FROM events_resolved
-        WHERE workspace_id = $1 AND date_trunc('day', event_time) = date_trunc('day', now())`,
-      [stack.workspaceId]
+        WHERE project_id = $1 AND date_trunc('day', event_time) = date_trunc('day', now())`,
+      [stack.projectId]
     );
     expect(rows[0]!.n).toBe(0);
   });

@@ -15,7 +15,7 @@
 -- Day 7 is not a stage here. "Still here a week later" is a gap constraint, not
 -- an ordering one, and it lives in day7.sql.
 --
--- $1 workspace_id, $2 from, $3 to, $4 window interval, $5 source_id (nullable)
+-- $1 project_id, $2 from, $3 to, $4 window interval, $5 source_id (nullable)
 WITH remap AS (
     -- install -> the person its estimated web visitor already belongs to.
     -- Read from identity_edges directly: these edges deliberately never
@@ -26,10 +26,10 @@ WITH remap AS (
       JOIN (
             SELECT web_visitor_id, min(person_id::text)::uuid AS person_id
               FROM events_resolved
-             WHERE workspace_id = $1 AND web_visitor_id IS NOT NULL
+             WHERE project_id = $1 AND web_visitor_id IS NOT NULL
              GROUP BY web_visitor_id
            ) wp ON wp.web_visitor_id = e.to_id
-     WHERE e.workspace_id = $1
+     WHERE e.project_id = $1
        AND e.method = 'estimate'
        AND e.from_type = 'install'
        AND e.to_type = 'web_visitor'
@@ -42,7 +42,7 @@ scoped AS (
            COALESCE(r.person_id, ev.person_id) AS person_est
       FROM events_resolved ev
       LEFT JOIN remap r ON r.install_id = ev.install_id
-     WHERE ev.workspace_id = $1
+     WHERE ev.project_id = $1
        AND ev.event_time >= $2
        AND ev.event_time <  $3
        AND ($5::uuid IS NULL OR ev.source_id = $5::uuid)

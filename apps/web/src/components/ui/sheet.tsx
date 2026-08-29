@@ -1,0 +1,81 @@
+import { Dialog } from "@kobalte/core/dialog";
+import { splitProps, type ComponentProps, type JSX } from "solid-js";
+import { cn } from "../../lib/cn.js";
+
+/**
+ * A side drawer, on Kobalte's dialog primitive.
+ *
+ * Kobalte handles the parts that are tedious and easy to get subtly wrong:
+ * focus trapping, restoring focus to whatever opened it, scroll locking, escape
+ * and outside-click dismissal, and the aria wiring between title, description
+ * and the dialog itself.
+ */
+
+export const Sheet = Dialog;
+export const SheetTrigger = Dialog.Trigger;
+export const SheetClose = Dialog.CloseButton;
+
+export function SheetContent(
+  props: ComponentProps<typeof Dialog.Content> & { class?: string; side?: "right" | "left" }
+) {
+  const [local, rest] = splitProps(props, ["class", "children", "side"]);
+  const side = () => local.side ?? "right";
+
+  return (
+    <Dialog.Portal>
+      <Dialog.Overlay
+        class={cn(
+          "fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]",
+          "data-[expanded]:animate-in data-[expanded]:fade-in-0",
+          "data-[closed]:animate-out data-[closed]:fade-out-0"
+        )}
+      />
+      <Dialog.Content
+        class={cn(
+          "bg-background fixed z-50 flex h-full w-full flex-col gap-0 border-l shadow-lg outline-none",
+          "top-0 sm:max-w-sm",
+          side() === "right" ? "right-0" : "left-0 border-l-0 border-r",
+          "data-[expanded]:animate-in data-[expanded]:duration-200",
+          "data-[closed]:animate-out data-[closed]:duration-150",
+          side() === "right"
+            ? "data-[expanded]:slide-in-from-right data-[closed]:slide-out-to-right"
+            : "data-[expanded]:slide-in-from-left data-[closed]:slide-out-to-left",
+          local.class
+        )}
+        {...rest}
+      >
+        {local.children}
+      </Dialog.Content>
+    </Dialog.Portal>
+  );
+}
+
+export function SheetHeader(props: { class?: string; children?: JSX.Element }) {
+  return <div class={cn("flex flex-col gap-1 border-b px-5 py-4", props.class)}>{props.children}</div>;
+}
+
+export function SheetTitle(props: ComponentProps<typeof Dialog.Title> & { class?: string }) {
+  const [local, rest] = splitProps(props, ["class"]);
+  return <Dialog.Title class={cn("text-base font-semibold", local.class)} {...rest} />;
+}
+
+export function SheetDescription(
+  props: ComponentProps<typeof Dialog.Description> & { class?: string }
+) {
+  const [local, rest] = splitProps(props, ["class"]);
+  return <Dialog.Description class={cn("text-sm text-muted-foreground", local.class)} {...rest} />;
+}
+
+export function SheetBody(props: { class?: string; children?: JSX.Element }) {
+  return (
+    <div class={cn("flex-1 overflow-y-auto px-5 py-4", props.class)}>{props.children}</div>
+  );
+}
+
+export function SheetFooter(props: { class?: string; children?: JSX.Element }) {
+  return (
+    <div class={cn("flex items-center justify-end gap-2 border-t px-5 py-4", props.class)}>
+      {props.children}
+    </div>
+  );
+}

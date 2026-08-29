@@ -7,7 +7,7 @@
 -- Counts distinct people, not events: three page views from one person on one
 -- day is one visitor, which is the only reading that composes with the funnel.
 --
--- $1 workspace_id, $2 from, $3 to, $4 event_name, $5 source_id (nullable)
+-- $1 project_id, $2 from, $3 to, $4 event_name, $5 source_id (nullable)
 WITH days AS (
     SELECT generate_series(
              date_trunc('day', $2::timestamptz),
@@ -19,7 +19,7 @@ counted AS (
     SELECT date_trunc('day', event_time) AS day,
            count(DISTINCT person_id)     AS people
       FROM events_resolved
-     WHERE workspace_id = $1
+     WHERE project_id = $1
        AND event_name = $4
        AND event_time >= $2
        AND event_time <  $3

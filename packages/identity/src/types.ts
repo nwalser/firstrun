@@ -25,7 +25,7 @@ export function isExact(method: EdgeMethod): method is "token" | "account" {
 }
 
 export interface IdentityEdge {
-  workspace_id: string;
+  project_id: string;
   from: Distinct;
   to: Distinct;
   method: EdgeMethod;
@@ -35,14 +35,14 @@ export interface IdentityEdge {
 }
 
 export interface PersonOverride {
-  workspace_id: string;
+  project_id: string;
   distinct: Distinct;
   person_id: string;
   /** Monotonic per process. On conflict, the highest version wins. */
   version: number;
 }
 
-/** Stable map key for a distinct within a workspace. */
+/** Stable map key for a distinct within a project. */
 export function distinctKey(d: Distinct): string {
   return d.type + " " + d.id;
 }

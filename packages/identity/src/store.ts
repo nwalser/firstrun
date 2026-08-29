@@ -19,10 +19,10 @@ export interface IdentityStore {
    * chokepoint enforcing CLAUDE.md rule 1: if an estimate edge cannot enter
    * traversal, it cannot influence a person id.
    */
-  exactEdgesTouching(workspaceId: string, distincts: readonly Distinct[]): Promise<IdentityEdge[]>;
+  exactEdgesTouching(projectId: string, distincts: readonly Distinct[]): Promise<IdentityEdge[]>;
 
   /** distinctKey -> person_id, for distincts that have one. */
-  getOverrides(workspaceId: string, distincts: readonly Distinct[]): Promise<Map<string, string>>;
+  getOverrides(projectId: string, distincts: readonly Distinct[]): Promise<Map<string, string>>;
 
   putOverrides(rows: readonly PersonOverride[]): Promise<void>;
 
@@ -31,7 +31,7 @@ export interface IdentityStore {
 
   /** Squash only. Returns rows touched. */
   rewriteEventPersons(
-    workspaceId: string,
+    projectId: string,
     personId: string,
     distincts: readonly Distinct[]
   ): Promise<number>;
@@ -41,7 +41,7 @@ export interface IdentityStore {
 
 /** A stored event, reduced to what squash needs to find and rewrite it. */
 export interface EventRow {
-  workspace_id: string;
+  project_id: string;
   event_id: string;
   person_id: string;
   web_visitor_id: string | null;
@@ -56,29 +56,29 @@ export interface EventRow {
 export class MemoryIdentityStore implements IdentityStore {
   readonly edges: IdentityEdge[] = [];
   readonly events: EventRow[] = [];
-  /** workspace -> distinctKey -> override */
+  /** project -> distinctKey -> override */
   private readonly overrides = new Map<string, Map<string, PersonOverride>>();
 
   async insertEdges(edges: readonly IdentityEdge[]): Promise<void> {
     this.edges.push(...edges);
   }
 
-  async exactEdgesTouching(workspaceId: string, distincts: readonly Distinct[]): Promise<IdentityEdge[]> {
+  async exactEdgesTouching(projectId: string, distincts: readonly Distinct[]): Promise<IdentityEdge[]> {
     const wanted = new Set(distincts.map(distinctKey));
     return this.edges.filter(
       (e) =>
-        e.workspace_id === workspaceId &&
+        e.project_id === projectId &&
         isExact(e.method) &&
         (wanted.has(distinctKey(e.from)) || wanted.has(distinctKey(e.to)))
     );
   }
 
-  async getOverrides(workspaceId: string, distincts: readonly Distinct[]): Promise<Map<string, string>> {
-    const byWorkspace = this.overrides.get(workspaceId);
+  async getOverrides(projectId: string, distincts: readonly Distinct[]): Promise<Map<string, string>> {
+    const byProject = this.overrides.get(projectId);
     const out = new Map<string, string>();
-    if (!byWorkspace) return out;
+    if (!byProject) return out;
     for (const d of distincts) {
-      const row = byWorkspace.get(distinctKey(d));
+      const row = byProject.get(distinctKey(d));
       if (row) out.set(distinctKey(d), row.person_id);
     }
     return out;
@@ -86,22 +86,22 @@ export class MemoryIdentityStore implements IdentityStore {
 
   async putOverrides(rows: readonly PersonOverride[]): Promise<void> {
     for (const row of rows) {
-      let byWorkspace = this.overrides.get(row.workspace_id);
-      if (!byWorkspace) {
-        byWorkspace = new Map();
-        this.overrides.set(row.workspace_id, byWorkspace);
+      let byProject = this.overrides.get(row.project_id);
+      if (!byProject) {
+        byProject = new Map();
+        this.overrides.set(row.project_id, byProject);
       }
       const key = distinctKey(row.distinct);
-      const existing = byWorkspace.get(key);
+      const existing = byProject.get(key);
       // Highest version wins, same as the ON CONFLICT rule in Postgres.
-      if (!existing || existing.version <= row.version) byWorkspace.set(key, row);
+      if (!existing || existing.version <= row.version) byProject.set(key, row);
     }
   }
 
   async pendingOverrides(limit = 10_000): Promise<PersonOverride[]> {
     const out: PersonOverride[] = [];
-    for (const byWorkspace of this.overrides.values()) {
-      for (const row of byWorkspace.values()) {
+    for (const byProject of this.overrides.values()) {
+      for (const row of byProject.values()) {
         out.push(row);
         if (out.length >= limit) return out;
       }
@@ -110,14 +110,14 @@ export class MemoryIdentityStore implements IdentityStore {
   }
 
   async rewriteEventPersons(
-    workspaceId: string,
+    projectId: string,
     personId: string,
     distincts: readonly Distinct[]
   ): Promise<number> {
     const wanted = new Set(distincts.map(distinctKey));
     let n = 0;
     for (const ev of this.events) {
-      if (ev.workspace_id !== workspaceId) continue;
+      if (ev.project_id !== projectId) continue;
       const hit =
         (ev.web_visitor_id && wanted.has("web_visitor " + ev.web_visitor_id)) ||
         (ev.install_id && wanted.has("install " + ev.install_id)) ||
@@ -132,12 +132,12 @@ export class MemoryIdentityStore implements IdentityStore {
 
   async deleteOverrides(rows: readonly PersonOverride[]): Promise<void> {
     for (const row of rows) {
-      const byWorkspace = this.overrides.get(row.workspace_id);
-      if (!byWorkspace) continue;
+      const byProject = this.overrides.get(row.project_id);
+      if (!byProject) continue;
       const key = distinctKey(row.distinct);
-      const existing = byWorkspace.get(key);
+      const existing = byProject.get(key);
       // Only drop what we actually drained. A newer write during squash survives.
-      if (existing && existing.version <= row.version) byWorkspace.delete(key);
+      if (existing && existing.version <= row.version) byProject.delete(key);
     }
   }
 }

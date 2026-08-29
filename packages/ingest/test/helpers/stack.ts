@@ -2,6 +2,7 @@ import {
   applyMigrations,
   createStore,
   createSource,
+  createProject,
   createWorkspace,
   PostgresIdentityStore,
   upsertGithubUser,
@@ -11,12 +12,12 @@ import { IdentityResolver } from "@firstrun/identity";
 import { configFromEnv, type Ctx } from "../../src/index.js";
 
 /**
- * A real workspace in a real database, torn down afterwards.
+ * A real project in a real database, torn down afterwards.
  *
- * Every query in this system is workspace-scoped, so a workspace IS the
+ * Every query in this system is project-scoped, so a project IS the
  * isolation boundary -- there is no need for a throwaway database, and using
  * the real one means the tests exercise the real indexes and the real planner.
- * Deleting the workspace cascades to everything it owns.
+ * Deleting the project cascades to everything it owns.
  *
  * Needs `docker compose up -d`. That is already how you run anything here, so
  * these do not skip when it is missing: they fail and say why.
@@ -24,7 +25,7 @@ import { configFromEnv, type Ctx } from "../../src/index.js";
 export interface TestStack {
   ctx: Ctx;
   store: Store;
-  workspaceId: string;
+  projectId: string;
   webKey: string;
   appKey: string;
   setNow: (fn: () => number) => void;
@@ -49,9 +50,10 @@ export async function createTestStack(): Promise<TestStack> {
     email: null,
     avatarUrl: null,
   });
-  const workspace = await createWorkspace(store.db, `Test ${suffix}`, user.id);
-  const web = await createSource(store.db, workspace.id, "site", "web", null);
-  const app = await createSource(store.db, workspace.id, "app", "desktop", "Themia-Setup");
+  const workspace = await createWorkspace(store.db, `Test WS ${suffix}`, user.id);
+  const project = await createProject(store.db, workspace.id, `Test ${suffix}`);
+  const web = await createSource(store.db, project.id, "site", "web", null);
+  const app = await createSource(store.db, project.id, "app", "desktop", "Themia-Setup");
 
   let nowFn: () => number = () => Date.now();
   const now = () => nowFn();
@@ -68,7 +70,7 @@ export async function createTestStack(): Promise<TestStack> {
   return {
     ctx,
     store,
-    workspaceId: workspace.id,
+    projectId: project.id,
     webKey: web.ingestKey,
     appKey: app.ingestKey,
     setNow: (fn) => {

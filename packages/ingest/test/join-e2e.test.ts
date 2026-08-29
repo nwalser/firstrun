@@ -116,11 +116,11 @@ describe("visitor -> download -> first run -> paid", () => {
   });
 
   test("the visitor and the install are ONE person", async () => {
-    const asWeb = await stack.ctx.resolver.resolve(stack.workspaceId, {
+    const asWeb = await stack.ctx.resolver.resolve(stack.projectId, {
       type: "web_visitor",
       id: visitorId,
     });
-    const asInstall = await stack.ctx.resolver.resolve(stack.workspaceId, {
+    const asInstall = await stack.ctx.resolver.resolve(stack.projectId, {
       type: "install",
       id: installId,
     });
@@ -137,9 +137,9 @@ describe("visitor -> download -> first run -> paid", () => {
               array_remove(array_agg(DISTINCT web_visitor_id), NULL) AS visitors,
               array_remove(array_agg(DISTINCT install_id), NULL)     AS installs
          FROM events_resolved
-        WHERE workspace_id = $1
+        WHERE project_id = $1
         GROUP BY person_id`,
-      [stack.workspaceId]
+      [stack.projectId]
     );
 
     expect(rows.length).toBe(1);
@@ -147,11 +147,11 @@ describe("visitor -> download -> first run -> paid", () => {
     expect(rows[0]!.installs).toEqual([installId]);
   });
 
-  test("the person spans two sources, because a workspace is one identity namespace", async () => {
+  test("the person spans two sources, because a project is one identity namespace", async () => {
     const rows = await stack.store.query<{ sources: number }>(
       `SELECT count(DISTINCT source_id)::int AS sources
-         FROM events_resolved WHERE workspace_id = $1`,
-      [stack.workspaceId]
+         FROM events_resolved WHERE project_id = $1`,
+      [stack.projectId]
     );
     expect(rows[0]!.sources).toBe(2);
   });
@@ -172,7 +172,7 @@ describe("visitor -> download -> first run -> paid", () => {
 
     const now = Date.now();
     const result = await funnel(stack.store, {
-      workspaceId: stack.workspaceId,
+      projectId: stack.projectId,
       from: new Date(now - 30 * 864e5),
       to: new Date(now + 864e5),
     });
