@@ -3,32 +3,36 @@ import {
   IdentityResolver,
   MemoryIdentityStore,
   type Distinct,
-  type IdentityEdge,
 } from "@firstrun/identity";
-import { EVENT, TOKEN_TTL_MS, mintToken } from "@firstrun/schema";
+import { EVENT, TOKEN_TTL_MS, defaultLayout, mintToken } from "@firstrun/schema";
 import type { EventEnvelope, StoredEvent } from "@firstrun/schema";
-import { ClickHouseClient, configFromEnv, toChDateTime } from "./clickhouse/client.js";
+import { eq, sql as raw } from "drizzle-orm";
+import { createStore } from "./client.js";
+import { PostgresIdentityStore } from "./identity-store.js";
 import { insertEvents } from "./events.js";
-import { applyClickHouseMigrations, applySqliteMigrations, waitForClickHouse } from "./migrate.js";
-import { openSqlite, sqlitePathFromEnv } from "./sqlite/client.js";
-import { repositories } from "./sqlite/repositories.js";
+import { applyMigrations } from "./migrate.js";
+import { clearWorkspaceData } from "./repo.js";
+import { dashboards, downloadTokens, sources, users, workspaceMembers, workspaces } from "./schema.js";
 
 /**
- * A synthetic project shaped like the first real subject: a Windows desktop app
- * with a marketing site, about a thousand monthly users and a few dozen paying
- * customers.
+ * A synthetic workspace shaped like the first real subject: a Windows desktop
+ * app with a marketing site, about a thousand monthly users and a few dozen
+ * paying customers.
  *
- * The numbers are not decoration. The funnel screen is the only screen, and a
- * screen you cannot look at is a screen you cannot judge -- if the drop from
- * download to first run is invisible on fake data, it will be invisible on real
- * data too.
+ * The numbers are not decoration. A screen you cannot look at is a screen you
+ * cannot judge -- if the drop from download to first run is invisible on fake
+ * data, it will be invisible on real data too.
  *
  * Everything is driven by one seeded RNG, so re-running produces the same
- * project and a diff in the numbers means a diff in the code.
+ * workspace and a diff in the numbers means a diff in the code.
  */
 
-const SEED_PROJECT_ID = "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40";
-const SEED_API_KEY = "fr_seed_0000000000000000";
+const SEED_WORKSPACE_ID = "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40";
+const SEED_WEB_SOURCE_ID = "1b6f0c58-3f2a-4a91-8f2d-9c1e77a04b11";
+const SEED_APP_SOURCE_ID = "2c7a1d69-4e3b-4b02-9a3e-0d2f88b15c22";
+const SEED_WEB_KEY = "fr_web_5eed000000000001";
+const SEED_APP_KEY = "fr_app_5eed000000000002";
+const SEED_USER_LOGIN = process.env.SEED_USER ?? "seed";
 const ASSET_NAME = "Themia-Setup";
 const DAYS = 30;
 const DAY = 24 * 60 * 60 * 1000;
@@ -52,18 +56,17 @@ const TRACKS = [
 ] as const;
 
 /**
- * Where the install came from, weighted.
- *
- * Site-heavy because that is the truth for a small desktop app with a
- * marketing site, and because it is the honest shape for the screen: most
- * joins are exact, and the estimated number is a minority that has to be
- * visible without pretending to be the main event.
+ * Where the install came from, weighted. Site-heavy because that is the truth
+ * for a small desktop app with a marketing site, and because it is the honest
+ * shape for the screen: most joins are exact, and the estimated number is a
+ * visible minority rather than the main event.
  */
 const CHANNELS = [
   { name: "site", weight: 0.85 },
   { name: "winget", weight: 0.1 },
   { name: "shared-link", weight: 0.05 },
 ] as const;
+
 const OSES = ["windows", "windows", "windows", "windows", "macos"] as const;
 const LOCALES = ["de-CH", "de-DE", "en-US", "en-GB", "fr-CH", "it-CH"] as const;
 const UTM = [
@@ -100,12 +103,9 @@ function weighted<T extends { weight: number }>(options: readonly T[]): T {
 }
 
 /**
- * Visitors per day.
- *
- * Weekends are quieter and there is one Product Hunt spike, because a funnel
- * over flat traffic hides exactly the shape a founder opens this screen to
- * find. Normalised afterwards so the month still totals the target rather than
- * drifting whichever way the shape happens to push it.
+ * Visitors per day. Weekends are quieter and there is one Product Hunt spike,
+ * because a funnel over flat traffic hides exactly the shape a founder opens
+ * this screen to find. Normalised so the month still totals the target.
  */
 function visitorsPerDay(total: number): number[] {
   const weights: number[] = [];
@@ -129,11 +129,11 @@ function sample<T>(xs: readonly T[], n: number): T[] {
 }
 
 /**
- * How often someone who is still around opens the app on day N.
+ * How often someone still around opens the app on day N.
  *
  * The floor matters: a habitual user does not decay to zero, they settle into
- * opening it a couple of times a week forever. Churn is modelled separately,
- * by people leaving outright, because "everyone slowly uses it less" and "most
+ * opening it a couple of times a week forever. Churn is modelled separately, by
+ * people leaving outright, because "everyone slowly uses it less" and "most
  * people quit and the rest keep going" produce very different retention curves
  * and only the second one is what actually happens.
  */
@@ -142,11 +142,9 @@ function launchChance(daysSinceFirstRun: number): number {
 }
 
 /**
- * The day an install stops opening the app for good.
- *
- * Most of the loss is in the first few days -- someone downloads a tool, opens
- * it once, and never thinks about it again. That early cliff is the shape the
- * funnel screen exists to make visible.
+ * The day an install stops opening the app for good. Most of the loss is in the
+ * first few days -- someone downloads a tool, opens it once, and never thinks
+ * about it again. That early cliff is the shape the funnel exists to show.
  */
 function churnDay(quiet: boolean): number {
   if (quiet) return between(4, 11);
@@ -173,7 +171,9 @@ interface Person {
   launches: number[];
 }
 
-function generate(): { people: Person[]; edges: Array<[Distinct, Distinct, "token" | "account" | "estimate", number]> } {
+type SeedEdge = [Distinct, Distinct, "token" | "account" | "estimate", number];
+
+function generate(): { people: Person[]; edges: SeedEdge[] } {
   const people: Person[] = [];
   const perDay = visitorsPerDay(TARGET.visitors);
 
@@ -192,14 +192,13 @@ function generate(): { people: Person[]; edges: Array<[Distinct, Distinct, "toke
     }
   }
 
-  const edges: Array<[Distinct, Distinct, "token" | "account" | "estimate", number]> = [];
+  const edges: SeedEdge[] = [];
   const buyers: Person[] = [];
 
   // Exactly N downloaders and exactly N installers, chosen at random, rather
-  // than a coin flip per person. A coin flip is more honest as a model and less
-  // useful as a fixture: the headline numbers on the screen should be the
-  // numbers this file says they are, not those numbers plus whatever the RNG
-  // felt like this month.
+  // than a coin flip per person. A coin flip is the more honest model and the
+  // less useful fixture: the headline numbers should be the numbers this file
+  // says they are, not those plus whatever the RNG felt like this month.
   const downloaders = sample(people, Math.round(people.length * TARGET.downloadRate));
   const installers = new Set(sample(downloaders, Math.round(downloaders.length * TARGET.installRate)));
 
@@ -213,11 +212,8 @@ function generate(): { people: Person[]; edges: Array<[Distinct, Distinct, "toke
     p.installId = `i_${p.visitorId.slice(2)}`;
     // Clamped rather than dropped: someone who downloaded an hour ago and has
     // not run it yet is a real row in the funnel's biggest drop-off, and
-    // silently removing them would flatter the number.
-    p.firstRunAt = Math.min(
-      p.downloadedAt + between(2 / 60, 62) * 60 * 60 * 1000,
-      Date.now() - 60_000
-    );
+    // removing them would flatter the number.
+    p.firstRunAt = Math.min(p.downloadedAt + between(2 / 60, 62) * 60 * 60 * 1000, Date.now() - 60_000);
 
     const track = weighted(TRACKS);
     p.track = track;
@@ -235,9 +231,8 @@ function generate(): { people: Person[]; edges: Array<[Distinct, Distinct, "toke
       edges.push([install, web, "estimate", chance(0.5) ? 0.8 : 0.4]);
     }
 
-    // Launches, from first run to today, decaying until the person leaves.
     const quietAfterDays = churnDay(track.quiet);
-    for (let d = 1; (p.firstRunAt + d * DAY) < Date.now(); d++) {
+    for (let d = 1; p.firstRunAt + d * DAY < Date.now(); d++) {
       if (d > quietAfterDays) break;
       if (!chance(launchChance(d))) continue;
       p.launches.push(p.firstRunAt + d * DAY + between(-4, 4) * 60 * 60 * 1000);
@@ -261,9 +256,12 @@ function generate(): { people: Person[]; edges: Array<[Distinct, Distinct, "toke
   return { people, edges };
 }
 
-function envelope(e: Partial<EventEnvelope> & Pick<EventEnvelope, "event_name" | "event_time" | "surface">): EventEnvelope {
+function envelope(
+  e: Partial<EventEnvelope> & Pick<EventEnvelope, "event_name" | "event_time" | "surface">
+): EventEnvelope {
   return {
-    project_id: SEED_PROJECT_ID,
+    workspace_id: SEED_WORKSPACE_ID,
+    source_id: e.surface === "app" ? SEED_APP_SOURCE_ID : SEED_WEB_SOURCE_ID,
     event_id: crypto.randomUUID(),
     ingest_time: e.event_time,
     web_visitor_id: null,
@@ -286,202 +284,227 @@ function envelope(e: Partial<EventEnvelope> & Pick<EventEnvelope, "event_name" |
 }
 
 async function main(): Promise<void> {
-  const chConfig = configFromEnv();
-  const ch = new ClickHouseClient(chConfig);
-  await waitForClickHouse(ch);
-  await applyClickHouseMigrations(ch);
+  await applyMigrations();
+  const store2 = createStore();
+  const { db, close } = store2;
 
-  const sqlite = openSqlite(sqlitePathFromEnv());
-  applySqliteMigrations(sqlite);
-  const repos = repositories(sqlite);
+  try {
+    // A workspace nobody can open is not a fixture. The seed user is a real row
+    // that `bun run dev:login` can mint a session for.
+    const user = (
+      await db
+        .insert(users)
+        .values({ githubId: 1, login: SEED_USER_LOGIN, name: "Seed User", email: null, avatarUrl: null })
+        .onConflictDoUpdate({ target: users.githubId, set: { login: SEED_USER_LOGIN } })
+        .returning()
+    )[0]!;
 
-  console.log("clearing previous seed");
-  for (const table of ["events", "identity_edges", "person_overrides"]) {
-    await ch.command(`DELETE FROM ${table} WHERE project_id = {project:UUID}`, {
-      project: SEED_PROJECT_ID,
-    });
-  }
-  sqlite.query(`DELETE FROM download_tokens WHERE project_id = ?`).run(SEED_PROJECT_ID);
-  sqlite.query(`DELETE FROM download_hints WHERE project_id = ?`).run(SEED_PROJECT_ID);
-  sqlite.query(`DELETE FROM ingested_events WHERE project_id = ?`).run(SEED_PROJECT_ID);
+    await db
+      .insert(workspaces)
+      .values({ id: SEED_WORKSPACE_ID, name: "Themia", slug: "themia" })
+      .onConflictDoUpdate({ target: workspaces.id, set: { name: "Themia" } });
 
-  repos.projects.upsert({
-    id: SEED_PROJECT_ID,
-    name: "Themia",
-    asset_name: ASSET_NAME,
-    created_at: Date.now() - DAYS * DAY,
-  });
-  if (!repos.apiKeys.projectFor(SEED_API_KEY)) {
-    repos.apiKeys.create({
-      key: SEED_API_KEY,
-      project_id: SEED_PROJECT_ID,
-      name: "seed",
-      created_at: Date.now(),
-      revoked_at: null,
-    });
-  }
+    await db
+      .insert(workspaceMembers)
+      .values({ workspaceId: SEED_WORKSPACE_ID, userId: user.id, role: "owner" })
+      .onConflictDoNothing();
 
-  console.log("generating");
-  const { people, edges } = generate();
+    await db
+      .insert(sources)
+      .values([
+        {
+          id: SEED_WEB_SOURCE_ID,
+          workspaceId: SEED_WORKSPACE_ID,
+          name: "themia.app",
+          kind: "web",
+          assetName: null,
+          ingestKey: SEED_WEB_KEY,
+        },
+        {
+          id: SEED_APP_SOURCE_ID,
+          workspaceId: SEED_WORKSPACE_ID,
+          name: "Themia for Windows",
+          kind: "desktop",
+          assetName: ASSET_NAME,
+          ingestKey: SEED_APP_KEY,
+        },
+      ])
+      .onConflictDoNothing();
 
-  // Resolve people through the real resolver rather than a shortcut, so the
-  // seed cannot disagree with production about who anybody is.
-  const store = new MemoryIdentityStore();
-  const resolver = new IdentityResolver(store);
-  for (const [from, to, method, confidence] of edges) {
-    await resolver.link(SEED_PROJECT_ID, from, to, method, confidence);
-  }
-
-  const personCache = new Map<string, string>();
-  const personOf = async (d: Distinct): Promise<string> => {
-    const key = d.type + " " + d.id;
-    let p = personCache.get(key);
-    if (!p) {
-      p = await resolver.resolve(SEED_PROJECT_ID, d);
-      personCache.set(key, p);
+    const existingDashboard = await db
+      .select({ id: dashboards.id })
+      .from(dashboards)
+      .where(eq(dashboards.workspaceId, SEED_WORKSPACE_ID))
+      .limit(1);
+    if (existingDashboard.length === 0) {
+      await db
+        .insert(dashboards)
+        .values({ workspaceId: SEED_WORKSPACE_ID, name: "Overview", layout: defaultLayout() });
     }
-    return p;
-  };
 
-  const events: StoredEvent[] = [];
-  const tokenRows: Array<Parameters<typeof repos.downloadTokens.create>[0]> = [];
+    console.log("clearing previous seed");
+    await clearWorkspaceData(db, SEED_WORKSPACE_ID);
 
-  for (const p of people) {
-    const webPerson = await personOf({ type: "web_visitor", id: p.visitorId });
-    const sessionId = `s_${p.visitorId.slice(2)}`;
+    console.log("generating");
+    const { people, edges } = generate();
 
-    const views = 1 + Math.floor(rand() * 3);
-    for (let i = 0; i < views; i++) {
-      events.push({
+    // Resolve through the real resolver rather than a shortcut, so the seed
+    // cannot disagree with production about who anybody is.
+    const store = new MemoryIdentityStore();
+    const resolver = new IdentityResolver(store);
+    for (const [from, to, method, confidence] of edges) {
+      await resolver.link(SEED_WORKSPACE_ID, from, to, method, confidence);
+    }
+
+    const personCache = new Map<string, string>();
+    const personOf = async (d: Distinct): Promise<string> => {
+      const key = d.type + " " + d.id;
+      let p = personCache.get(key);
+      if (!p) {
+        p = await resolver.resolve(SEED_WORKSPACE_ID, d);
+        personCache.set(key, p);
+      }
+      return p;
+    };
+
+    const eventRows: StoredEvent[] = [];
+    const tokenRows: Array<typeof downloadTokens.$inferInsert> = [];
+
+    for (const p of people) {
+      const webPerson = await personOf({ type: "web_visitor", id: p.visitorId });
+      const sessionId = `s_${p.visitorId.slice(2)}`;
+
+      const views = 1 + Math.floor(rand() * 3);
+      for (let i = 0; i < views; i++) {
+        eventRows.push({
+          ...envelope({
+            event_name: EVENT.PAGE_VIEW,
+            event_time: p.firstVisitAt + i * between(20, 240) * 1000,
+            surface: "web",
+            web_visitor_id: p.visitorId,
+            session_id: sessionId,
+            locale: p.locale,
+            url: i === 0 ? "https://themia.app/" : "https://themia.app/download",
+            referrer: i === 0 ? "https://www.google.com/" : "https://themia.app/",
+            utm_source: p.utm.source,
+            utm_medium: p.utm.medium,
+            utm_campaign: p.utm.campaign,
+          }),
+          person_id: webPerson,
+        });
+      }
+
+      if (p.downloadedAt === undefined || !p.token) continue;
+
+      tokenRows.push({
+        token: p.token,
+        workspaceId: SEED_WORKSPACE_ID,
+        sourceId: SEED_APP_SOURCE_ID,
+        webVisitorId: p.visitorId,
+        asset: ASSET_NAME,
+        createdAt: new Date(p.downloadedAt),
+        expiresAt: new Date(p.downloadedAt + TOKEN_TTL_MS),
+        claimedAt: p.firstRunAt ? new Date(p.firstRunAt) : null,
+      });
+
+      eventRows.push({
         ...envelope({
-          event_name: EVENT.PAGE_VIEW,
-          event_time: p.firstVisitAt + i * between(20, 240) * 1000,
+          event_name: EVENT.DOWNLOAD_STARTED,
+          event_time: p.downloadedAt,
           surface: "web",
           web_visitor_id: p.visitorId,
           session_id: sessionId,
           locale: p.locale,
-          url: i === 0 ? "https://themia.app/" : "https://themia.app/download",
-          referrer: i === 0 ? "https://www.google.com/" : "https://themia.app/",
+          os: p.os,
+          url: "https://themia.app/download",
           utm_source: p.utm.source,
           utm_medium: p.utm.medium,
           utm_campaign: p.utm.campaign,
+          props: { asset: ASSET_NAME, channel: p.channel ?? "site" },
         }),
         person_id: webPerson,
       });
-    }
 
-    if (p.downloadedAt === undefined || !p.token) continue;
+      if (!p.installId || p.firstRunAt === undefined) continue;
 
-    tokenRows.push({
-      token: p.token,
-      project_id: SEED_PROJECT_ID,
-      web_visitor_id: p.visitorId,
-      asset: ASSET_NAME,
-      created_at: p.downloadedAt,
-      expires_at: p.downloadedAt + TOKEN_TTL_MS,
-      claimed_at: p.firstRunAt ?? null,
-    });
-
-    events.push({
-      ...envelope({
-        event_name: EVENT.DOWNLOAD_STARTED,
-        event_time: p.downloadedAt,
-        surface: "web",
-        web_visitor_id: p.visitorId,
-        session_id: sessionId,
+      const appPerson = await personOf({ type: "install", id: p.installId });
+      const appCommon = {
+        surface: "app" as const,
+        install_id: p.installId,
+        account_id: p.accountId ?? null,
+        app_version: p.version ?? null,
+        channel: p.channel ?? null,
+        os: p.os ?? "windows",
+        arch: "x86_64",
         locale: p.locale,
-        os: p.os,
-        url: "https://themia.app/download",
-        utm_source: p.utm.source,
-        utm_medium: p.utm.medium,
-        utm_campaign: p.utm.campaign,
-        props: { asset: ASSET_NAME, channel: p.channel ?? "site" },
-      }),
-      person_id: webPerson,
-    });
+      };
 
-    if (!p.installId || p.firstRunAt === undefined) continue;
-
-    const appPerson = await personOf({ type: "install", id: p.installId });
-    const appCommon = {
-      surface: "app" as const,
-      install_id: p.installId,
-      account_id: p.accountId ?? null,
-      app_version: p.version ?? null,
-      channel: p.channel ?? null,
-      os: p.os ?? "windows",
-      arch: "x86_64",
-      locale: p.locale,
-    };
-
-    events.push({
-      ...envelope({ ...appCommon, event_name: EVENT.APP_FIRST_RUN, event_time: p.firstRunAt }),
-      person_id: appPerson,
-    });
-
-    for (const at of p.launches) {
-      events.push({
-        ...envelope({ ...appCommon, event_name: EVENT.APP_LAUNCH, event_time: at }),
+      eventRows.push({
+        ...envelope({ ...appCommon, event_name: EVENT.APP_FIRST_RUN, event_time: p.firstRunAt }),
         person_id: appPerson,
       });
+
+      for (const at of p.launches) {
+        eventRows.push({
+          ...envelope({ ...appCommon, event_name: EVENT.APP_LAUNCH, event_time: at }),
+          person_id: appPerson,
+        });
+      }
+
+      if (p.purchasedAt !== undefined) {
+        eventRows.push({
+          ...envelope({
+            ...appCommon,
+            event_name: EVENT.PURCHASE,
+            event_time: p.purchasedAt,
+            props: { plan: chance(0.3) ? "team" : "pro", currency: "CHF" },
+          }),
+          person_id: appPerson,
+        });
+      }
     }
 
-    if (p.purchasedAt !== undefined) {
-      events.push({
-        ...envelope({
-          ...appCommon,
-          event_name: EVENT.PURCHASE,
-          event_time: p.purchasedAt,
-          props: { plan: chance(0.3) ? "team" : "pro", currency: "CHF" },
-        }),
-        person_id: appPerson,
-      });
+    console.log(`inserting ${eventRows.length} events`);
+    for (let i = 0; i < eventRows.length; i += 2000) {
+      await insertEvents(store2, eventRows.slice(i, i + 2000));
     }
+
+    const edgeStore = new PostgresIdentityStore(store2);
+    for (let i = 0; i < store.edges.length; i += 2000) {
+      await edgeStore.insertEdges(store.edges.slice(i, i + 2000));
+    }
+
+    for (let i = 0; i < tokenRows.length; i += 1000) {
+      await db.insert(downloadTokens).values(tokenRows.slice(i, i + 1000)).onConflictDoNothing();
+    }
+
+    // The planner has never seen this table with rows in it, and the funnel is
+    // eight CTEs deep. Without this the first page load picks a bad plan.
+    await db.execute(raw`ANALYZE events`);
+
+    const installs = people.filter((p) => p.installId).length;
+    const exact = store.edges.filter((e) => e.method === "token").length;
+    const estimated = store.edges.filter((e) => e.method === "estimate").length;
+    const purchases = people.filter((p) => p.purchasedAt !== undefined).length;
+
+    console.log("");
+    console.log(`  workspace      Themia (${SEED_WORKSPACE_ID})`);
+    console.log(`  user           ${SEED_USER_LOGIN}`);
+    console.log(`  visitors       ${people.length}`);
+    console.log(`  downloads      ${tokenRows.length}`);
+    console.log(`  installs       ${installs}`);
+    console.log(`  token joins    ${exact}`);
+    console.log(`  estimated      ${estimated}`);
+    console.log(`  purchases      ${purchases}`);
+    console.log(`  events         ${eventRows.length}`);
+    console.log("");
+    console.log(`  bun run dev:login ${SEED_USER_LOGIN}`);
+    console.log(`  http://localhost:3000/w/themia`);
+  } finally {
+    await close();
   }
-
-  console.log(`inserting ${events.length} events`);
-  for (let i = 0; i < events.length; i += 5000) {
-    await insertEvents(ch, events.slice(i, i + 5000));
-  }
-
-  await ch.insert(
-    "identity_edges",
-    store.edges.map((e: IdentityEdge) => ({
-      project_id: e.project_id,
-      from_type: e.from.type,
-      from_id: e.from.id,
-      to_type: e.to.type,
-      to_id: e.to.id,
-      method: e.method,
-      confidence: e.confidence,
-      created_at: toChDateTime(e.created_at),
-    }))
-  );
-
-  const insertToken = sqlite.transaction((rows: typeof tokenRows) => {
-    for (const r of rows) repos.downloadTokens.create(r);
-  });
-  insertToken(tokenRows);
-  sqlite.close();
-
-  const installs = people.filter((p) => p.installId).length;
-  const exact = store.edges.filter((e) => e.method === "token").length;
-  const estimated = store.edges.filter((e) => e.method === "estimate").length;
-  const purchases = people.filter((p) => p.purchasedAt !== undefined).length;
-
-  console.log("");
-  console.log(`  project        ${SEED_PROJECT_ID}`);
-  console.log(`  visitors       ${people.length}`);
-  console.log(`  downloads      ${tokenRows.length}`);
-  console.log(`  installs       ${installs}`);
-  console.log(`  token joins    ${exact}`);
-  console.log(`  estimated      ${estimated}`);
-  console.log(`  purchases      ${purchases}`);
-  console.log(`  events         ${events.length}`);
-  console.log("");
-  console.log(`  http://localhost:3000/projects/${SEED_PROJECT_ID}/funnel`);
 }
 
 if (import.meta.main) await main();
 
-export { SEED_PROJECT_ID, SEED_API_KEY };
+export { SEED_APP_KEY, SEED_WEB_KEY, SEED_WORKSPACE_ID };

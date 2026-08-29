@@ -1,17 +1,19 @@
 import { z } from "zod";
 
 /**
- * The internal event envelope. OTLP-shaped: a flat resource-ish header plus a
- * string-keyed attribute map. Everything that reaches ClickHouse has been
- * normalized into exactly this.
+ * The internal event envelope. A flat header plus a string-keyed attribute map.
+ * Everything that reaches the database has been normalized into exactly this.
  *
- * Two rules live here and are enforced nowhere else:
+ * Three rules live here and are enforced nowhere else:
  *
  *  - `event_time` is client-stamped and authoritative. `ingest_time` is
  *    server-stamped. They are separate, both required, and nothing may sort,
  *    bucket or window on `ingest_time`.
  *  - There is no `person_id` field. `person_id` is derived by
- *    `@firstrun/identity` server-side. A client that sends one is ignored.
+ *    `@firstrun/identity` server-side. A client that sends one is refused.
+ *  - `workspace_id` is the identity namespace; `source_id` only records which
+ *    ingestion site an event came from. A person spans sources by design --
+ *    that is the whole product.
  */
 
 export const Surface = z.enum(["web", "app"]);
@@ -26,7 +28,8 @@ const Millis = z.union([
 const NullableStr = z.string().min(1).max(512).nullish().transform((v) => v ?? null);
 
 export const EventEnvelope = z.object({
-  project_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  source_id: z.string().uuid().nullish().transform((v) => v ?? null),
   event_id: z.string().uuid(),
   event_name: z.string().min(1).max(128),
 
@@ -64,7 +67,7 @@ export type EventEnvelope = z.infer<typeof EventEnvelope>;
 export type StoredEvent = EventEnvelope & { person_id: string };
 
 /**
- * Reject anything that looks like a client trying to assert a person.
+ * Reject anything that looks like a client asserting a person.
  * Called before parsing so the error is explicit rather than a silent drop.
  */
 export function assertNoClientPerson(body: unknown): void {

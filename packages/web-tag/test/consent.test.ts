@@ -6,7 +6,7 @@ import { KEY_CONSENT, KEY_VID, createTag, type Env } from "../src/core.js";
  * assertions that keep it.
  */
 
-const PROJECT = "11111111-1111-4111-8111-111111111111";
+const SOURCE_KEY = "fr_web_1111222233334444";
 const HOST = "https://t.example.com";
 
 interface Recorder {
@@ -48,7 +48,7 @@ function recorder(seed: Record<string, string> = {}): Recorder {
   return r;
 }
 
-const tagFor = (r: Recorder) => createTag(r.env, { projectId: PROJECT, host: HOST });
+const tagFor = (r: Recorder) => createTag(r.env, { sourceKey: SOURCE_KEY, host: HOST });
 
 describe("before consent", () => {
   let r: Recorder;
@@ -113,7 +113,7 @@ describe("granting consent", () => {
 
     const body = JSON.parse(r.sent[0]!.body);
     expect(r.sent[0]!.url).toBe(HOST + "/v1/e");
-    expect(body.p).toBe(PROJECT);
+    expect(body.k).toBe(SOURCE_KEY);
     expect(body.v).toBe(r.store.get(KEY_VID));
     expect(body.e.length).toBe(2);
     expect(body.e[0].n).toBe("page_view");
@@ -133,9 +133,9 @@ describe("granting consent", () => {
     tag.page();
     tag.call("consent", true);
     const body = r.sent[0]!.body;
-    expect(body).toContain('"p":');
+    expect(body).toContain('"k":');
     expect(body).toContain('"e":[');
-    expect(body).not.toContain("project_id");
+    expect(body).not.toContain("source_key");
     expect(body).not.toContain("event_name");
   });
 });

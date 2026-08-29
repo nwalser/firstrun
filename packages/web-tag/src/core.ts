@@ -53,7 +53,14 @@ export const MAX_BUFFER = 60;
 export const FLUSH_AT = 20;
 
 export interface TagConfig {
-  projectId: string;
+  /**
+   * The source key, e.g. `fr_web_9f3a…`.
+   *
+   * Public by necessity: it ships in a script tag. It identifies which
+   * ingestion site this is and authorises nothing, and the server is the only
+   * thing that knows which workspace it belongs to.
+   */
+  sourceKey: string;
   host: string;
 }
 
@@ -83,7 +90,7 @@ export function createTag(env: Env, config: TagConfig) {
     buffer = [];
     env.send(
       config.host + "/v1/e",
-      JSON.stringify({ p: config.projectId, v: visitorId, s: sessionId, a: accountId, e })
+      JSON.stringify({ k: config.sourceKey, v: visitorId, s: sessionId, a: accountId, e })
     );
   }
 
@@ -112,7 +119,7 @@ export function createTag(env: Env, config: TagConfig) {
    * filename is the only thing that survives into the installer.
    */
   function downloadUrl(asset?: string, version?: string): string {
-    let u = config.host + "/v1/download?project=" + encodeURIComponent(config.projectId);
+    let u = config.host + "/v1/download?key=" + encodeURIComponent(config.sourceKey);
     if (asset) u += "&asset=" + encodeURIComponent(asset);
     if (version) u += "&version=" + encodeURIComponent(version);
     if (visitorId) u += "&vid=" + encodeURIComponent(visitorId);

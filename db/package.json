@@ -6,12 +6,22 @@
   "main": "./index.ts",
   "exports": {
     ".": "./index.ts",
-    "./clickhouse": "./clickhouse/client.ts",
-    "./sqlite": "./sqlite/client.ts",
+    "./schema": "./schema.ts",
+    "./client": "./client.ts",
     "./queries": "./queries.ts"
   },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "push": "drizzle-kit push"
+  },
   "dependencies": {
+    "@firstrun/identity": "workspace:*",
     "@firstrun/schema": "workspace:*",
-    "@firstrun/identity": "workspace:*"
+    "drizzle-orm": "^0.38.3",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.30.1"
   }
 }

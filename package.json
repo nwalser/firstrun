@@ -8,9 +8,13 @@
     "db"
   ],
   "scripts": {
-    "dev": "bun run scripts/dev.ts",
-    "migrate": "bun run db/migrate.ts",
+    "dev": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
+    "start": "bun run --cwd apps/web start",
+    "db:generate": "bun run --cwd db generate",
+    "db:migrate": "bun run db/migrate.ts",
     "seed": "bun run db/seed.ts",
+    "dev:login": "bun run scripts/dev-login.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:web-tag": "bun run --cwd packages/web-tag build",

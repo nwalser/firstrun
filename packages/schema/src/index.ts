@@ -3,3 +3,4 @@ export * from "./events.js";
 export * from "./envelope.js";
 export * from "./wire.js";
 export * from "./token.js";
+export * from "./widgets.js";

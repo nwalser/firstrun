@@ -109,7 +109,7 @@ interface Queued {
 function boot(): void {
   const script = document.currentScript as HTMLScriptElement | null;
   const globalName = script?.getAttribute("data-global") || "fr";
-  const projectId = script?.getAttribute("data-project") || "";
+  const sourceKey = script?.getAttribute("data-key") || "";
   // Defaults to wherever this file was served from, which is the point of
   // serving it from a path a customer can put behind their own CNAME.
   const host = (script?.getAttribute("data-host") || script?.src.replace(/\/[^/]*$/, "") || "").replace(
@@ -128,7 +128,7 @@ function boot(): void {
     identityChanged: () => decorate(),
   };
 
-  tag = createTag(env, { projectId, host });
+  tag = createTag(env, { sourceKey, host });
 
   const globals = globalThis as Record<string, unknown>;
   const existing = globals[globalName] as (Queued & Function) | undefined;

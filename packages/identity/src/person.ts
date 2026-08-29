@@ -4,7 +4,7 @@ import type { Distinct } from "./types.js";
 /**
  * A `person_id` is derived, never sent. See CLAUDE.md rule 3.
  *
- * Every distinct has a *seed* person: a UUIDv5 of `<project>:<type>:<id>`.
+ * Every distinct has a *seed* person: a UUIDv5 of `<workspace>:<type>:<id>`.
  * Deterministic, so a visitor who has never been joined to anything still has a
  * stable person id, and so two processes computing the same thing agree without
  * needing a sequence or a round trip.
@@ -47,8 +47,8 @@ export function uuidv5(name: string, namespace: string = NAMESPACE): string {
 }
 
 /** The person a distinct belongs to before anything is known about it. */
-export function seedPersonId(projectId: string, d: Distinct): string {
-  return uuidv5(projectId + ":" + d.type + ":" + d.id);
+export function seedPersonId(workspaceId: string, d: Distinct): string {
+  return uuidv5(workspaceId + ":" + d.type + ":" + d.id);
 }
 
 /** Lowest UUID wins. Order-independent by construction. */
