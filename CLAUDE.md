@@ -14,7 +14,7 @@ First real subject: Themia — a Tauri Windows desktop app with a marketing site
 
 ---
 
-## The four rules a future session will otherwise get wrong
+## The five rules a future session will otherwise get wrong
 
 ### 1. Exact joins mutate `person_id`. Estimated joins never do.
 
@@ -33,15 +33,30 @@ First real subject: Themia — a Tauri Windows desktop app with a marketing site
 
 - Clients send distincts: `web_visitor_id`, `install_id`, `account_id`.
 - `person_id` is computed server-side by `packages/identity` and nothing else computes it.
-- Seed identity: `person_id = uuidv5(NS, "<workspace_id>:<type>:<id>")`. Deterministic, so a distinct that has never been joined still has a stable person.
+- Seed identity: `person_id = uuidv5(NS, "<project_id>:<type>:<id>")`. Deterministic, so a distinct that has never been joined still has a stable person.
 - Canonical person for a merged component = **lowest UUID** among the component's seed ids, so replaying edges in any order lands on the same person.
 
-### 4. A workspace is one identity namespace. Sources are not.
+### 4. A PROJECT is one identity namespace. Workspaces and sources are not.
 
-- A **workspace** owns people. A **source** (the marketing site, the desktop app) is an ingestion endpoint inside it and nothing more.
-- If the site and the app had separate person spaces, the web-to-install join could not exist — which is the entire product.
-- One workspace per product, never per platform. The create-workspace screen says so on purpose.
-- Clients send a public **source key** (`fr_web_…`, `fr_app_…`), never an internal id. The key identifies and authorises nothing.
+The hierarchy is **workspace > project > source**:
+
+| | |
+|---|---|
+| **workspace** | who can see things, and who can change them. Holds people and projects. |
+| **project** | one product, and **one namespace of people**. Owns events, identity and a dashboard. |
+| **source** | one thing that sends events: a website, a desktop app. Owns nothing. |
+
+- Every source in a project resolves to the same people. If the site and the app had separate person spaces the web-to-install join could not exist — which is the entire product.
+- One project per **product**, never per platform. The create-project screen says so on purpose, because that is the mistake that silently breaks everything.
+- `events`, `identity_edges` and `person_overrides` are keyed by `project_id`.
+- Clients send a public **source key** (`fr_web_…`, `fr_app_…`), never an internal id.
+
+### 5. Permission checks live on the server, in `api.server.ts`.
+
+- Two roles: `admin` changes things, `read` looks. Membership is per workspace and covers every project in it.
+- `requireAccess` and `requireAdmin` are separate calls. Reading and changing are different questions, and answering both with one call is how a reader ends up able to POST.
+- The UI hides what a reader cannot do. That is a courtesy, not a permission check — every mutation re-checks.
+- The last admin cannot be demoted or removed. A workspace nobody can administer is the one unrecoverable state this model allows.
 
 ---
 
@@ -50,6 +65,7 @@ First real subject: Themia — a Tauri Windows desktop app with a marketing site
 | Decision | Choice |
 |---|---|
 | Everything | **TanStack Start on Solid**, one service, server routes for ingest |
+| UI | **shadcn on Tailwind v4**, primitives from **Kobalte**, `cva` + `clsx` + `tailwind-merge` |
 | Store | **Postgres only.** Events, identity, auth and configuration in one database |
 | Schema | **Drizzle** owns the DDL and the migrations |
 | Analytics queries | **Hand-written SQL files** in `db/queries/`. Not an ORM, not Drizzle |
@@ -79,6 +95,10 @@ Widgets come from `WIDGET_CATALOGUE` in `packages/schema/src/widgets.ts`. Adding
 
 One `snapshot()` call serves every card on a board: the layout is known before any SQL runs, so the queries are deduplicated up front rather than one per widget.
 
+**Editing is in place.** Cards keep rendering live data while being dragged, and per-widget settings open in a drawer — never inline. A card that grows a form is no longer showing you what it will look like. Reordering is `components/sortable.tsx`, pointer events rather than a library: the obvious Solid choice has not been published since 2023, and sensors and collision strategies are not what a six-card grid needs.
+
+Every edit saves as it is made. With drag-to-reorder there is no natural moment to press Save.
+
 ---
 
 ## Gotchas that cost real time
@@ -88,7 +108,8 @@ One `snapshot()` call serves every card on a board: the layout is known before a
 - **The production bundle inlines `db/`**, so `import.meta.url` points into `dist/server/`. Migrations, views and query files are located through `db/paths.ts`, with `FIRSTRUN_DB_DIR` as the override.
 - **Vite plugin order is enforced**: `tanstackStart()` before `viteSolid()`. The reverse fails the build with an explicit message.
 - **TanStack Start's build does not serve static assets.** `apps/web/server.ts` tries `dist/client` first, then falls through to SSR. Without it every `/assets/*` 404s in production while pages still render, which looks like a CSS bug and is not.
-- `@tanstack/solid-start` is published as a **beta** on the Solid path, and pins its siblings to exact versions. Do not float them independently.
+- `@tanstack/solid-start` is published as a **beta** on the Solid path, and pins its siblings to exact versions. Do not float them independently. Its RC line needs Solid 2.0, which `vite-plugin-solid` does not support yet (`solid-js/web` moved to `@solidjs/web`), so it will not even boot.
+- **`setPointerCapture` throws** on a pointer id that is not active. The sortable guards it, which is also what makes it testable with synthetic events.
 
 ---
 
@@ -96,6 +117,7 @@ One `snapshot()` call serves every card on a board: the layout is known before a
 
 ```
 apps/web/           TanStack Start (Solid): UI, auth, and the ingest routes
+  components/ui/    shadcn components, owned here, built on Kobalte
 packages/schema/    event envelope, wire formats, widget catalogue
 packages/identity/  person resolution — edges, overrides, squash
 packages/ingest/    ingest handlers as plain Request -> Response

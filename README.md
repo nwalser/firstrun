@@ -17,7 +17,7 @@ bun run seed              # a synthetic workspace with believable data
 bun run dev               # http://localhost:3000
 ```
 
-`bun run seed` prints the workspace and a command to sign in locally:
+`bun run seed` prints the workspace, the project and a command to sign in locally:
 
 ```bash
 bun run dev:login seed
@@ -34,6 +34,7 @@ Migrations apply themselves on boot, so a clean clone needs nothing else.
 | | |
 |---|---|
 | App | TanStack Start on Solid, one service |
+| UI | shadcn on Tailwind v4, primitives from Kobalte |
 | Store | Postgres — events, identity, auth and configuration |
 | Schema | Drizzle owns the DDL; the analytics queries are hand-written `.sql` |
 | Deploy | Railway, one Dockerfile |
@@ -49,6 +50,18 @@ packages/web-tag/   ~1.5KB browser script
 db/                 drizzle schema, migrations, analytics .sql, seed
 sdk/tauri/          Rust crate: first-run claim + disk-backed queue
 ```
+
+## How it is organised
+
+```
+workspace   who can see things, and who can change them (admin / read)
+  project   one product, and one namespace of people
+    source  one thing that sends events: a website, a desktop app
+```
+
+Every source in a project resolves to the same people. That is what lets a
+website visit be joined to an app install — so it is one project per *product*,
+never one per platform.
 
 ## The join
 
