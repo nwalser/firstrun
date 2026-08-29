@@ -1,6 +1,11 @@
 import { createFileRoute, notFound, redirect, useRouter } from "@tanstack/solid-router";
 import { For, Show, createSignal } from "solid-js";
 import {
+  Alert,
+  AlertDescription,
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   Badge,
   Button,
   Card,
@@ -14,6 +19,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  initials,
 } from "../components/ui/index.js";
 import {
   addMemberFn,
@@ -97,9 +103,9 @@ function Members() {
 
       <Show when={error()}>
         {(message) => (
-          <p class="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {message()}
-          </p>
+          <Alert variant="destructive" class="mb-4">
+            <AlertDescription>{message()}</AlertDescription>
+          </Alert>
         )}
       </Show>
 
@@ -121,12 +127,10 @@ function Members() {
                     <TableRow>
                       <TableCell>
                         <div class="flex items-center gap-2.5">
-                          <Show
-                            when={member.avatarUrl}
-                            fallback={<span class="size-6 rounded-full bg-muted" />}
-                          >
-                            {(src) => <img src={src()} alt="" class="size-6 rounded-full" />}
-                          </Show>
+                          <Avatar class="size-6">
+                            <AvatarImage src={member.avatarUrl ?? undefined} alt="" />
+                            <AvatarFallback>{initials(member.name ?? member.login)}</AvatarFallback>
+                          </Avatar>
                           <div class="min-w-0">
                             <div class="truncate text-sm">{member.login}</div>
                             <Show when={member.name}>

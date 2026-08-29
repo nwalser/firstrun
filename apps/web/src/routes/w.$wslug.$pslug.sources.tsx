@@ -1,12 +1,15 @@
 import { createFileRoute, notFound, redirect, useRouter } from "@tanstack/solid-router";
 import { For, Show, createSignal } from "solid-js";
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
+  CodeBlock,
   Input,
   Label,
   Select,
@@ -49,7 +52,6 @@ function Sources() {
   const [assetName, setAssetName] = createSignal("Setup");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [copied, setCopied] = createSignal<string | null>(null);
 
   const isAdmin = () => view().role === "admin";
   const desktopAsset = () => view().sources.find((s) => s.kind === "desktop")?.assetName ?? "Setup";
@@ -87,16 +89,6 @@ function Sources() {
     await router.invalidate();
   }
 
-  async function copy(text: string, id: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(id);
-      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1600);
-    } catch {
-      // Clipboard access can be refused; the key is visible either way.
-    }
-  }
-
   const snippet = (source: { kind: string; ingestKey: string }) =>
     source.kind === "web"
       ? `<script async\n        src="${view().publicOrigin}/t.js"\n        data-key="${source.ingestKey}"></script>\n\n<a data-fr-download data-fr-asset="${desktopAsset()}">\n  Download\n</a>`
@@ -122,9 +114,9 @@ function Sources() {
 
       <Show when={error()}>
         {(message) => (
-          <p class="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {message()}
-          </p>
+          <Alert variant="destructive" class="mb-4">
+            <AlertDescription>{message()}</AlertDescription>
+          </Alert>
         )}
       </Show>
 
@@ -153,23 +145,12 @@ function Sources() {
               </CardHeader>
 
               <CardContent>
-                <div class="mb-3 flex flex-wrap items-center gap-2">
-                  <span class="text-xs text-muted-foreground">Ingest key</span>
-                  <code class="rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs">
-                    {source.ingestKey}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => copy(source.ingestKey, source.id)}
-                  >
-                    {copied() === source.id ? "Copied" : "Copy"}
-                  </Button>
+                <div class="mb-3">
+                  <div class="mb-1.5 text-xs text-muted-foreground">Ingest key</div>
+                  <CodeBlock code={source.ingestKey} />
                 </div>
 
-                <pre class="overflow-x-auto rounded-lg border bg-muted/30 p-3 font-mono text-xs leading-relaxed">
-                  {snippet(source)}
-                </pre>
+                <CodeBlock code={snippet(source)} />
 
                 <p class="mt-2.5 text-xs text-muted-foreground">
                   <Show
