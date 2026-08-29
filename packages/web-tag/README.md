@@ -7,8 +7,11 @@
 ```html
 <script async
         src="https://t.themia.app/t.js"
-        data-project="7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40"></script>
+        data-key="fr_web_5eed000000000001"></script>
 ```
+
+The `data-key` is the source key from the workspace's Sources page. It is public
+by necessity and authorises nothing.
 
 Serve `/t.js` from a subdomain CNAMEd at the ingest host. The tag defaults its
 API host to wherever it was served from, so first-party proxying needs no extra

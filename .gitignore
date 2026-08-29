@@ -28,6 +28,10 @@ data/
 .env.*
 !.env.example
 
+# tanstack start
+.tanstack/
+.output/
+
 # bun
 bun.lockb
 .bun/

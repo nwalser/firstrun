@@ -7,7 +7,7 @@ disk-backed queue.
 use firstrun_sdk::{Analytics, Config};
 
 let analytics = Analytics::start(Config {
-    project_id: "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40".into(),
+    source_key: "fr_app_5eed000000000002".into(),
     host: "https://t.themia.app".into(),
     app_name: "Themia".into(),
     app_version: env!("CARGO_PKG_VERSION").into(),

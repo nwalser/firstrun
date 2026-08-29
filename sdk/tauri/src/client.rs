@@ -17,7 +17,7 @@ pub struct Client {
 
 #[derive(Debug, Serialize)]
 pub struct AppBatch<'a> {
-    pub project_id: &'a str,
+    pub source_key: &'a str,
     pub install_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<&'a str>,
@@ -33,7 +33,7 @@ pub struct AppBatch<'a> {
 
 #[derive(Debug, Serialize)]
 pub struct ClaimRequest<'a> {
-    pub project_id: &'a str,
+    pub source_key: &'a str,
     pub install_id: &'a str,
     /// `None` when no token was found. The server then tries the estimated
     /// match, which is why first run has one code path rather than two.

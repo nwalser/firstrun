@@ -16,7 +16,7 @@
 //! use firstrun_sdk::{Analytics, Config};
 //!
 //! let analytics = Analytics::start(Config {
-//!     project_id: "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40".into(),
+//!     source_key: "fr_app_5eed000000000002".into(),
 //!     host: "https://t.themia.app".into(),
 //!     app_name: "Themia".into(),
 //!     app_version: env!("CARGO_PKG_VERSION").into(),
@@ -51,7 +51,11 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    pub project_id: String,
+    /// The public source key for this app, e.g. `fr_app_9f3a…`.
+    ///
+    /// Identifies which ingestion site is sending, and authorises nothing. The
+    /// server is the only thing that knows which workspace it belongs to.
+    pub source_key: String,
     /// Ingest origin, e.g. the subdomain the customer CNAMEd at us.
     pub host: String,
     pub app_name: String,
@@ -205,7 +209,7 @@ fn claim_first_run(client: &Client, config: &Config, install: &install::Install,
     let found = token::find(token_dir);
 
     let request = ClaimRequest {
-        project_id: &config.project_id,
+        source_key: &config.source_key,
         install_id: &install.id,
         token: found.as_deref(),
         event_id: &uuid::Uuid::new_v4().to_string(),
@@ -243,7 +247,7 @@ fn drain(
         };
 
         let payload = AppBatch {
-            project_id: &config.project_id,
+            source_key: &config.source_key,
             install_id,
             account_id: account_id.as_deref(),
             app_version: &config.app_version,

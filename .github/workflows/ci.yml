@@ -9,31 +9,26 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # The join tests run against a real ClickHouse on a throwaway database.
-    # A resolver that is correct in memory and wrong over HTTP is the one bug
-    # this project cannot afford, so CI does not get to mock it either.
+    # The join tests run against real Postgres. A resolver that is correct in
+    # memory and wrong over SQL is the one bug this project cannot afford, so
+    # CI does not get to mock it either.
     services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:24.8
+      postgres:
+        image: postgres:17-alpine
         ports:
-          - 8123:8123
+          - 5432:5432
         env:
-          CLICKHOUSE_DB: firstrun
-          CLICKHOUSE_USER: firstrun
-          CLICKHOUSE_PASSWORD: firstrun
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+          POSTGRES_DB: firstrun
+          POSTGRES_USER: firstrun
+          POSTGRES_PASSWORD: firstrun
         options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-cmd "pg_isready -U firstrun -d firstrun"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
 
     env:
-      CLICKHOUSE_URL: http://localhost:8123
-      CLICKHOUSE_DB: firstrun
-      CLICKHOUSE_USER: firstrun
-      CLICKHOUSE_PASSWORD: firstrun
-      SQLITE_PATH: ":memory:"
+      DATABASE_URL: postgres://firstrun:firstrun@localhost:5432/firstrun
 
     steps:
       - uses: actions/checkout@v4
@@ -44,18 +39,21 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Before the tests, so a tag that blew its budget fails fast and loudly
-      # rather than after four minutes of ClickHouse round trips.
+      # Before the tests, so a tag that blew its budget fails fast rather than
+      # after the database round trips.
       - name: web tag size budget
         run: bun run check:size
 
-      - name: migrate
-        run: bun run migrate
+      - run: bun run db:migrate
 
       - run: bun test
 
-      - name: typecheck
-        run: bun run typecheck
+      - run: bun run typecheck
+
+      # The build catches what the type checker cannot: a server-only import
+      # that reached the client graph.
+      - name: build
+        run: bun run build
 
   sdk:
     runs-on: ubuntu-latest
