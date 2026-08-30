@@ -46,6 +46,10 @@ export const dashboard = {
 
   // The toolbar above the board.
   "dashboard.filter_none": "Filter",
+  "dashboard.test_mode": "Test data",
+  "dashboard.test_mode_off": "Showing production data. Switch to entries your development builds sent.",
+  "dashboard.test_mode_on": "Showing test data only. Production entries are hidden.",
+  "dashboard.test_banner": "Test data",
   "dashboard.window_and_baseline": "{range} · compared with {baseline}",
   "dashboard.saved": "Saved",
   "dashboard.add_card": "Add card",

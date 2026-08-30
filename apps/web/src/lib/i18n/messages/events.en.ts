@@ -1,0 +1,84 @@
+import type { Namespaced } from "./namespace.js";
+
+/**
+ * The event log: every entry the workspace has received, newest first.
+ *
+ * The vocabulary here is deliberately the data model's own. An entry has a
+ * `time`, a severity on the 1..24 ladder, a name and an attribute map, and this
+ * page says exactly that rather than inventing softer words for them: somebody
+ * reading a log is about to write a filter against the same four things.
+ */
+export const events = {
+  "events.title": "Events",
+  "events.hint":
+    "Every entry this workspace has received, newest first. An error, a page view and a " +
+    "measurement are the same row shape here, because they are the same row shape in the table.",
+
+  // The toolbar.
+  "events.search_placeholder": "Search name, client id or message…",
+  "events.search_label": "Search entries",
+  "events.window_hours": "Last 24 hours",
+  "events.window_days": "Last {days} days",
+  "events.window_label": "Window",
+  "events.project_label": "Project",
+  "events.all_projects": "All projects",
+  "events.severity_label": "Severity",
+  "events.severity_any": "Any severity",
+  "events.severity_min": "{band} and worse",
+  "events.remove_filter": "Remove the {filter} filter",
+
+  /*
+   * The live tail.
+   *
+   * Off by default. A list that reorders itself under a cursor is a list you
+   * cannot read, and the moment somebody is looking at one entry is exactly the
+   * moment they do not want thirty more above it.
+   */
+  "events.live": "Live",
+  "events.live_hint": "Check for new entries every few seconds",
+  "events.live_on": "Live. New entries appear as they arrive.",
+
+  // The list.
+  "events.col_time": "Time",
+  "events.col_severity": "Severity",
+  "events.col_project": "Project",
+  "events.col_name": "Name",
+  "events.col_client": "Client",
+  "events.unclassified": "Unclassified",
+  "events.entries_one": "{count} entry",
+  "events.entries_other": "{count} entries",
+  "events.load_older": "Load older",
+  "events.loading": "Loading…",
+  "events.none": "Nothing received yet",
+  "events.none_hint":
+    "Entries appear here the moment anything sends one. Add a source and install it, and this " +
+    "page is where you check that it worked.",
+  "events.no_matches": "No entry in this window matches those filters.",
+  "events.widen": "Try a longer window, or clear a filter.",
+
+  // One entry, opened.
+  "events.show_detail": "Show this entry in full",
+  "events.hide_detail": "Hide this entry",
+  "events.attributes": "Attributes",
+  "events.no_attributes": "This entry carries no attributes.",
+  "events.entry_id": "Entry id",
+  "events.client_id": "Client id",
+  "events.source_label": "Source",
+
+  /*
+   * The two timestamps, stated as two.
+   *
+   * `time` is the client's and is what everything here sorts and windows on;
+   * `ingested_at` is when we heard about it. They differ by days whenever an app
+   * was offline, and a log view that showed one number would be quietly lying
+   * about the other.
+   */
+  "events.happened": "Happened",
+  "events.received": "Received",
+  "events.late_by": "Arrived {delay} late",
+  "events.late_hint":
+    "The entry is stamped by the client that wrote it, so a queue replayed after a machine came " +
+    "back online lands on the day it happened rather than today.",
+} satisfies Namespaced<"events">;
+
+export type EventsMessages = typeof events;

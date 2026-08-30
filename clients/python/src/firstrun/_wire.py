@@ -221,6 +221,10 @@ ATTR_HTTP_REQUEST_METHOD = "http.request.method"
 ATTR_HTTP_RESPONSE_STATUS_CODE = "http.response.status_code"
 ATTR_HTTP_ROUTE = "http.route"
 ATTR_CHANNEL = "firstrun.channel"
+# Test data. Only ever the JSON boolean true, and only ever present when true:
+# the dashboard matches it with jsonb containment, where "true" is a different
+# value from true and would match neither world.
+ATTR_TEST = "firstrun.test"
 ATTR_DURATION_MS = "firstrun.duration_ms"
 ATTR_VALUE = "firstrun.value"
 ATTR_METRIC = "firstrun.metric"

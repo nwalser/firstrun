@@ -106,7 +106,8 @@ use queue::{Queue, QueuedEntry};
 use wire::{
     clamp_attributes, clamp_body, Attributes, ATTR_BROWSER_LANGUAGE, ATTR_CHANNEL,
     ATTR_EXCEPTION_MESSAGE, ATTR_EXCEPTION_STACKTRACE, ATTR_EXCEPTION_TYPE, ATTR_HOST_ARCH,
-    ATTR_OS_TYPE, ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_SESSION_ID, ATTR_URL_PATH,
+    ATTR_OS_TYPE, ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_SESSION_ID, ATTR_TEST,
+    ATTR_URL_PATH,
     ATTR_USER_ID, SEVERITY_DEBUG, SEVERITY_ERROR, SEVERITY_FATAL, SEVERITY_INFO, SEVERITY_TRACE,
     SEVERITY_WARN,
 };
@@ -366,6 +367,15 @@ pub struct Config {
     /// Attributes stamped onto every entry. An entry's own attributes win.
     pub default_attributes: Attributes,
 
+    /// Marks everything this client sends as test data, via `firstrun.test`.
+    ///
+    /// The dashboard shows one world or the other and never both, so a debug
+    /// build with this set cannot move a number anybody is looking at. Wire it
+    /// to what the build already knows, such as `cfg!(debug_assertions)`.
+    /// Nothing is inferred here: a client that guessed would eventually guess
+    /// wrong on somebody's machine, silently and in the direction nobody checks.
+    pub test_mode: bool,
+
     /// Where the anonymous id and the queue live. Defaults to the per-user local
     /// application data directory under `firstrun/<app_name>`.
     pub app_dir: Option<PathBuf>,
@@ -464,6 +474,7 @@ impl Default for Config {
             locale: None,
             resource: Attributes::new(),
             default_attributes: Attributes::new(),
+            test_mode: false,
             app_dir: None,
             distinct_id: None,
             track_lifecycle: true,
@@ -1522,6 +1533,11 @@ fn build_resource(config: &Config) -> Option<Attributes> {
         Some(config.arch.clone().unwrap_or_else(|| wire::arch_name().to_string())),
     );
     set(ATTR_BROWSER_LANGUAGE, config.locale.clone());
+    // Outside `set`, which takes an Option<String>: this one has to reach the
+    // wire as a JSON boolean rather than as the string "true".
+    if config.test_mode {
+        resource.insert(ATTR_TEST.to_string(), Value::Bool(true));
+    }
 
     clamp_attributes(&mut resource);
     if resource.is_empty() {

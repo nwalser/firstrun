@@ -1,5 +1,7 @@
 import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/solid-router";
+import { Portal } from "solid-js/web";
 import Antenna from "lucide-solid/icons/antenna";
+import Bell from "lucide-solid/icons/bell";
 import BookOpen from "lucide-solid/icons/book-open";
 import ChevronDown from "lucide-solid/icons/chevron-down";
 import ChevronLeft from "lucide-solid/icons/chevron-left";
@@ -7,6 +9,7 @@ import Copy from "lucide-solid/icons/copy";
 import Ellipsis from "lucide-solid/icons/ellipsis";
 import Gauge from "lucide-solid/icons/gauge";
 import LayoutGrid from "lucide-solid/icons/layout-grid";
+import LifeBuoy from "lucide-solid/icons/life-buoy";
 import LogOut from "lucide-solid/icons/log-out";
 import Pencil from "lucide-solid/icons/pencil";
 import Plus from "lucide-solid/icons/plus";
@@ -405,7 +408,14 @@ function ScopeSwitcher(props: {
           input?.focus();
         }}
       >
-        <div class="flex h-[45px] items-center gap-2.5 border-b py-0.5">
+        <div
+          class={cn(
+            "flex h-[45px] items-center gap-2.5 py-0.5",
+            // The header rule and the footer rule are measured one step apart,
+            // so they are stated rather than both inheriting the default.
+            "border-b border-[color:var(--gray-300)]"
+          )}
+        >
           <input
             ref={input}
             type="text"
@@ -459,7 +469,7 @@ function ScopeSwitcher(props: {
                         }}
                         class={cn(
                           "flex h-popover-row items-center gap-3 rounded-md px-2 text-body outline-none",
-                          selected() === row.index && "bg-accent",
+                          selected() === row.index && "bg-[color:var(--gray-alpha-100)]",
                           // The current row is not marked with a check: the
                           // reference carries no hint, no chevron and no
                           // metadata on a switcher row. It reads one step
@@ -482,7 +492,7 @@ function ScopeSwitcher(props: {
 
         <Show when={props.create}>
           {(create) => (
-            <div class="border-t p-1.5">
+            <div class="border-t border-[color:var(--gray-400)] p-1.5">
               <a
                 href={create().href}
                 data-index={createIndex()}
@@ -498,7 +508,7 @@ function ScopeSwitcher(props: {
                   // Two measured shapes, not one: a single-line create row is a
                   // 36px list row, and only the two-line form spends the 58.
                   create().description ? "py-2.5" : "h-popover-row",
-                  selected() === createIndex() && "bg-accent"
+                  selected() === createIndex() && "bg-[color:var(--gray-alpha-100)]"
                 )}
               >
                 <span class="flex size-5 shrink-0 items-center justify-center">
@@ -508,7 +518,7 @@ function ScopeSwitcher(props: {
                   <span class="truncate text-body font-medium">{create().label}</span>
                   <Show when={create().description}>
                     {(description) => (
-                      <span class="truncate text-small text-muted-foreground">
+                      <span class="truncate text-copy-13 text-muted-foreground">
                         {description()}
                       </span>
                     )}
@@ -565,7 +575,7 @@ function WorkspaceSwitcher(props: { session: SessionInfo; workspace: WorkspaceSu
       items: props.session.workspaces.map((ws) => ({
         key: ws.id,
         label: ws.name,
-        media: () => <WorkspaceLogo workspace={ws} class="size-4" />,
+        media: () => <WorkspaceLogo workspace={ws} class="size-4 rounded-sm" />,
         current: ws.slug === props.workspace.slug,
         // A full load on purpose, and unchanged from before this port: the
         // session, the project list and the member count all belong to the
@@ -973,6 +983,32 @@ function FindPalette(props: {
         </PopoverTrigger>
       </PopoverAnchor>
 
+      {/*
+        The dim behind it.
+
+        Find is the one popover in the shell that is a MODE rather than a menu:
+        it covers the whole product, and the reference dims the page under it so
+        the palette is the only live thing on screen. Kobalte's popover in this
+        version has neither a `modal` prop nor an overlay part, so the scrim is
+        ours to draw, in its own portal at its own step of the ladder: under the
+        palette, over everything else.
+
+        It closes on press. The palette sits above it, so a press that lands
+        here is a press that missed the palette on purpose.
+      */}
+      <Show when={open()}>
+        <Portal>
+          <div
+            aria-hidden="true"
+            onPointerDown={() => setOpen(false)}
+            class={cn(
+              "fixed inset-0 z-scrim bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+              "motion-safe:animate-in motion-safe:fade-in"
+            )}
+          />
+        </Portal>
+      </Show>
+
       <PopoverContent
         class="h-full w-full rounded-none p-0 shadow-modal md:h-auto md:w-96 md:rounded-xl"
         onOpenAutoFocus={(e: Event) => {
@@ -1029,7 +1065,7 @@ function FindPalette(props: {
                     }}
                     class={cn(
                       "flex h-12 items-center rounded-md outline-none",
-                      selected() === index() && "bg-accent"
+                      selected() === index() && "bg-[color:var(--gray-alpha-100)]"
                     )}
                   >
                     <span class="flex w-11 shrink-0 items-center justify-center text-muted-foreground">
@@ -1121,7 +1157,7 @@ function PageBreadcrumb(props: { path: string }) {
         every page depend on the shell to render a heading.
       */}
       <span class="route-title-icons hidden shrink-0 items-center gap-2 pr-2.5 md:flex">
-        <span class="flex size-6 items-center justify-center text-muted-foreground">
+        <span class="flex size-6 items-center justify-center text-[color:var(--gray-700)]">
           {(() => {
             const Icon = page().icon;
             return <Icon class="size-4" />;
@@ -1133,13 +1169,20 @@ function PageBreadcrumb(props: { path: string }) {
         <svg
           aria-hidden="true"
           viewBox="0 0 16 16"
-          class="size-4 shrink-0 text-border"
+          class="size-4 shrink-0 text-[color:var(--gray-alpha-300)]"
           fill="none"
         >
           <path d="M4.5 13.5L11.5 2.5" stroke="currentColor" stroke-width="1.5" />
         </svg>
       </span>
-      <span class="truncate font-medium tracking-snug text-foreground">{page().title}</span>
+      <span
+        class={cn(
+          "truncate font-medium tracking-snug text-foreground",
+          "motion-safe:animate-in motion-safe:fade-in"
+        )}
+      >
+        {page().title}
+      </span>
     </nav>
   );
 }
@@ -1530,6 +1573,49 @@ function BoardActions(props: {
  * middle group is boards-and-sources at project scope and people at workspace
  * scope rather than the same two rows twice.
  */
+/**
+ * The notification bell, in the sidebar footer.
+ *
+ * The reference moved notifications and the account menu out of the topbar and
+ * down here, which is what leaves the topbar's right cell free and the centred
+ * breadcrumb actually centred. We have no notification feed yet, so the bell
+ * carries no unseen indicator and opens onto the popover empty state: a single
+ * muted line in a `min-h-[196px]` slot, which is the reference's own shape for
+ * a popover with nothing in it. A control that says "nothing yet" is honest; a
+ * badge with a number nobody wrote would not be.
+ */
+function NotificationBell() {
+  const i18n = useI18n();
+  const { state } = useSidebar();
+  return (
+    <Show when={state() === "expanded"}>
+      <Popover placement="top-end" gutter={8}>
+        <PopoverTrigger
+          as="button"
+          type="button"
+          aria-label={i18n.t("shell.notifications")}
+          class={cn(
+            "focus-ring flex size-6 shrink-0 cursor-pointer items-center justify-center",
+            "rounded-full text-muted-foreground shadow-xs outline-none",
+            "transition-colors hover:text-foreground"
+          )}
+        >
+          <Bell class="size-3.5" />
+        </PopoverTrigger>
+        <PopoverContent class="w-80 p-0">
+          <div class="grid min-h-[196px] place-items-center px-4 text-body text-muted-foreground">
+            {i18n.t("shell.no_notifications")}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </Show>
+  );
+}
+
+/** The wiki topic the Support row lands on. Named so the two rows agree. */
+const SUPPORT_TOPIC = "troubleshooting";
+const SUPPORT_PATH = `/wiki/${SUPPORT_TOPIC}`;
+
 function RootNav(props: {
   workspace: WorkspaceSummary;
   project: ProjectSummary | null;
@@ -1618,24 +1704,22 @@ function RootNav(props: {
       <SidebarSeparator />
 
       <SidebarGroup>
+        {/*
+          The resources group. A row here does NOT disappear when the scope
+          narrows: the reference's whole nav is the same list at team scope and
+          at project scope, and only the href changes. This used to swap People
+          out for Sources, so entering a project silently removed a destination
+          and the row under the rule meant two different things depending on
+          where you were standing.
+
+          Sources is the one row that is genuinely project-scoped, because a
+          source belongs to a project and there is no workspace-wide union view
+          to point a workspace href at. So it is added at project scope rather
+          than swapped in, and People stays put at both: membership is per
+          workspace, so its href is the same either way.
+        */}
         <SidebarMenu>
-          <Show
-            when={props.project}
-            fallback={
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  as={Link}
-                  to="/w/$wslug/members"
-                  params={{ wslug: props.workspace.slug }}
-                  tooltip={i18n.t("shell.people")}
-                  isActive={isActive(`${base()}/members`)}
-                >
-                  <Users />
-                  <SidebarLabel>{i18n.t("shell.people")}</SidebarLabel>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            }
-          >
+          <Show when={props.project}>
             {(project) => (
               <SidebarMenuItem>
                 <SidebarMenuButton
@@ -1651,6 +1735,19 @@ function RootNav(props: {
               </SidebarMenuItem>
             )}
           </Show>
+
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              as={Link}
+              to="/w/$wslug/members"
+              params={{ wslug: props.workspace.slug }}
+              tooltip={i18n.t("shell.people")}
+              isActive={isActive(`${base()}/members`)}
+            >
+              <Users />
+              <SidebarLabel>{i18n.t("shell.people")}</SidebarLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroup>
 
@@ -1704,10 +1801,35 @@ function RootNav(props: {
               as={Link}
               to="/wiki"
               tooltip={i18n.t("shell.documentation")}
-              isActive={props.path === "/wiki" || props.path.startsWith("/wiki/")}
+              isActive={
+                props.path !== SUPPORT_PATH &&
+                (props.path === "/wiki" || props.path.startsWith("/wiki/"))
+              }
             >
               <BookOpen />
               <SidebarLabel>{i18n.t("shell.documentation")}</SidebarLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          {/*
+            Support, which the reference's third group has and we did not.
+
+            It points at the troubleshooting topic rather than at a contact form
+            we do not have: a row that goes nowhere is worse than a missing one,
+            and the page it lands on is genuinely what somebody clicking Support
+            is looking for. The group's other reference item, Usage, has no data
+            model behind it here and is deliberately absent rather than stubbed.
+          */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              as={Link}
+              to="/wiki/$topic"
+              params={{ topic: SUPPORT_TOPIC }}
+              tooltip={i18n.t("shell.support")}
+              isActive={props.path === SUPPORT_PATH}
+            >
+              <LifeBuoy />
+              <SidebarLabel>{i18n.t("shell.support")}</SidebarLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -1853,16 +1975,33 @@ export function AppShell(props: AppShellProps) {
             </SidebarPane>
 
             <SidebarPane side="pushed" active={onSettings()}>
-              <SidebarPaneHeader
-                title={i18n.t("shell.settings")}
-                back={
-                  <BackToRoot
-                    workspace={props.workspace}
-                    project={project()}
+              {/*
+                The header IS the way back: the whole 36px row is the control,
+                which is what the reference measures and four times the target a
+                chevron square gives you.
+              */}
+              <Show
+                when={project()}
+                fallback={
+                  <SidebarPaneHeader
+                    as={Link}
+                    to="/w/$wslug"
+                    params={{ wslug: props.workspace.slug }}
+                    title={i18n.t("shell.settings")}
                     label={i18n.t("common.back")}
                   />
                 }
-              />
+              >
+                {(open) => (
+                  <SidebarPaneHeader
+                    as={Link}
+                    to="/w/$wslug/$pslug"
+                    params={{ wslug: props.workspace.slug, pslug: open().slug }}
+                    title={i18n.t("shell.settings")}
+                    label={i18n.t("common.back")}
+                  />
+                )}
+              </Show>
               <SettingsNav
                 workspace={props.workspace}
                 project={project()}
@@ -1880,15 +2019,10 @@ export function AppShell(props: AppShellProps) {
             docs are inside the menu. That also frees the topbar's right cell,
             which is what keeps the centred breadcrumb actually centred.
           */}
-          {/*
-            One control, not two. The reference's footer is an account pill plus
-            a notification bell, and we have no notification feed: a bell that
-            can never ring is chrome pretending to be a feature. The row is a
-            flex row so the second control can drop in beside the pill the day
-            there is something for it to say.
-          */}
+          {/* The measured footer: a 36px account pill, then a 24px bell. */}
           <SidebarFooter class="flex-row items-center gap-2">
             <UserMenu session={props.session} />
+            <NotificationBell />
           </SidebarFooter>
 
           <SidebarRail />
@@ -1902,7 +2036,7 @@ export function AppShell(props: AppShellProps) {
           */}
           <header
             class={cn(
-              "@container/bar sticky top-0 z-50 grid h-14 shrink-0 items-center gap-2",
+              "@container/bar sticky top-0 z-chrome grid h-14 shrink-0 items-center gap-2",
               "bg-card md:bg-background",
               "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]",
               hairlineBottom
@@ -1958,8 +2092,11 @@ export function AppShell(props: AppShellProps) {
  * sidebar open the rail on its edge is the affordance, and Ctrl+B works
  * throughout -- a permanent toggle for a panel that is visibly already open is
  * a control whose state you have to read the rest of the screen to know.
+ *
+ * Exported because the wiki draws the same topbar. It reads nothing but the
+ * sidebar context, so it works in any shell that has one.
  */
-function ExpandSidebar() {
+export function ExpandSidebar() {
   const { state } = useSidebar();
   return (
     <div class={cn("flex items-center", state() === "expanded" && "lg:hidden")}>
@@ -1969,39 +2106,6 @@ function ExpandSidebar() {
   );
 }
 
-/** The settings pane's back chevron. Leaves settings for the workspace root. */
-function BackToRoot(props: {
-  workspace: WorkspaceSummary;
-  project: ProjectSummary | null;
-  label: string;
-}) {
-  return (
-    <Show
-      when={props.project}
-      fallback={
-        <Link
-          to="/w/$wslug"
-          params={{ wslug: props.workspace.slug }}
-          aria-label={props.label}
-          class="focus-ring flex size-9 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground"
-        >
-          <ChevronLeft class="size-4" />
-        </Link>
-      }
-    >
-      {(project) => (
-        <Link
-          to="/w/$wslug/$pslug"
-          params={{ wslug: props.workspace.slug, pslug: project().slug }}
-          aria-label={props.label}
-          class="focus-ring flex size-9 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground"
-        >
-          <ChevronLeft class="size-4" />
-        </Link>
-      )}
-    </Show>
-  );
-}
 
 /**
  * The signed-in user, in the sidebar footer.

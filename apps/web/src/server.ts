@@ -31,6 +31,34 @@ const renderApp = createStartHandler(defaultStreamHandler);
  */
 const LOGO = /^\/api\/logo\/([^/]+)$/;
 
+/** The same shelf, one level down: a project's own picture. */
+const PROJECT_LOGO = /^\/api\/logo\/([^/]+)\/([^/]+)$/;
+
+/**
+ * One response for both, so a project image and a workspace image cannot drift
+ * apart in how they cache.
+ *
+ * A logo is not a secret and does not change often, but it can be replaced. The
+ * ETag is its timestamp, so a swap is picked up immediately and an unchanged one
+ * is never re-sent.
+ */
+function logoResponse(
+  request: Request,
+  found: { bytes: Buffer; mimeType: string; updatedAt: Date }
+): Response {
+  const etag = `"${found.updatedAt.getTime()}"`;
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag } });
+  }
+  return new Response(new Uint8Array(found.bytes), {
+    headers: {
+      "Content-Type": found.mimeType,
+      "Cache-Control": "public, max-age=60, must-revalidate",
+      ETag: etag,
+    },
+  });
+}
+
 async function route(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -49,21 +77,22 @@ async function route(request: Request): Promise<Response | null> {
     const { workspaceLogo } = await import("@firstrun/db");
     const found = await workspaceLogo(getStore().db, decodeURIComponent(logo[1]!));
     if (!found) return new Response(null, { status: 404 });
+    return logoResponse(request, found);
+  }
 
-    // A logo is not a secret and does not change often, but it can be replaced.
-    // The ETag is its timestamp, so a swap is picked up immediately and an
-    // unchanged one is never re-sent.
-    const etag = `"${found.updatedAt.getTime()}"`;
-    if (request.headers.get("if-none-match") === etag) {
-      return new Response(null, { status: 304, headers: { ETag: etag } });
-    }
-    return new Response(new Uint8Array(found.bytes), {
-      headers: {
-        "Content-Type": found.mimeType,
-        "Cache-Control": "public, max-age=60, must-revalidate",
-        ETag: etag,
-      },
-    });
+  // Checked after the workspace form, which cannot match a two-segment path, so
+  // the order here is documentation rather than a dependency.
+  const projectLogoPath = PROJECT_LOGO.exec(path);
+  if (projectLogoPath) {
+    await ensureReady();
+    const { projectLogo } = await import("@firstrun/db");
+    const found = await projectLogo(
+      getStore().db,
+      decodeURIComponent(projectLogoPath[1]!),
+      decodeURIComponent(projectLogoPath[2]!)
+    );
+    if (!found) return new Response(null, { status: 404 });
+    return logoResponse(request, found);
   }
 
   const isData = path.startsWith("/v1/") || path === "/t.js";

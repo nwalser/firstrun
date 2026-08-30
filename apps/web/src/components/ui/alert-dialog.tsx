@@ -46,12 +46,12 @@ export function AlertDialogContent(
       <KAlertDialog.Portal>
         <KAlertDialog.Overlay
           class={cn(
-            "fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+            "fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
             "data-[expanded]:animate-in data-[expanded]:fade-in-0",
             "data-[closed]:animate-out data-[closed]:fade-out-0"
           )}
         />
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="fixed inset-0 z-overlay flex items-center justify-center p-4">
           <KAlertDialog.Content
             onOpenAutoFocus={(event) => {
               // Kobalte would focus the first tabbable node, which is the

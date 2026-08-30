@@ -165,6 +165,18 @@
      everything else at rest and let the focus ring carry the affordance.
      gray-alpha-500 is the measured hover step if a control wants one. */
   --input: var(--gray-alpha-400);
+  /*
+    The CHROME edge, which is not the same hairline as everything else.
+
+    `--border` is the alpha step, and alpha is right for a rule INSIDE a
+    surface: it darkens whatever it is drawn over and never has to know what
+    that is. The topbar's underline and the sidebar's right edge separate two
+    DIFFERENT surfaces, and the reference draws those with an opaque step one
+    stop off the page instead, so the seam reads as a seam rather than as the
+    shadow of the panel above it. Measured dark as rgb(26,26,26); the light
+    value is its counterpart, one step further from a page that is white.
+  */
+  --chrome-border: var(--gray-200);
   /* blue-900. BLUE, and the focus colour, not the foreground. 5.09:1 on the
      page. The two-stop ring is `--geist-focus-ring` further down. */
   --ring: var(--blue-900);
@@ -328,6 +340,9 @@
   --input: var(--gray-alpha-400);
   --ring: var(--blue-900); /* 8.40:1 on the page */
 
+  /* The measured value: rgb(26,26,26), which is this scale's 100. */
+  --chrome-border: var(--gray-100);
+
   --chart-1: var(--blue-900); /* 7.92:1 */
   --chart-2: var(--green-900); /* 8.77:1 */
   --chart-3: var(--amber-800); /* 9.25:1 */
@@ -430,6 +445,7 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-chrome-border: var(--chrome-border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
@@ -649,6 +665,37 @@
   --radius-xl: 0.75rem; /* 12px  a full-bleed sheet, rarely */
   --radius-2xl: 1rem; /* 16px  the outermost container, rarely */
 
+  /* --- the layer ladder ---------------------------------------------------
+     Three numbers, stated once, because the sidebar sits ABOVE the topbar in
+     the reference (76 against 50) and that ordering is what makes an overlay's
+     z-index a real question rather than a formality.
+
+     A portalled overlay leaves the shell's subtree and lands as a child of
+     `body`, so it competes with the sidebar in the ROOT stacking context. At
+     the shadcn default of 50 it therefore rendered UNDER a sidebar at 76, and
+     the Find palette -- which is anchored inside the sidebar -- disappeared
+     behind the column it belongs to. Everything portalled clears the sidebar. */
+  --z-index-chrome: 50; /* the topbar, and anything pinned to the content */
+  --z-index-sidebar: 76; /* --header-zindex + 1, measured */
+  --z-index-scrim: 99; /* the dim behind a modal overlay, under it and over all else */
+  --z-index-overlay: 100; /* popovers, menus, dialogs, sheets, tooltips */
+
+  /* --- the pane's breakpoints --------------------------------------------
+     The reference names four steps and queries them against the CONTENT PANE
+     rather than the viewport, so a panel opening beside the content reflows
+     the page as if the window had shrunk. The names are theirs; the values are
+     ours, because the measurement recorded the class prefixes and not the
+     widths behind them. They are stated here so the two documents can be read
+     against each other by name, and so a call site says which SHAPE it is
+     reaching for rather than which number.
+
+     The stock Tailwind container scale stays available and means something
+     else, which is exactly why these carry the suffix. */
+  --container-smd-page: 40rem; /* 640px  a rail can sit beside the content */
+  --container-md-page: 48rem; /* 768px  a row can hold two blocks */
+  --container-lg-page: 64rem; /* 1024px three columns, and the wide rail */
+  --container-xl-page: 80rem; /* 1280px the pane the reference was measured at */
+
   /* 4px base, `--geist-space`, which the 4/8/12/16/24/32/40 rhythm walks. */
   --spacing: 0.25rem;
 }
@@ -794,7 +841,7 @@
 }
 
 /*
-  The sidebar's two widths.
+  The sidebar's widths: one collapsed, one the reader chooses.
 
   Written as real CSS rather than utility classes because the utility form was
   where this went wrong for a long time: the collapse was expressed as a
@@ -807,10 +854,47 @@
   its parent is the shell's flex row. `flex: 0 0 <size>` states the main size in
   the terms flex layout actually reads, instead of setting `width` and relying
   on `flex-basis: auto` to defer to it.
+
+  ## Why the expanded width is a custom property and not markup
+
+  It is set on the document element, by a script that runs before first paint
+  and by the drag handle afterwards, and it is NEVER rendered into the HTML.
+  That is deliberate: a width rendered server-side would be the default on the
+  server and the stored value on the client, which is a hydration mismatch on
+  every load for anybody who has ever dragged the handle. Keeping it out of the
+  markup entirely means there is nothing for the two renders to disagree about,
+  and the stored width is still on screen for the first frame.
 */
+:root {
+  --sidebar-width: 287px; /* measured, and the value the reset returns to */
+  --sidebar-width-min: 240px; /* below this a 36px row cannot hold its label */
+  --sidebar-width-max: 480px; /* above this the column competes with the content */
+}
+
 [data-slot="sidebar"] {
-  flex: 0 0 287px;
+  flex: 0 0 var(--sidebar-width);
   transition: flex-basis 200ms linear;
+}
+
+/*
+  While the handle is held, the width follows the pointer exactly.
+
+  The 200ms easing is right for a toggle and wrong for a drag: it makes the edge
+  lag behind the cursor and then coast past where it was let go, which reads as
+  the drag having missed. The shell carries the attribute so both the pane and
+  its inner column stop animating together.
+*/
+[data-sidebar-resizing] [data-slot="sidebar"],
+[data-sidebar-resizing] [data-slot="sidebar"] > * {
+  transition: none;
+}
+
+/* The whole document takes the resize cursor while dragging, so crossing the
+   content or the sidebar mid-drag does not flicker it back to an arrow. */
+[data-sidebar-resizing],
+[data-sidebar-resizing] * {
+  cursor: ew-resize !important;
+  user-select: none;
 }
 
 [data-slot="sidebar"][data-state="collapsed"] {

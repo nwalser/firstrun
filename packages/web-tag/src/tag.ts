@@ -58,6 +58,13 @@ try {
     // `flushOnSeverity` is a `start()` option, for somebody who is importing
     // the package and is not paying this file's byte budget for the knob.
     // See docs/delivery-policy.md.
+    //
+    // `testMode` is a `start()` option for the same reason, and it is the one
+    // that had to argue for itself: reading it here as `data-test` costs 8 B
+    // gzipped and the budget had 24 B left after the delivery policy. A staging
+    // site that pastes the snippet gets its own SOURCE instead, which is what a
+    // separate thing writing entries already is, and which the edge can then
+    // vouch for rather than taking a template's word for it.
     mode: (attr("data-mode") || undefined) as DeliveryMode | undefined,
   });
 } catch {

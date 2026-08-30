@@ -194,6 +194,11 @@ pub const ATTR_HOST_ARCH: &str = "host.arch";
 pub const ATTR_BROWSER_LANGUAGE: &str = "browser.language";
 pub const ATTR_URL_PATH: &str = "url.path";
 pub const ATTR_CHANNEL: &str = "firstrun.channel";
+/// Marks test data. Written only as the JSON boolean `true`, and only when it
+/// is true: the dashboard matches it with jsonb containment, where the string
+/// `"true"` is a different value and would match neither world. A production
+/// entry omits the key rather than carrying `false` on every request.
+pub const ATTR_TEST: &str = "firstrun.test";
 pub const ATTR_DURATION_MS: &str = "firstrun.duration_ms";
 pub const ATTR_VALUE: &str = "firstrun.value";
 pub const ATTR_METRIC: &str = "firstrun.metric";

@@ -87,7 +87,7 @@ export function Select<T extends string>(props: {
       <KSelect.Portal>
         <KSelect.Content
           class={cn(
-            "bg-popover text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-md",
+            "bg-popover text-popover-foreground z-overlay min-w-[8rem] overflow-hidden rounded-md",
             // The menu shadow carries its own hairline, so no border here.
             "shadow-xl",
             "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",

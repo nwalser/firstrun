@@ -195,6 +195,21 @@ export const projects = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
+
+    /**
+     * The project's own picture, stored exactly like the workspace's.
+     *
+     * Same three columns, same reasons: Railway's filesystem is ephemeral and
+     * object storage is a dependency the deployment decision rules out, and the
+     * image is downscaled to 256px in the browser before it ever arrives.
+     * `logo_updated_at` is the cache key the serving route builds an ETag from.
+     *
+     * Unset is the normal case, and a project without one draws its initials.
+     */
+    logo: bytea("logo"),
+    logoMimeType: text("logo_mime_type"),
+    logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

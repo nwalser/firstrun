@@ -17,4 +17,5 @@ export * from "./canvas.js";
 export * from "./query.js";
 export * from "./board.js";
 export * from "./overview.js";
+export * from "./feed.js";
 export * from "./templates.js";

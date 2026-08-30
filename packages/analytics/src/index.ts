@@ -87,6 +87,20 @@ export interface AnalyticsConfig {
    */
   flushEvery?: number;
   /**
+   * Marks everything as test data, via the `firstrun.test` attribute, so a
+   * preview or staging deploy cannot move a number somebody is looking at.
+   *
+   * Nothing is inferred from the hostname. A tag that decided `localhost` meant
+   * test would decide it again on an intranet, on a preview domain and inside
+   * an Electron shell, and it is silent when it is wrong. Wire it to what your
+   * build already knows, such as `process.env.VERCEL_ENV !== "production"`.
+   *
+   * There is no `data-` attribute for this on the script-tag build: it did not
+   * fit the 4KB budget. A site pasting the snippet uses a separate source
+   * instead, which is what a separate thing writing entries already is.
+   */
+  testMode?: boolean;
+  /**
    * Also expose the command API as a global, for markup that has to call it
    * (a cookie banner rendered by a third party, say). Off by default here --
    * a bundled integration has imports and does not need one.
@@ -151,6 +165,7 @@ export function init(config: AnalyticsConfig): void {
       mode: config.mode,
       flushOnSeverity: config.flushOnSeverity,
       flushEvery: config.flushEvery,
+      testMode: config.testMode,
     });
     mountedKey = id;
   } catch {

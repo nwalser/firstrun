@@ -66,6 +66,12 @@ export interface StartOptions {
    */
   autoErrors?: boolean;
   /**
+   * Marks everything as test data, so a staging deploy cannot move a number
+   * somebody is looking at. Off by default, and never inferred from the
+   * hostname. See `TagConfig.testMode`.
+   */
+  testMode?: boolean;
+  /**
    * When a send is attempted. Default `immediate`. See docs/delivery-policy.md.
    *
    * `immediate` does not mean one request per entry: entries produced together
@@ -268,6 +274,7 @@ export function start(opts: StartOptions): Instance {
     host,
     mode: opts.mode,
     flushOnSeverity: opts.flushOnSeverity,
+    testMode: opts.testMode,
   });
 
   // --- The page clock -----------------------------------------------------

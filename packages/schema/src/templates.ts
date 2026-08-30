@@ -116,6 +116,8 @@ const board = (widgets: BoardWidget[]): Board => ({
   range: { kind: "last", days: 30 },
   comparison: { kind: "previous" },
   filter: emptyFilter(),
+  // A template is a starting point for a real board, so it starts on real data.
+  testMode: false,
   widgets,
 });
 

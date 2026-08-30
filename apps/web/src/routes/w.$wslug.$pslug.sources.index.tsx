@@ -416,7 +416,13 @@ function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: (
   const i18n = useI18n();
   return (
     <li class="flex items-center gap-3 p-4">
-      <div class="flex min-w-0 items-center gap-4 @xl/page:w-[calc(25%+48px)]">
+      {/*
+        The reference splits this row at its own extra-large pane step. We
+        split at the medium one: their measuring pane was 2258px wide and
+        ours rarely is, so holding a 75px row stacked until 1280px would
+        leave most panes showing the tall form of a short row.
+      */}
+      <div class="flex min-w-0 items-center gap-4 @md-page/page:w-[calc(25%+48px)]">
         <div class="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
           <Dynamic component={SURFACE_ICON[props.source.kind] ?? Box} class="size-4" />
         </div>
@@ -440,7 +446,7 @@ function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: (
         </div>
       </div>
 
-      <div class="hidden min-w-0 flex-1 flex-col gap-0.5 @xl/page:flex">
+      <div class="hidden min-w-0 flex-1 flex-col gap-0.5 @md-page/page:flex">
         <span class="text-caption text-muted-foreground">{i18n.t("sources.key_label")}</span>
         <KeyCell value={props.source.ingestKey} />
       </div>

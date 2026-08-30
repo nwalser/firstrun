@@ -366,27 +366,40 @@ export function topicSummary(t: TFn, topic: WikiTopic): string {
   return keys ? t(keys.summary) : topic.summary;
 }
 
-/**
- * The topics worth showing to somebody reading with `kind` picked.
- *
- * Null means nothing is picked, and then everything shows -- an evaluator who
- * has not signed in should see that both surfaces are covered.
- */
-export function topicsForKind(kind: Surface | null): WikiTopic[] {
-  if (!kind) return WIKI_TOPICS;
-  return WIKI_TOPICS.filter((topic) => !topic.appliesTo || topic.appliesTo === kind);
-}
-
 export interface WikiSectionGroup {
   section: WikiSection;
   topics: WikiTopic[];
 }
 
-/** The contents: sections in order, empty ones left out. */
-export function sectionedTopics(kind: Surface | null): WikiSectionGroup[] {
-  const visible = topicsForKind(kind);
+/**
+ * The contents: sections in order, empty ones left out.
+ *
+ * ## Every page, always. The selected source does not filter this.
+ *
+ * There used to be a `topicsForKind` in front of this that dropped any topic
+ * whose `appliesTo` did not match the picked source, so choosing a desktop
+ * source deleted every web install guide from the wiki and choosing a web one
+ * deleted Tauri and .NET. The argument was that a Tauri page is noise while you
+ * are installing a website tag.
+ *
+ * It is the wrong trade, and it made the wiki a different manual depending on a
+ * dropdown in the corner. A reader who picks a source has said which key they
+ * want pasted into the snippets. They have not said which of a customer's four
+ * surfaces they will never ship, and the common case -- one product, a
+ * marketing site and a desktop app -- is somebody who needs BOTH guides in the
+ * same afternoon. A page that vanishes cannot be found again by someone who
+ * does not know a dropdown three feet away is why it went, and a link to it
+ * from outside opens a page the contents claims does not exist.
+ *
+ * So the source affects the VALUES a page substitutes and nothing else.
+ * `appliesTo` is still real: it decides which placeholder key flavour a page
+ * shows, and it is what lets a page say out loud that it is written for a
+ * different kind of source than the one currently picked. Neither of those
+ * hides anything.
+ */
+export function sectionedTopics(): WikiSectionGroup[] {
   return WIKI_SECTIONS.map((section) => ({
     section,
-    topics: visible.filter((topic) => topic.section === section),
+    topics: WIKI_TOPICS.filter((topic) => topic.section === section),
   })).filter((group) => group.topics.length > 0);
 }

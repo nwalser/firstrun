@@ -189,14 +189,14 @@ function ProjectOverview() {
           as if the window had changed size. A viewport breakpoint here read the
           window and squeezed three cards into a pane half that wide.
         */}
-        <div class="mt-4 grid grid-cols-1 gap-4 @4xl/page:grid-cols-3">
+        <div class="mt-4 grid grid-cols-1 gap-4 @lg-page/page:grid-cols-3">
           {/*
             The hero. The headline figure beside its own shape over time: the
             same pairing the reference gives a production deployment, what it is
             on the left and what it looks like on the right.
           */}
           <OverviewCard
-            class="@4xl/page:col-span-2"
+            class="@lg-page/page:col-span-2"
             title={i18n.t("project.card_entries")}
             hint={measured()}
           >
@@ -266,7 +266,7 @@ function ProjectOverview() {
           </OverviewCard>
 
           <OverviewCard
-            class="@4xl/page:col-span-2"
+            class="@lg-page/page:col-span-2"
             title={i18n.t("project.card_sources")}
             hint={i18n.t("project.card_sources_hint")}
             action={

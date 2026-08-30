@@ -37,7 +37,7 @@ const SURFACES = ["web", "desktop", "mobile", "server", "other"];
 function WikiIndex() {
   const i18n = useI18n();
   const wiki = useWiki();
-  const groups = () => sectionedTopics(wiki.source()?.kind ?? null);
+  const groups = () => sectionedTopics();
 
   return (
     <WikiPage>

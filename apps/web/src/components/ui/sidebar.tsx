@@ -1,4 +1,5 @@
 import { Dialog } from "@kobalte/core/dialog";
+import ChevronLeft from "lucide-solid/icons/chevron-left";
 import PanelLeft from "lucide-solid/icons/panel-left";
 import {
   createContext,
@@ -39,17 +40,70 @@ const SIDEBAR_COOKIE = "fr_sidebar";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 /**
- * Measured: 286px of content plus the hairline.
+ * The phone drawer opens at the measured width and is not resizable.
  *
- * Used for the elements that keep this width while the PANE narrows: the inner
- * column (clipped to the 52px strip by `overflow-hidden`, so its contents do not
- * reflow mid-transition) and the phone drawer. The pane's own two widths are
- * `[data-slot="sidebar"]` in `styles.css`, not here, so the collapsed 52px has
+ * A drag handle on a touch screen is an edge you cannot hit, and a drawer that
+ * covers the page has nothing to trade width with. The pane's own widths live
+ * in `styles.css`, so the collapsed 52px and the expanded default each have
  * exactly one declaration.
  */
-const SIDEBAR_WIDTH = "287px";
-/** The phone drawer opens at the full measured width; there is room for it. */
 const SIDEBAR_WIDTH_MOBILE = "287px";
+
+/**
+ * The resize limits, which are the same three numbers `styles.css` declares.
+ *
+ * Stated in both places on purpose: the stylesheet needs them to lay the column
+ * out, and the drag handle needs them to clamp a pointer that has run off the
+ * side of the screen. Reading them back out of the computed style on every
+ * pointermove would be a layout read per frame to learn a constant.
+ */
+const SIDEBAR_WIDTH_DEFAULT = 287;
+const SIDEBAR_WIDTH_MIN = 240;
+const SIDEBAR_WIDTH_MAX = 480;
+const SIDEBAR_WIDTH_COOKIE = "fr_sidebar_w";
+
+/** The width in effect, or the default before anyone has dragged it. */
+function currentSidebarWidth(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width");
+  const px = Number.parseFloat(raw);
+  return Number.isFinite(px) ? px : SIDEBAR_WIDTH_DEFAULT;
+}
+
+/**
+ * Put a width on screen, clamped. Returns what was actually applied.
+ *
+ * On the document element rather than on the pane, so the value is in scope for
+ * the pane, its inner column and anything else that wants to know how wide the
+ * column is, and so the head script can set it before any of them exist.
+ */
+function applySidebarWidth(px: number): number {
+  const clamped = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)));
+  document.documentElement.style.setProperty("--sidebar-width", `${clamped}px`);
+  return clamped;
+}
+
+/**
+ * Remember it.
+ *
+ * A cookie rather than localStorage, matching the open/closed state next to it:
+ * the document can read a cookie before the first paint, and a width restored
+ * one frame late is a column that visibly jumps on every navigation.
+ */
+function storeSidebarWidth(px: number) {
+  document.cookie =
+    `${SIDEBAR_WIDTH_COOKIE}=${px}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+}
+
+/**
+ * The width, restored before the first paint.
+ *
+ * Rendered into the document head as a plain string. It has to run before the
+ * sidebar is laid out, which rules out an effect, a mount handler and anything
+ * else that waits for hydration -- all three would show the default width for a
+ * frame and then snap. Kept to one statement with its own try/catch so a
+ * malformed cookie cannot take the page down with it.
+ */
+export const SIDEBAR_WIDTH_SCRIPT = `try{var m=document.cookie.match(/(?:^|; )${SIDEBAR_WIDTH_COOKIE}=(\\d+)/);if(m){var w=Math.min(${SIDEBAR_WIDTH_MAX},Math.max(${SIDEBAR_WIDTH_MIN},+m[1]));document.documentElement.style.setProperty('--sidebar-width',w+'px')}}catch(e){}`;
 
 /**
  * A chrome edge, at one DEVICE pixel rather than one CSS pixel.
@@ -58,18 +112,22 @@ const SIDEBAR_WIDTH_MOBILE = "287px";
  * chrome is drawn a display pixel thick, not a layout pixel thick, so it stays
  * a hairline at 150% and 200% scaling instead of thickening with the zoom.
  *
+ * The colour is `chrome-border`, not `border`: these two edges separate two
+ * different surfaces, and the reference draws that seam with an opaque step
+ * rather than with the alpha hairline it uses for a rule inside a surface.
+ *
  * Exported as strings because both edges in the shell -- the sidebar's right and
  * the topbar's bottom -- have to agree, and because the media queries are the
  * one piece of this file that cannot be checked by eye.
  */
 export const hairlineRight = [
-  "border-r border-border",
+  "border-r border-chrome-border",
   "[@media(min-resolution:1.5dppx)]:border-r-[0.667px]",
   "[@media(min-resolution:2dppx)]:border-r-[0.5px]",
 ].join(" ");
 
 export const hairlineBottom = [
-  "border-b border-border",
+  "border-b border-chrome-border",
   "[@media(min-resolution:1.5dppx)]:border-b-[0.667px]",
   "[@media(min-resolution:2dppx)]:border-b-[0.5px]",
 ].join(" ");
@@ -159,10 +217,10 @@ export function Sidebar(props: { class?: string; children: JSX.Element }) {
           an eighth of the viewport and reads nothing. */}
       <Dialog open={isMobile() && openMobile()} onOpenChange={setOpenMobile}>
         <Dialog.Portal>
-          <Dialog.Overlay class="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] md:hidden dark:bg-black/60" />
+          <Dialog.Overlay class="fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] md:hidden dark:bg-black/60" />
           <Dialog.Content
             class={cn(
-              "fixed inset-y-0 left-0 z-50 flex flex-col bg-sidebar text-sidebar-foreground md:hidden",
+              "fixed inset-y-0 left-0 z-overlay flex flex-col bg-sidebar text-sidebar-foreground md:hidden",
               hairlineRight
             )}
             style={{ width: SIDEBAR_WIDTH_MOBILE }}
@@ -198,7 +256,11 @@ export function Sidebar(props: { class?: string; children: JSX.Element }) {
         data-slot="sidebar"
         data-state={state()}
         class={cn(
-          "relative z-20 hidden h-full overflow-hidden md:block",
+          // Above the topbar, not below it: the measured pair is 76 and 50.
+          // Every portalled overlay sits above BOTH, which is the whole reason
+          // the ladder is three named numbers in `styles.css` rather than a 50
+          // repeated everywhere.
+          "relative z-sidebar hidden h-full overflow-hidden md:block",
           // One device pixel, and the global border colour rather than the
           // sidebar's own: this edge separates two surfaces and has to be seen
           // doing it, while the sidebar token is a hairline meant for rules
@@ -208,11 +270,17 @@ export function Sidebar(props: { class?: string; children: JSX.Element }) {
           "bg-sidebar text-sidebar-foreground"
         )}
       >
-        {/* Held at the expanded width so the contents slide out of view behind
-            the overflow rather than re-wrapping while the sidebar narrows. */}
+        {/*
+          Held at the EXPANDED width, whatever the reader has dragged that to,
+          so the contents slide out of view behind the overflow rather than
+          re-wrapping while the sidebar narrows. Reading the custom property
+          rather than a constant is what makes the rows follow the drag; reading
+          it here rather than rendering a number is what keeps the value out of
+          the server's HTML. The 1px is the hairline the pane spends on its edge.
+        */}
         <div
           class={cn("flex h-full flex-col", props.class)}
-          style={{ width: `calc(${SIDEBAR_WIDTH} - 1px)` }}
+          style={{ width: "calc(var(--sidebar-width) - 1px)" }}
         >
           {props.children}
         </div>
@@ -302,18 +370,53 @@ export function SidebarPane(props: {
  * title centres on the space left over by the chevron and sits visibly off the
  * middle of a 270px row.
  */
-export function SidebarPaneHeader(props: {
+type SidebarPaneHeaderProps = {
+  /** The name of the pane, centred. */
   title: string;
-  back: JSX.Element;
+  /** The accessible name of the control, which is the whole row. */
+  label: string;
   class?: string;
-}) {
+  /** Almost always a router `Link`. Same reasoning as `SidebarMenuButton`. */
+  as?: ValidComponent;
+  [key: string]: unknown;
+};
+
+/**
+ * The pushed pane's header, which IS the way back.
+ *
+ * The measured shape is a 40px band holding one 36px BUTTON, and the button
+ * spans the row: a 36px chevron slot, the centred title, then a 36px spacer
+ * that exists only so the title is centred on the row rather than on the space
+ * left over after the chevron.
+ *
+ * The whole row being the control is the part worth getting right. A 36px
+ * square hit target on the left of an otherwise inert title reads as a
+ * decoration with a small button stuck to it, and it is a quarter of the target
+ * the reference actually gives you. The title is not a label next to the back
+ * button; it is inside it.
+ */
+export function SidebarPaneHeader(props: SidebarPaneHeaderProps) {
+  const [local, rest] = splitProps(props, ["title", "label", "class"]);
   return (
-    <div class={cn("flex h-10 w-full items-center pb-1", props.class)}>
-      <span class="flex size-9 shrink-0 items-center justify-center">{props.back}</span>
-      <span class="min-w-0 flex-1 truncate text-center text-body font-medium text-muted-foreground">
-        {props.title}
-      </span>
-      <span aria-hidden="true" class="size-9 shrink-0" />
+    <div class={cn("flex h-10 w-full items-center pb-1", local.class)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={local.label}
+        class={cn(
+          "h-9 w-full justify-start gap-0 overflow-hidden rounded-md px-0",
+          "text-body font-medium text-muted-foreground hover:text-foreground"
+        )}
+        {...rest}
+      >
+        <span class="flex size-9 shrink-0 items-center justify-center">
+          <ChevronLeft class="size-4" />
+        </span>
+        <span class="min-w-0 flex-1 truncate text-center">{local.title}</span>
+        {/* The counterweight. Without it the title centres on what is left of
+            the row and sits visibly right of centre. */}
+        <span aria-hidden="true" class="size-9 shrink-0" />
+      </Button>
     </div>
   );
 }
@@ -333,7 +436,9 @@ export function SidebarGroup(props: ComponentProps<"div">) {
  */
 export function SidebarSeparator(props: ComponentProps<"hr">) {
   const [local, rest] = splitProps(props, ["class"]);
-  return <hr class={cn("my-1 h-px w-full border-0 bg-border", local.class)} {...rest} />;
+  // gray-200, which is `secondary` here: the measured group rule sits one step
+  // in from the chrome seam, so it reads as a divider rather than as an edge.
+  return <hr class={cn("my-1 h-px w-full border-0 bg-secondary", local.class)} {...rest} />;
 }
 
 /** 1px of gap on a 36px row is the measured 37px pitch. */
@@ -496,18 +601,132 @@ export function SidebarTrigger(props: { class?: string; label?: string }) {
  * A wide invisible hit area over a 1px visible line: the line is the affordance,
  * the hit area is what makes it clickable without precision aiming.
  */
+/**
+ * The rail: drag to resize, click to collapse.
+ *
+ * One control with two gestures, because it is one edge and both gestures are
+ * about the same thing. A press that moves is a resize; a press that does not
+ * is a toggle. The threshold is what separates them, and without it every
+ * attempt to drag would also collapse the column on release.
+ *
+ * The width is written to the DOCUMENT ELEMENT rather than into this component's
+ * markup, and read back from a cookie by a script in the document head. See the
+ * long note in `styles.css`: a width in the markup is a hydration mismatch for
+ * anybody who has ever dragged it.
+ *
+ * It is a `separator` and it takes focus, because a control you can only operate
+ * with a pointer is a control half the people using this cannot operate at all.
+ * Arrow keys move it a row's worth at a time, Home and End go to the two limits,
+ * Enter collapses.
+ */
 export function SidebarRail() {
-  const { toggle } = useSidebar();
+  const { toggle, state } = useSidebar();
+
+  /** A press becomes a resize once it has travelled far enough to mean it. */
+  const DRAG_THRESHOLD = 4;
+  /** One arrow press moves the edge by a row's height, so it feels quantised. */
+  const KEY_STEP = 36;
+
+  let startX = 0;
+  let startWidth = 0;
+  let pressing = false;
+  let dragged = false;
+
+  function onPointerDown(event: PointerEvent) {
+    if (event.button !== 0) return;
+
+    // Collapsed, the rail is a toggle and nothing else: there is no width to
+    // drag, and dragging the 52px strip wider would silently expand it. The
+    // press is still recorded, because `pressing` is what lets the release
+    // toggle -- an early return here is how the rail lost its one job and a
+    // collapsed sidebar could not be reopened from its own edge.
+    pressing = true;
+    dragged = false;
+    startX = event.clientX;
+    startWidth = state() === "collapsed" ? 0 : currentSidebarWidth();
+
+    // Capture keeps the gesture coming even when the pointer leaves the window.
+    // It throws on a pointer id that is not active -- a synthetic event, a
+    // pointer already released -- and that is not a reason to abandon the drag.
+    try {
+      event.currentTarget instanceof Element &&
+        event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      /* proceed without capture */
+    }
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    // No width to drag while collapsed, so a move there stays a press.
+    if (!pressing || !startWidth) return;
+    const delta = event.clientX - startX;
+    if (!dragged) {
+      if (Math.abs(delta) < DRAG_THRESHOLD) return;
+      dragged = true;
+      document.documentElement.setAttribute("data-sidebar-resizing", "");
+      // A press that became a drag may have started a text selection first.
+      document.getSelection()?.removeAllRanges();
+    }
+    applySidebarWidth(startWidth + delta);
+  }
+
+  function onPointerUp(event: PointerEvent) {
+    if (!pressing) return;
+    try {
+      event.currentTarget instanceof Element &&
+        event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* it was never captured */
+    }
+    pressing = false;
+    startWidth = 0;
+    document.documentElement.removeAttribute("data-sidebar-resizing");
+    if (dragged) storeSidebarWidth(currentSidebarWidth());
+    else toggle();
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (state() === "collapsed") return;
+    const step =
+      event.key === "ArrowLeft" ? -KEY_STEP : event.key === "ArrowRight" ? KEY_STEP : 0;
+    if (step) {
+      event.preventDefault();
+      storeSidebarWidth(applySidebarWidth(currentSidebarWidth() + step));
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const limit = event.key === "Home" ? SIDEBAR_WIDTH_MIN : SIDEBAR_WIDTH_MAX;
+      storeSidebarWidth(applySidebarWidth(limit));
+    }
+  }
+
   return (
-    <button
-      type="button"
-      aria-label="Toggle sidebar"
-      tabIndex={-1}
-      onClick={toggle}
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuemin={SIDEBAR_WIDTH_MIN}
+      aria-valuemax={SIDEBAR_WIDTH_MAX}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      // Back to the measured width, which is the only way out of a column
+      // dragged somewhere unusable without hunting for the exact pixel.
+      onDblClick={() => storeSidebarWidth(applySidebarWidth(SIDEBAR_WIDTH_DEFAULT))}
+      onKeyDown={onKeyDown}
       class={cn(
-        "absolute inset-y-0 right-0 z-20 hidden w-4 -translate-x-1/2 cursor-ew-resize md:block",
-        "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-transparent",
-        "hover:after:bg-sidebar-ring"
+        "absolute inset-y-0 right-0 z-20 hidden w-4 translate-x-1/2 md:block",
+        "outline-none",
+        state() === "collapsed" ? "cursor-pointer" : "cursor-ew-resize",
+        // The line the reader actually aims at: invisible until the pointer is
+        // near it, then the focus blue. A rail that is always visible is a
+        // second border down the side of the column.
+        "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2",
+        "after:bg-transparent after:transition-colors",
+        "hover:after:bg-sidebar-ring focus-visible:after:bg-sidebar-ring"
       )}
     />
   );

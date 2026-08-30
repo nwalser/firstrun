@@ -20,6 +20,7 @@ import { Route as WWslugIndexRouteImport } from './routes/w.$wslug.index'
 import { Route as WWslugPslugRouteImport } from './routes/w.$wslug.$pslug'
 import { Route as WWslugMembersRouteImport } from './routes/w.$wslug.members'
 import { Route as WWslugSettingsRouteImport } from './routes/w.$wslug.settings'
+import { Route as WWslugSourcesRouteImport } from './routes/w.$wslug.sources'
 import { Route as WWslugPslugIndexRouteImport } from './routes/w.$wslug.$pslug.index'
 import { Route as WWslugPslugSettingsRouteImport } from './routes/w.$wslug.$pslug.settings'
 import { Route as WWslugPslugSourcesRouteImport } from './routes/w.$wslug.$pslug.sources'
@@ -84,6 +85,11 @@ const WWslugSettingsRoute = WWslugSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => WWslugRoute,
 } as any)
+const WWslugSourcesRoute = WWslugSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
+  getParentRoute: () => WWslugRoute,
+} as any)
 const WWslugPslugIndexRoute = WWslugPslugIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -138,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/w/$wslug/$pslug': typeof WWslugPslugRouteWithChildren
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/settings': typeof WWslugSettingsRoute
+  '/w/$wslug/sources': typeof WWslugSourcesRoute
   '/w/$wslug/': typeof WWslugIndexRoute
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRouteWithChildren
@@ -156,6 +163,7 @@ export interface FileRoutesByTo {
   '/wiki': typeof WikiIndexRoute
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/settings': typeof WWslugSettingsRoute
+  '/w/$wslug/sources': typeof WWslugSourcesRoute
   '/w/$wslug': typeof WWslugIndexRoute
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/projects/new': typeof WWslugProjectsNewRoute
@@ -177,6 +185,7 @@ export interface FileRoutesById {
   '/w/$wslug/$pslug': typeof WWslugPslugRouteWithChildren
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/settings': typeof WWslugSettingsRoute
+  '/w/$wslug/sources': typeof WWslugSourcesRoute
   '/w/$wslug/': typeof WWslugIndexRoute
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRouteWithChildren
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
     | '/w/$wslug/$pslug'
     | '/w/$wslug/members'
     | '/w/$wslug/settings'
+    | '/w/$wslug/sources'
     | '/w/$wslug/'
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/$pslug/sources'
@@ -218,6 +228,7 @@ export interface FileRouteTypes {
     | '/wiki'
     | '/w/$wslug/members'
     | '/w/$wslug/settings'
+    | '/w/$wslug/sources'
     | '/w/$wslug'
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/projects/new'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/w/$wslug/$pslug'
     | '/w/$wslug/members'
     | '/w/$wslug/settings'
+    | '/w/$wslug/sources'
     | '/w/$wslug/'
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/$pslug/sources'
@@ -334,6 +346,13 @@ declare module '@tanstack/solid-router' {
       path: '/settings'
       fullPath: '/w/$wslug/settings'
       preLoaderRoute: typeof WWslugSettingsRouteImport
+      parentRoute: typeof WWslugRoute
+    }
+    '/w/$wslug/sources': {
+      id: '/w/$wslug/sources'
+      path: '/sources'
+      fullPath: '/w/$wslug/sources'
+      preLoaderRoute: typeof WWslugSourcesRouteImport
       parentRoute: typeof WWslugRoute
     }
     '/w/$wslug/$pslug/': {
@@ -444,6 +463,7 @@ interface WWslugRouteChildren {
   WWslugPslugRoute: typeof WWslugPslugRouteWithChildren
   WWslugMembersRoute: typeof WWslugMembersRoute
   WWslugSettingsRoute: typeof WWslugSettingsRoute
+  WWslugSourcesRoute: typeof WWslugSourcesRoute
   WWslugIndexRoute: typeof WWslugIndexRoute
   WWslugProjectsNewRoute: typeof WWslugProjectsNewRoute
 }
@@ -452,6 +472,7 @@ const WWslugRouteChildren: WWslugRouteChildren = {
   WWslugPslugRoute: WWslugPslugRouteWithChildren,
   WWslugMembersRoute: WWslugMembersRoute,
   WWslugSettingsRoute: WWslugSettingsRoute,
+  WWslugSourcesRoute: WWslugSourcesRoute,
   WWslugIndexRoute: WWslugIndexRoute,
   WWslugProjectsNewRoute: WWslugProjectsNewRoute,
 }

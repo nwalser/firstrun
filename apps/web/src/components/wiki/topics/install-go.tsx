@@ -28,8 +28,10 @@ export const topics: WikiTopic[] = [
           unreachable your program keeps working. No dependencies.
         </p>
 
+        <h2>Install the package</h2>
         <Snippet lang="bash" code="go get firstrun.dev/go" />
 
+        <h2>Create the client</h2>
         <Snippet
           lang="go"
           code={
@@ -53,6 +55,7 @@ export const topics: WikiTopic[] = [
           }
         />
 
+        <h2>Write entries</h2>
         <Snippet
           lang="go"
           code={

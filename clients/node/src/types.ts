@@ -214,6 +214,21 @@ export interface FirstrunOptions {
    */
   defaultAttributes?: AttributesInput;
 
+  /**
+   * Marks everything this client sends as test data.
+   *
+   * Sent as the `firstrun.test` resource attribute, and only ever as `true`: a
+   * production client omits the key rather than sending `false`. The dashboard
+   * shows one world or the other, never both, so a development or CI process
+   * with this set cannot move a number anybody is looking at.
+   *
+   * Wire it to whatever your build already knows: `NODE_ENV !== "production"`,
+   * a staging flag, `process.env.CI`. There is no inference here on purpose: a
+   * server has no equivalent of "running from the IDE", and a client that
+   * guessed would eventually guess wrong on somebody's production box.
+   */
+  testMode?: boolean;
+
   /** When false, every call is a no-op that still returns immediately. */
   enabled?: boolean;
 

@@ -52,7 +52,7 @@ export const topics: WikiTopic[] = [
         <p>
           The shape of the query decides which visualisations make sense, and you pick from those.
         </p>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Visualisation</TableHead>

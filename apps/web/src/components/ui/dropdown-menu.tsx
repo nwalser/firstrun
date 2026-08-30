@@ -19,7 +19,7 @@ export function DropdownMenuContent(
     <KDropdownMenu.Portal>
       <KDropdownMenu.Content
         class={cn(
-          "bg-popover text-popover-foreground z-50 min-w-[10rem] overflow-hidden",
+          "bg-popover text-popover-foreground z-overlay min-w-[10rem] overflow-hidden",
           "rounded-md p-1 shadow-menu",
           "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
           "data-[closed]:animate-out data-[closed]:fade-out-0",

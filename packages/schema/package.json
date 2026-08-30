@@ -15,6 +15,7 @@
     "./query": "./src/query.ts",
     "./board": "./src/board.ts",
     "./overview": "./src/overview.ts",
+    "./feed": "./src/feed.ts",
     "./templates": "./src/templates.ts"
   },
   "dependencies": {

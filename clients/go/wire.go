@@ -135,6 +135,10 @@ const (
 	AttrHTTPRoute              = "http.route"
 
 	AttrChannel    = "firstrun.channel"
+	// AttrTest marks test data. Written only as the JSON boolean true, and only
+	// when true: the dashboard matches it with jsonb containment, where the
+	// string "true" is a different value and would match neither world.
+	AttrTest = "firstrun.test"
 	AttrDurationMS = "firstrun.duration_ms"
 	AttrValue      = "firstrun.value"
 	AttrMetric     = "firstrun.metric"

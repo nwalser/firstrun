@@ -197,6 +197,16 @@ type Options struct {
 	// on a clash.
 	Resource Attributes
 
+	// TestMode marks everything this client sends as test data, via the
+	// firstrun.test resource attribute. The dashboard shows one world or the
+	// other and never both, so a staging binary with this set cannot move a
+	// number anybody is looking at.
+	//
+	// Nothing is inferred. A server has no equivalent of "running from the
+	// IDE", and a client that guessed would eventually guess wrong on a
+	// production box, silently and in the direction nobody checks.
+	TestMode bool
+
 	// DefaultAttributes are stamped onto every entry this client sends, for
 	// what is true of every entry but is not a property of the process: a
 	// tenant, a region, a deployment id. An entry's own attributes win.
@@ -753,6 +763,11 @@ func (c *Client) resourceFor(e Entry) Attributes {
 		if pair[1] != "" {
 			out[pair[0]] = pair[1]
 		}
+	}
+	// Separate from the loop above because that array is string-typed and this
+	// value has to reach the wire as a JSON boolean rather than as "true".
+	if c.opts.TestMode {
+		out[AttrTest] = true
 	}
 	if len(out) == 0 {
 		return nil

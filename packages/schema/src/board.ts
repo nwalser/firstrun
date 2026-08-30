@@ -121,6 +121,21 @@ export const Board = z.object({
   range: DateRange.default({ kind: "last", days: 30 }),
   comparison: Comparison.default({ kind: "previous" }),
   filter: BoardFilter,
+  /**
+   * Which of the two worlds this board is looking at. False is production.
+   *
+   * It sits beside `range` rather than inside `filter` because it is the same
+   * kind of statement: not a condition somebody built, but the frame the whole
+   * board is read in. Putting it in the filter tree would let a picker delete it
+   * by accident and would make "this board shows test data" a thing you have to
+   * read a filter chip to discover.
+   *
+   * Defaulted rather than versioned. Every stored board predates this field and
+   * every one of them meant production, which is exactly what the default says,
+   * so there is nothing for a migration to decide. `BOARD_VERSION` is for a
+   * board that can no longer be READ as it stands; this one still can.
+   */
+  testMode: z.boolean().default(false),
   widgets: z.array(BoardWidget).max(MAX_WIDGETS).default([]),
 });
 
@@ -131,6 +146,7 @@ export const emptyBoard = (): Board => ({
   range: { kind: "last", days: 30 },
   comparison: { kind: "previous" },
   filter: emptyFilter(),
+  testMode: false,
   widgets: [],
 });
 
@@ -161,6 +177,11 @@ export function parseBoard(raw: unknown): Board {
         range: or(DateRange.safeParse(stored.range), { kind: "last", days: 30 }),
         comparison: or(Comparison.safeParse(stored.comparison), { kind: "previous" }),
         filter: or(BoardFilter.safeParse(stored.filter), emptyFilter()),
+        // Anything but a stored `true` is production, which is what a board
+        // written before this field existed meant and what a corrupt value
+        // should fall back to: showing test data to somebody who did not ask
+        // for it is the worse of the two failures.
+        testMode: stored.testMode === true,
         widgets: readWidgets(stored.widgets),
       };
     }
@@ -564,6 +585,9 @@ function fromLegacy(raw: unknown): Board {
     range: or(DateRange.safeParse(stored.range), { kind: "last", days: v1Days }),
     comparison: or(Comparison.safeParse(stored.comparison), { kind: "previous" }),
     filter: isV1 ? fromLegacyFilters({ sourceIds: v1Source }) : fromLegacyFilters(stored.filters),
+    // No board old enough to reach this function has ever seen test data:
+    // nothing was writing the attribute when they were saved.
+    testMode: false,
     widgets,
   };
 }
@@ -575,21 +599,55 @@ function fromLegacy(raw: unknown): Board {
 const hasConstraint = (filter: Filter | undefined): boolean =>
   filter !== undefined && !(filter.op === "and" && filter.filters.length === 0);
 
+/** The frame a board is read in: production, or test. Never both. */
+export type BoardFrame = Pick<Board, "filter" | "testMode">;
+
 /**
- * A card's query with the board's permanent filter folded in.
+ * Entries a board in this mode is allowed to see.
+ *
+ * Both directions compile to a plain boolean over one GIN lookup, which is the
+ * whole reason the attribute is only ever written as `true`:
+ *
+ *   test        `attributes @> '{"firstrun.test": true}'`
+ *   production  `NOT (attributes @> '{"firstrun.test": true}')`
+ *
+ * The negation is the case worth being careful about. `@>` returns false for a
+ * row without the key rather than NULL, so `NOT` of it is TRUE and production
+ * rows match. Had this been written as `ne` over an extracted value, absent
+ * would have extracted to NULL, `NOT NULL` would be NULL, and every production
+ * row in the database would have quietly failed the filter. The regression test
+ * in `packages/schema/test/test-mode.test.ts` is that sentence, executable.
+ */
+export const testFrameFilter = (testMode: boolean): Filter => {
+  const isTest: Filter = {
+    op: "eq",
+    field: { kind: "attribute", path: [ATTR.TEST] },
+    value: true,
+  };
+  return testMode ? isTest : { op: "not", filter: isTest };
+};
+
+/**
+ * A card's query with the board's frame and permanent filter folded in.
  *
  * Both the planner and the card call this before deriving a key, so a board
  * filtered to one source and the same board unfiltered are two different
  * questions with two different keys, and two cards on ONE board asking the same
  * thing are one question with one key.
+ *
+ * The frame goes in FIRST and unconditionally. That it is unconditional is what
+ * makes the toggle trustworthy: there is no arrangement of widget, board filter
+ * or missing field that produces a query which sees both worlds at once. It
+ * also means flipping the toggle re-derives every key on the board, so the
+ * production answers already in the snapshot can never be drawn under the test
+ * heading while the new ones are still in flight.
  */
-export function effectiveQuery(board: Pick<Board, "filter">, widget: QueryWidget): LogQuery {
-  if (!hasConstraint(board.filter)) return widget.query;
+export function effectiveQuery(board: BoardFrame, widget: QueryWidget): LogQuery {
+  const parts: Filter[] = [testFrameFilter(board.testMode)];
+  if (hasConstraint(board.filter)) parts.push(board.filter!);
   const own = widget.query.filter;
-  return {
-    ...widget.query,
-    filter: hasConstraint(own) ? and([board.filter!, own!]) : board.filter!,
-  };
+  if (hasConstraint(own)) parts.push(own!);
+  return { ...widget.query, filter: parts.length === 1 ? parts[0]! : and(parts) };
 }
 
 /**
@@ -652,12 +710,12 @@ export function boardRequests(board: Board): BoardRequest[] {
 }
 
 /** The key a card's own answer is filed under. Derived on both sides, never stored. */
-export const widgetKey = (board: Pick<Board, "filter">, widget: QueryWidget): string =>
+export const widgetKey = (board: BoardFrame, widget: QueryWidget): string =>
   queryKey(effectiveQuery(board, widget));
 
 /** The key a card's sparkline is filed under, or null when it has none. */
 export const widgetSparklineKey = (
-  board: Pick<Board, "filter">,
+  board: BoardFrame,
   widget: QueryWidget
 ): string | null =>
   widget.viz === "number" && widget.sparkline

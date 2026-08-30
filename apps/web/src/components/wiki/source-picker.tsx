@@ -18,6 +18,7 @@ import type { WikiSource } from "../../lib/api.js";
 import { useI18n } from "../../lib/i18n/index.js";
 import {
   Button,
+  buttonVariants,
   Input,
   Kbd,
   Popover,
@@ -32,6 +33,15 @@ import {
  * It lives in the wiki chrome rather than on a page because the selection has
  * to be reachable while the reader is halfway down an install guide -- on one
  * page it would be a setting they have to navigate back to.
+ *
+ * ## It lives in the topbar, beside the page, and not in the navigation
+ *
+ * It was briefly a row in the sidebar, in the slot the app fills with Find.
+ * That was wrong twice over. The picker is not navigation -- it does not change
+ * which page you are on, it changes what the page in front of you says -- and
+ * the column collapses to a 52px strip, where a row is a square with no label
+ * and cannot show which source is selected. A control whose entire job is to
+ * tell you what the snippets are written against has to be able to say so.
  *
  * ## This is the only place the wiki says "placeholder"
  *
@@ -216,20 +226,8 @@ export function SourcePicker(props: {
   };
 
   return (
-    <div class={cn("flex min-w-0 items-center gap-2", props.class)}>
+    <div class={cn("flex min-w-0 items-center", props.class)}>
       <Show when={props.sources.length > 0} fallback={<EmptyPicker signedIn={props.signedIn} />}>
-        {/*
-          The one placeholder notice in the wiki. Hidden on a narrow header
-          because the picker beside it is the part that can be acted on, and a
-          warning that pushes the fix off the screen is a worse warning.
-        */}
-        <Show when={!props.selected}>
-          <span class="hidden items-center gap-1.5 text-small text-warning md:inline-flex">
-            <Wand class="size-3.5 shrink-0" />
-            {i18n.t("wiki.placeholder_badge")}
-          </span>
-        </Show>
-
         <Popover
           open={open()}
           onOpenChange={(next) => {
@@ -238,28 +236,31 @@ export function SourcePicker(props: {
             // resets on close so the next open shows the whole tree.
             if (!next) setQuery("");
           }}
+          // Anchored to the trailing edge, because the trigger is at the
+          // trailing edge: a 384px panel hung from the left of a control that
+          // is 24px from the right of the window opens off the screen.
           placement="bottom-end"
-          // The measured distance from the trigger's bottom edge to the panel.
           gutter={8}
         >
           <PopoverTrigger
             as={Button}
             variant="outline"
             size="sm"
-            class="min-w-0 max-w-64 gap-1.5"
+            class="min-w-0 max-w-56 gap-1.5"
             aria-label={i18n.t("wiki.picker_label")}
           >
-            <Show
-              when={props.selected}
-              fallback={<span class="text-muted-foreground">{i18n.t("wiki.pick_source")}</span>}
-            >
-              {(source) => (
-                <>
-                  <SurfaceIcon kind={source().kind} class="size-3.5 shrink-0 opacity-70" />
-                  <span class="truncate">{source().name}</span>
-                </>
-              )}
+            {/*
+              The wand is the empty state, and it is the same mark the
+              placeholder notice beside it carries: the thing that says "these
+              are not real keys" and the control that fixes it read as one idea
+              rather than two unrelated bits of chrome.
+            */}
+            <Show when={props.selected} fallback={<Wand class="size-3.5 shrink-0 opacity-70" />}>
+              {(source) => <SurfaceIcon kind={source().kind} class="size-3.5 shrink-0 opacity-70" />}
             </Show>
+            <span class="truncate">
+              {props.selected?.name ?? i18n.t("wiki.pick_source")}
+            </span>
             <ChevronDown class="size-3.5 shrink-0 opacity-60" />
           </PopoverTrigger>
 
@@ -467,29 +468,46 @@ function BranchRow(props: {
  */
 function EmptyPicker(props: { signedIn: boolean }) {
   const i18n = useI18n();
+
+  // A link rather than a disabled control. A button that cannot be pressed and
+  // does not say why is the empty dropdown wearing a different costume.
   return (
-    <p class="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">
-      <span class="hidden sm:inline">{i18n.t("wiki.placeholder_line")}</span>
-      <Show
-        when={props.signedIn}
-        fallback={
-          <a
-            href="/login"
-            class="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            <LogIn class="size-3.5" />
-            {i18n.t("wiki.sign_in_to_fill")}
-          </a>
-        }
-      >
-        <a
-          href="/"
-          class="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          <Plus class="size-3.5" />
-          {i18n.t("wiki.add_source_to_fill")}
-        </a>
+    <a
+      href={props.signedIn ? "/" : "/login"}
+      class={cn(
+        buttonVariants({ variant: "ghost", size: "sm" }),
+        "min-w-0 max-w-56 gap-1.5 text-muted-foreground"
+      )}
+    >
+      <Show when={props.signedIn} fallback={<LogIn class="size-3.5 shrink-0" />}>
+        <Plus class="size-3.5 shrink-0" />
       </Show>
-    </p>
+      <span class="truncate">
+        {props.signedIn ? i18n.t("wiki.add_source_to_fill") : i18n.t("wiki.sign_in_to_fill")}
+      </span>
+    </a>
+  );
+}
+
+/**
+ * The one placeholder notice in the wiki.
+ *
+ * A reader who copies a placeholder key, pastes it, deploys and waits for
+ * events gets no error anywhere: the tag posts, the server rejects an unknown
+ * key, and the dashboard stays empty. That has to be said -- once, as a fact
+ * about the whole page, and not under each of the eight code blocks on it.
+ *
+ * Separate from the picker because the two live in different parts of the
+ * shell: the control is a row in the sidebar, and this sits in the topbar,
+ * where somebody reading the page rather than the navigation will see it. The
+ * caller decides when it shows, which is whenever nothing is picked.
+ */
+export function PlaceholderNotice(props: { class?: string }) {
+  const i18n = useI18n();
+  return (
+    <span class={cn("flex min-w-0 items-center gap-1.5 text-small text-warning", props.class)}>
+      <Wand class="size-3.5 shrink-0" />
+      <span class="truncate">{i18n.t("wiki.placeholder_badge")}</span>
+    </span>
   );
 }

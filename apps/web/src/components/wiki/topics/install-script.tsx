@@ -25,6 +25,7 @@ export const topics: WikiTopic[] = [
     icon: CodeXml,
     render: (ctx) => (
       <WikiProse>
+        <h2>Add the tag</h2>
         <Snippet
           filename="every page, in the head"
           lang="html"
@@ -43,10 +44,14 @@ export const topics: WikiTopic[] = [
           }
         />
 
+        <h2>Ask for consent</h2>
         <p>Nothing is stored and nothing is sent until consent is granted.</p>
+
         <Snippet lang="js" code={`fr("consent", true);\nfr("consent", false);  // withdraw`} />
 
+        <h2>Send your own events</h2>
         <p>Then write entries.</p>
+
         <Snippet
           lang="js"
           code={

@@ -55,7 +55,9 @@ export function CardTitle(props: ComponentProps<"div">) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <div
-      class={cn("text-body font-semibold text-foreground", local.class)}
+      // 14/600 at -0.28px, which is `tracking-snug` at this size: the measured
+      // card title tightens where 14px body copy does not.
+      class={cn("text-body font-semibold tracking-snug text-foreground", local.class)}
       {...rest}
     />
   );

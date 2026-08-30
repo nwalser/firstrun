@@ -4,8 +4,7 @@ import TriangleAlert from "lucide-solid/icons/triangle-alert";
 import { Show, type JSX } from "solid-js";
 import { cn } from "../../lib/cn.js";
 import { highlight } from "../../lib/highlight.js";
-import { useI18n, type SimpleKey } from "../../lib/i18n/index.js";
-import { Alert, AlertDescription, AlertTitle, CodeBlock } from "../ui/index.js";
+import { CodeBlock } from "../ui/index.js";
 
 /**
  * The language names a block is titled with when the page gave it no filename.
@@ -131,7 +130,13 @@ export function Snippet(props: {
 /**
  * An aside that is not part of the flow of the page.
  *
- * Three weights, and they mean different things on purpose:
+ * One hairline box, no fill, 14px of muted text with a glyph beside it. That is
+ * the measured documentation note, and it is deliberately quieter than the
+ * tinted, titled, left-ruled panel this used to be: a guide has several of
+ * these on a page, and a box that competes with the code block under it is a
+ * box the reader learns to jump over.
+ *
+ * Three weights, and they still mean different things:
  *
  * - `note` is context. Nothing breaks if the reader skips it.
  * - `warning` is a mistake that costs an afternoon, and that the reader will
@@ -148,38 +153,24 @@ export function Snippet(props: {
  * is the one they skim. So `caution` gets red, and everything below it does
  * not, no matter how much a page would like the emphasis.
  *
- * ## Three signals, not one
+ * ## The icon carries the weight, not the fill
  *
- * Colour is the last of them. Each weight carries its own icon shape (round,
- * triangular, octagonal) and always shows a title, so the ladder survives
- * greyscale, a colour-blind reader, and a printed page. That is also why the
- * title falls back to a default rather than being omitted: a bare tinted box
- * says only "aside".
+ * Colour is the last signal, and with the fills gone it is nearly the only one
+ * left -- so each weight keeps its own icon SHAPE (round, triangular,
+ * octagonal). That is what survives greyscale, a colour-blind reader and a
+ * printed page, and it is why the title is now optional rather than mandatory:
+ * the shape says which weight this is without spending a line on the word.
  */
 
 type CalloutVariant = "note" | "warning" | "caution";
 
-/**
- * The default title of each weight, as a key rather than as a word.
- *
- * A record of literal keys, not of translated strings: a `t(...)` evaluated
- * beside `CALLOUT_WEIGHTS` at module scope would be computed once, in whichever
- * language happened to be active when this module was first loaded, and would
- * stay in it after somebody switched. The lookup happens inside `Callout`.
- */
-const CALLOUT_TITLE_KEYS: Record<CalloutVariant, SimpleKey> = {
-  note: "wiki.callout_note",
-  warning: "wiki.callout_warning",
-  caution: "wiki.callout_caution",
-};
 
 /**
- * Each weight's own surface and mark colour.
+ * Each weight's edge and mark colour, and nothing else.
  *
- * Not the `Alert` variants: those tint the whole box, body text included, which
- * is what makes them read as loud at any size. Here the wash stays pale, the
- * left rule and the icon carry the weight, and the body is ordinary prose
- * colour so the box is a box and not a highlighter stroke.
+ * No fill and no left rule. Both were how this told its three weights apart
+ * before, and both are what made a note read as loud beside the code it was
+ * explaining. The border tint and the glyph carry the whole distinction now.
  *
  * The middle weight names the theme's warning token rather than reaching for a
  * palette step directly. That token already resolves to the right amber for
@@ -187,71 +178,68 @@ const CALLOUT_TITLE_KEYS: Record<CalloutVariant, SimpleKey> = {
  * warning number the same colour without either one pinning down which amber
  * that is.
  */
-const CALLOUT_WEIGHTS: Record<
-  CalloutVariant,
-  { box: string; mark: string; title: string }
-> = {
-  note: {
-    // The rule is drawn in the muted text colour rather than the border token,
-    // which on a dark ground is faint enough that the box just looks bordered.
-    box: "border-border/70 border-l-2 border-l-muted-foreground/40 bg-muted/40",
-    mark: "text-muted-foreground",
-    title: "text-foreground",
-  },
-  warning: {
-    box: "border-warning/30 border-l-2 border-l-warning/80 bg-warning/10",
-    mark: "text-warning",
-    title: "text-foreground",
-  },
-  caution: {
-    // Two red tokens, on purpose. `destructive` is the FILL -- the rule down
-    // the side and the wash behind the box. `negative` is the readable step,
-    // and it is what red TEXT and a red icon take; `destructive` under a body
-    // size is the one that goes muddy on a dark ground.
-    // Two weights of rule in this file and no third: the left edge is the same
-    // 2px here as it is on the two quieter weights, and the colour is what
-    // separates them.
-    box: "border-destructive/40 border-l-2 border-l-destructive bg-destructive/10",
-    mark: "text-negative",
-    title: "text-negative",
-  },
+const CALLOUT_WEIGHTS: Record<CalloutVariant, { box: string; mark: string }> = {
+  // The hairline every other surface in this system is edged with. On a note
+  // that is the whole decoration: an aside is a paragraph somebody drew a box
+  // round, not a highlighted one.
+  note: { box: "border-border", mark: "text-muted-foreground" },
+  warning: { box: "border-warning/40", mark: "text-warning" },
+  // `negative` rather than `destructive`: the fill step goes muddy under a body
+  // size on a dark ground, and this is text and a 14px glyph, not a fill.
+  caution: { box: "border-destructive/50", mark: "text-negative" },
 };
 
 export function Callout(props: {
   variant?: CalloutVariant;
+  /**
+   * An optional lead-in, in a word or two.
+   *
+   * Not defaulted, and usually absent. A box that always says "Note" above the
+   * note spends a line telling the reader what the border already told them.
+   */
   title?: string;
   children: JSX.Element;
   class?: string;
 }) {
-  const i18n = useI18n();
   const variant = () => props.variant ?? "note";
   const weight = () => CALLOUT_WEIGHTS[variant()];
-  // Safe to default, unlike `note` above: this prop is a string rather than
-  // markup, so reading it builds no nodes and cannot claim the server's out of
-  // order.
-  const title = () => props.title ?? i18n.t(CALLOUT_TITLE_KEYS[variant()]);
 
   return (
-    <Alert
-      variant="default"
+    <div
       // No margin of its own: a callout inside `WikiProse` is a block in the
-      // page's flow and takes the page's rhythm, and 6px was on no ladder the
-      // wiki uses.
-      class={cn("text-prose text-foreground", weight().box, props.class)}
+      // page's flow and takes the page's rhythm.
+      class={cn(
+        "flex w-full items-start gap-3 rounded-md border px-3 py-1.5",
+        weight().box,
+        props.class
+      )}
     >
-      <Show when={variant() === "note"}>
-        <Info class={weight().mark} />
-      </Show>
-      <Show when={variant() === "warning"}>
-        <TriangleAlert class={weight().mark} />
-      </Show>
-      <Show when={variant() === "caution"}>
-        <OctagonAlert class={weight().mark} />
-      </Show>
-      <AlertTitle class={cn("font-semibold", weight().title)}>{title()}</AlertTitle>
-      <AlertDescription class="text-prose text-muted-foreground">
+      {/*
+        A 24px line box so a one-line note is 36px tall and the glyph sits on
+        the text's own centre line rather than on the box's, which is what
+        keeps it level once the note wraps to three lines.
+      */}
+      <span class={cn("flex h-6 shrink-0 items-center", weight().mark)}>
+        <Show when={variant() === "note"}>
+          <Info class="size-3.5" />
+        </Show>
+        <Show when={variant() === "warning"}>
+          <TriangleAlert class="size-3.5" />
+        </Show>
+        <Show when={variant() === "caution"}>
+          <OctagonAlert class="size-3.5" />
+        </Show>
+      </span>
+
+      <div class="min-w-0 flex-1 text-body leading-6 text-muted-foreground">
+        {/* A string, so reading it to test it builds no nodes and cannot claim
+            the server's DOM out of order -- unlike `children`, which is read
+            exactly once, below, and never behind a `Show`. */}
+        <Show when={props.title}>
+          {(lead) => <span class="font-medium text-foreground">{lead()}. </span>}
+        </Show>
         {props.children}
-      </AlertDescription>
-    </Alert>
+      </div>
+    </div>
   );
 }

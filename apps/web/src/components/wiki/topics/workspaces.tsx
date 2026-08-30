@@ -29,7 +29,7 @@ export const topics: WikiTopic[] = [
     icon: FolderTree,
     render: (ctx) => (
       <WikiProse>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Level</TableHead>

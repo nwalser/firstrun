@@ -1,6 +1,6 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/solid-router";
 import { HydrationScript } from "solid-js/web";
-import { Toaster } from "../components/ui/index.js";
+import { SIDEBAR_WIDTH_SCRIPT, Toaster } from "../components/ui/index.js";
 import { getSession } from "../lib/api.js";
 import { DEFAULT_LOCALE, LocaleProvider, useI18n } from "../lib/i18n/index.js";
 import { getLocale } from "../lib/i18n/api.js";
@@ -118,6 +118,15 @@ function Document() {
           Solid-related. Do not remove it.
         */}
         <HydrationScript />
+        {/*
+          The sidebar's width, restored before anything is laid out.
+
+          It cannot wait for hydration: the column would be laid out at the
+          default, painted, and then snap to the stored width one frame later,
+          on every single navigation. `ui/sidebar.tsx` owns the string and the
+          cookie it reads; this is only the place it has to run from.
+        */}
+        <script innerHTML={SIDEBAR_WIDTH_SCRIPT} />
       </head>
       <body class="h-dvh overflow-hidden antialiased">
         <Outlet />

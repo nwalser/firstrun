@@ -1184,6 +1184,9 @@ namespace Firstrun
             if (!string.IsNullOrEmpty(options.Os)) named[FirstrunAttr.OsType] = options.Os;
             if (!string.IsNullOrEmpty(options.Arch)) named[FirstrunAttr.HostArch] = options.Arch;
             if (!string.IsNullOrEmpty(options.Locale)) named[FirstrunAttr.BrowserLanguage] = options.Locale;
+            // Boxed as a bool rather than a string, so the serialiser writes JSON true.
+            // Absent on a production client: silence is what says "not test data".
+            if (options.TestMode) named[FirstrunAttr.Test] = true;
 
             return Wire.MergeAttributes(Wire.ClampAttributes(options.Resource), named);
         }

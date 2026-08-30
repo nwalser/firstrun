@@ -1,9 +1,10 @@
-import type { Comparison, DateRange, Rect, Surface } from "@firstrun/schema";
-import { findFreeSlot } from "@firstrun/schema";
+import type { BoardFrame, Comparison, DateRange, Rect, Surface } from "@firstrun/schema";
+import { effectiveQuery, findFreeSlot } from "@firstrun/schema";
 import { useRouter } from "@tanstack/solid-router";
 import BringToFront from "lucide-solid/icons/bring-to-front";
 import Copy from "lucide-solid/icons/copy";
 import Eye from "lucide-solid/icons/eye";
+import FlaskConical from "lucide-solid/icons/flask-conical";
 import Funnel from "lucide-solid/icons/funnel";
 import LayoutGrid from "lucide-solid/icons/layout-grid";
 import Move from "lucide-solid/icons/move";
@@ -355,6 +356,29 @@ export function Dashboard(props: DashboardProps) {
           </Button>
 
           {/*
+            Which of the two worlds the board is reading. It sits beside the
+            filter rather than inside it because it is not a condition somebody
+            built: it is the frame, like the range.
+
+            `refetch` is not optional here. Every key on the board is derived
+            from a query that now carries a different frame filter, so the
+            answers already in the snapshot belong to the other world and there
+            is nothing cached to fall back on.
+          */}
+          <Button
+            variant={board().testMode ? "secondary" : "outline"}
+            size="toolbar"
+            aria-pressed={board().testMode}
+            title={i18n.t(board().testMode ? "dashboard.test_mode_on" : "dashboard.test_mode_off")}
+            onClick={() =>
+              persist({ ...board(), testMode: !board().testMode }, { refetch: true })
+            }
+          >
+            <FlaskConical size={14} />
+            {i18n.t("dashboard.test_mode")}
+          </Button>
+
+          {/*
             Both resolved windows, in the cell the reference's search input
             occupies. A delta against an unnamed baseline is a number nobody can
             check, so this has to be on screen -- and it is a caption on the
@@ -433,7 +457,7 @@ export function Dashboard(props: DashboardProps) {
             // A row only once the pane can hold both. `items-start` belongs to
             // the row: as a column it would take the canvas off full width and
             // size it to the 1280px board it is meant to be scrolling.
-            "@5xl/page:flex-row @5xl/page:items-start @5xl/page:gap-6"
+            "@lg-page/page:flex-row @lg-page/page:items-start @lg-page/page:gap-6"
           )}
         >
           <Canvas
@@ -515,7 +539,7 @@ export function Dashboard(props: DashboardProps) {
                 "sticky top-2 flex max-h-[calc(100vh-8rem)] w-80 shrink-0 flex-col",
                 // The raised surface: the ring and its 1px lift, no border.
                 "rounded-md bg-card shadow-sm",
-                "@7xl/page:w-[404px]"
+                "@xl-page/page:w-[404px]"
               )}
             >
               <div class="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
@@ -646,6 +670,7 @@ export function Dashboard(props: DashboardProps) {
                     range={board().range}
                     discovery={props.discovery}
                     sourceId={props.sources[0]?.id ?? null}
+                    frame={board()}
                     widget={widget()}
                     canEdit={props.canEdit}
                     onPatch={(changes, opts) => patch(widget().id, changes, opts)}
@@ -954,6 +979,12 @@ function CardSettings(props: {
   range: DateRange;
   discovery: Discovery;
   sourceId: string | null;
+  /**
+   * The board's frame and permanent filter, so the preview runs the query the
+   * CARD will run rather than the one the builder is editing. Without it a
+   * drawer over a production board previews test entries too.
+   */
+  frame: BoardFrame;
   widget: BoardWidget;
   canEdit: boolean;
   onPatch: Patch;
@@ -1034,6 +1065,7 @@ function CardSettings(props: {
               discovery={props.discovery}
               sourceId={props.sourceId}
               query={widget().query}
+              previewQuery={effectiveQuery(props.frame, widget())}
               viz={widget().viz}
               disabled={!props.canEdit}
               onChange={(next: { query: LogQuery; viz: Visualisation }) =>

@@ -47,14 +47,18 @@ export const workspace: WorkspaceMessages = {
 
   "workspace.sources_one": "{count} Quelle",
   "workspace.sources_other": "{count} Quellen",
-  "workspace.no_source_yet": "noch keine Quelle",
-  "workspace.nothing_received": "noch nichts empfangen",
   "workspace.nothing_yet": "noch nichts",
-  "workspace.last_entry": "Letzter Eintrag {when}",
   // Both forms are "{count} Projekt"/"{count} Projekte" by coincidence of the
   // noun, not by copy-paste: `Intl.PluralRules` asks for the category it chose.
   "workspace.projects_one": "{count} Projekt",
   "workspace.projects_other": "{count} Projekte",
+
+  // "Std." rather than "Stunde": this sits under a name in a row and the
+  // abbreviation is what a German reader expects in a caption that tight.
+  "workspace.per_hour": "{rate} Einträge/Std.",
+
+  "workspace.ingest_30d_one": "{count} Eintrag in den letzten 30 Tagen",
+  "workspace.ingest_30d_other": "{count} Einträge in den letzten 30 Tagen",
 
   "workspace.activity": "Aktivität",
   "workspace.people": "Personen",

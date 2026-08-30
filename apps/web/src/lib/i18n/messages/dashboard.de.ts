@@ -55,6 +55,10 @@ export const dashboard: DashboardMessages = {
   "dashboard.baseline_nothing": "Nichts",
 
   "dashboard.filter_none": "Filter",
+  "dashboard.test_mode": "Testdaten",
+  "dashboard.test_mode_off": "Produktionsdaten werden angezeigt. Zu den Einträgen der Entwicklungs-Builds wechseln.",
+  "dashboard.test_mode_on": "Nur Testdaten werden angezeigt. Produktionseinträge sind ausgeblendet.",
+  "dashboard.test_banner": "Testdaten",
   "dashboard.window_and_baseline": "{range} · verglichen mit {baseline}",
   "dashboard.saved": "Gespeichert",
   "dashboard.add_card": "Karte hinzufügen",

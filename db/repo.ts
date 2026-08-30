@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gte, lt, ne, sql as raw } from "drizzle-orm";
+import { and, eq, gte, lt, ne, sql as raw, type SQL } from "drizzle-orm";
 import { defaultBoard, mintSourceKey, parseBoard, type Board } from "@firstrun/schema";
 import { ATTR } from "@firstrun/schema/conventions";
 import type { Database } from "./client.js";
@@ -334,6 +334,72 @@ export async function workspaceLogo(
   return { bytes: row.logo, mimeType: row.mimeType, updatedAt: row.updatedAt ?? new Date(0) };
 }
 
+/**
+ * A project's picture: the same three columns, the same rules.
+ *
+ * Deliberately the workspace pair again rather than one function over a table
+ * name. The two differ in how they are ADDRESSED -- a workspace by its slug, a
+ * project by a workspace slug and a project slug -- and a shared helper that
+ * took a table would have to take that difference as a parameter anyway.
+ *
+ * The size and format checks are the same because the reasons are the same,
+ * SVG included: it is served from our own origin, so an uploaded one would be
+ * same-origin script running against a signed-in session.
+ */
+export async function setProjectLogo(
+  db: Database,
+  projectId: string,
+  bytes: Buffer,
+  mimeType: string
+): Promise<{ ok: true } | { error: string }> {
+  if (bytes.byteLength > MAX_LOGO_BYTES) {
+    return { error: `That image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)}KB).` };
+  }
+  if (!/^image\/(png|jpeg|webp)$/.test(mimeType)) {
+    return { error: "Logos must be a PNG, JPEG or WebP." };
+  }
+  await db
+    .update(projects)
+    .set({ logo: bytes, logoMimeType: mimeType, logoUpdatedAt: new Date() })
+    .where(eq(projects.id, projectId));
+  return { ok: true };
+}
+
+export async function clearProjectLogo(db: Database, projectId: string): Promise<void> {
+  await db
+    .update(projects)
+    .set({ logo: null, logoMimeType: null, logoUpdatedAt: null })
+    .where(eq(projects.id, projectId));
+}
+
+/**
+ * Public, and joined on the workspace: project slugs are only unique inside one.
+ *
+ * No session, like the workspace one. A picture somebody chose for a product is
+ * not a secret, and the alternative is an authenticated image URL, which no
+ * `<img>` on a page rendered for a different reader would be able to load.
+ */
+export async function projectLogo(
+  db: Database,
+  workspaceSlug: string,
+  projectSlug: string
+): Promise<{ bytes: Buffer; mimeType: string; updatedAt: Date } | null> {
+  const rows = await db
+    .select({
+      logo: projects.logo,
+      mimeType: projects.logoMimeType,
+      updatedAt: projects.logoUpdatedAt,
+    })
+    .from(projects)
+    .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
+    .where(and(eq(workspaces.slug, workspaceSlug), eq(projects.slug, projectSlug)))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row?.logo || !row.mimeType) return null;
+  return { bytes: row.logo, mimeType: row.mimeType, updatedAt: row.updatedAt ?? new Date(0) };
+}
+
 // ---------------------------------------------------------------------------
 // Members
 // ---------------------------------------------------------------------------
@@ -436,7 +502,26 @@ async function isLastAdmin(db: Database, workspaceId: string, userId: string): P
 // Projects
 // ---------------------------------------------------------------------------
 
-export interface ProjectWithRole extends Project {
+/**
+ * A project without its picture.
+ *
+ * Nothing above this file wants the bytes: every caller either draws the image
+ * by URL or does not draw it at all, and the serving route reads the one row it
+ * is asked for. Selecting the whole table instead would put every project's
+ * image into the workspace list, which is a page that draws none of them.
+ */
+export const projectColumns = {
+  id: projects.id,
+  workspaceId: projects.workspaceId,
+  name: projects.name,
+  slug: projects.slug,
+  logoUpdatedAt: projects.logoUpdatedAt,
+  createdAt: projects.createdAt,
+};
+
+export type ProjectMeta = Omit<Project, "logo" | "logoMimeType">;
+
+export interface ProjectWithRole extends ProjectMeta {
   /** The role the current user holds in the owning workspace. */
   role: MemberRole;
   workspaceSlug: string;
@@ -444,7 +529,7 @@ export interface ProjectWithRole extends Project {
   workspaceLogoUpdatedAt: Date | null;
 }
 
-export interface ProjectStats extends Project {
+export interface ProjectStats extends ProjectMeta {
   sourceCount: number;
   /** Newest entry `time` across the project, or null if nothing has arrived. */
   lastEventAt: Date | null;
@@ -475,7 +560,7 @@ export async function listProjectsWithStats(
 ): Promise<ProjectStats[]> {
   const rows = await db
     .select({
-      project: projects,
+      project: projectColumns,
       // The outer reference is spelled `"projects"."id"` rather than
       // interpolated. Drizzle renders `${projects.id}` inside a subquery as a
       // BARE `"id"`, which the subquery then resolves in its own scope: against
@@ -509,9 +594,179 @@ export async function listProjectsWithStats(
   }));
 }
 
-export async function listProjects(db: Database, workspaceId: string): Promise<Project[]> {
+/**
+ * How many daily buckets a list draws under each of its rows.
+ *
+ * One constant for both rollups below, because the workspace list and the
+ * sources list draw the SAME chart at two scopes, and a reader comparing them
+ * would be comparing two different windows if these ever drifted apart.
+ */
+export const INGEST_HISTOGRAM_DAYS = 30;
+
+/** Midnight UTC of the day a moment falls in. */
+function utcDayStart(at: Date): Date {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
+}
+
+/**
+ * The window a thirty-day rollup runs over.
+ *
+ * `until` is exclusive and a whole day past the last bucket, so today is counted
+ * in full as it fills rather than cut off at the moment the page happened to
+ * open.
+ */
+function histogramWindow(now = new Date()): { from: Date; until: Date } {
+  const today = utcDayStart(now);
+  return {
+    from: new Date(today.getTime() - (INGEST_HISTOGRAM_DAYS - 1) * DAY_MS),
+    until: new Date(today.getTime() + DAY_MS),
+  };
+}
+
+/**
+ * The day bucket both rollups group on, spelled once.
+ *
+ * `AT TIME ZONE 'UTC'` on both sides, never a bare `date_trunc` over a
+ * timestamptz: that truncates in whatever the SERVER's TimeZone happens to be,
+ * so the same query buckets differently on a machine set to Europe/Zurich and
+ * the bars land on the wrong days by a few hours. Out and back again keeps the
+ * result a timestamptz, which `pg` hands back as a real instant.
+ */
+const utcDayBucket = raw`(date_trunc('day', ${logEntries.time} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
+
+/**
+ * A daily series read back as a rate: entries per hour over the same window.
+ *
+ * Divided by the hours that have actually ELAPSED in the window, not by
+ * `30 * 24`. The last bucket is today and today is not over, so the fixed
+ * divisor would quietly report a rate up to a full day's worth low, and worst
+ * on a project whose first entries arrived this morning.
+ *
+ * Derived from the series rather than counted again, so the number and the bars
+ * beside it are always the same measurement: a rate that disagreed with the
+ * chart it sits under would be a bug nobody could see.
+ */
+export function entriesPerHour(daily: readonly number[], now = new Date()): number {
+  const { from } = histogramWindow(now);
+  const hours = Math.max(1, (now.getTime() - from.getTime()) / 3_600_000);
+  return daily.reduce((sum, n) => sum + n, 0) / hours;
+}
+
+/** One set of `(key, day, count)` rows, folded into a zero-filled array per key. */
+function foldDaily(
+  rows: readonly { key: string | null; day: string; n: string | number }[],
+  from: Date,
+  out: Map<string, number[]>
+): Map<string, number[]> {
+  for (const row of rows) {
+    const series = row.key === null ? undefined : out.get(row.key);
+    if (!series) continue;
+    // `date_trunc` is an expression, so this arrives however `pg` parsed it
+    // rather than through the column's decoder -- the same trap as `max(time)`.
+    const index = Math.floor((new Date(row.day).getTime() - from.getTime()) / DAY_MS);
+    if (index >= 0 && index < series.length) series[index] = Number(row.n);
+  }
+  return out;
+}
+
+/**
+ * Entries per day per project, for the last thirty days.
+ *
+ * One statement for the whole workspace rather than one per project: this draws
+ * a bar chart under every row of a list, and a query per row is a query per row.
+ *
+ * Bucketed on `time`, never `ingested_at` (rule 5), so a desktop app that
+ * uploaded a week of queued entries this morning draws them on the days it was
+ * actually used rather than as a spike today.
+ *
+ * Buckets are UTC days rather than the reader's local ones. The chart carries no
+ * axis and no labels, so a few hours of drift moves nothing a reader can see,
+ * and the alternative is threading a timezone from the browser through a loader
+ * that runs before hydration. A dashboard card, which does label its axis, goes
+ * through the query compiler and buckets in the reader's zone.
+ *
+ * Every project asked for gets an array of exactly `INGEST_HISTOGRAM_DAYS`
+ * numbers, oldest first, zero-filled: a project that has sent nothing draws a
+ * flat chart rather than no chart, which is an answer to "is this receiving
+ * anything" rather than the absence of one.
+ */
+export async function projectDailyCounts(
+  db: Database,
+  workspaceId: string,
+  projectIds: readonly string[]
+): Promise<Map<string, number[]>> {
+  const out = new Map<string, number[]>();
+  for (const id of projectIds) out.set(id, new Array<number>(INGEST_HISTOGRAM_DAYS).fill(0));
+  if (projectIds.length === 0) return out;
+
+  const { from, until } = histogramWindow();
+
+  const rows = await db.execute<{ key: string | null; day: string; n: string | number }>(raw`
+    select ${logEntries.projectId} as key,
+           ${utcDayBucket}         as day,
+           count(*)::int           as n
+      from ${logEntries}
+     where ${logEntries.projectId} IN (
+             select ${projects.id} from ${projects}
+              where ${projects.workspaceId} = ${workspaceId}
+           )
+       and ${logEntries.time} >= ${from}
+       and ${logEntries.time} <  ${until}
+     group by 1, 2
+  `);
+
+  return foldDaily(rows.rows, from, out);
+}
+
+/**
+ * The same thirty days, per SOURCE, across a whole workspace.
+ *
+ * The sibling of `projectDailyCounts`, and one statement for the same reason: a
+ * chart under every row of a list must not be a query per row.
+ *
+ * It groups on `attributes ->> 'firstrun.source.id'` rather than on a column,
+ * because that is where a source lives (rule 3, and the edge is what stamps it).
+ * A GIN index does not answer a group by, so this is a scan of the window --
+ * which is the trade rule 3 makes, bounded here by thirty days and by the
+ * workspace. If it ever stops being cheap enough the answer is the generated
+ * column rule 3 leaves room for, not a second write path.
+ *
+ * Entries carrying no source id are skipped rather than pooled: they are the
+ * ones written before the edge stamped one, and there is no row here for them to
+ * land on.
+ */
+export async function sourceDailyCounts(
+  db: Database,
+  workspaceId: string,
+  sourceIds: readonly string[]
+): Promise<Map<string, number[]>> {
+  const out = new Map<string, number[]>();
+  for (const id of sourceIds) out.set(id, new Array<number>(INGEST_HISTOGRAM_DAYS).fill(0));
+  if (sourceIds.length === 0) return out;
+
+  const { from, until } = histogramWindow();
+
+  const rows = await db.execute<{ key: string | null; day: string; n: string | number }>(raw`
+    select ${logEntries.attributes} ->> ${ATTR.SOURCE_ID} as key,
+           ${utcDayBucket}                                as day,
+           count(*)::int                                  as n
+      from ${logEntries}
+     where ${logEntries.projectId} IN (
+             select ${projects.id} from ${projects}
+              where ${projects.workspaceId} = ${workspaceId}
+           )
+       and ${logEntries.time} >= ${from}
+       and ${logEntries.time} <  ${until}
+       and ${logEntries.attributes} ->> ${ATTR.SOURCE_ID} is not null
+     group by 1, 2
+  `);
+
+  return foldDaily(rows.rows, from, out);
+}
+
+export async function listProjects(db: Database, workspaceId: string): Promise<ProjectMeta[]> {
   return db
-    .select()
+    .select(projectColumns)
     .from(projects)
     .where(eq(projects.workspaceId, workspaceId))
     .orderBy(projects.createdAt);
@@ -524,7 +779,7 @@ export async function projectForUser(
   userId: string
 ): Promise<ProjectWithRole | null> {
   const rows = await db
-    .select({ project: projects, workspace: workspaces, role: workspaceMembers.role })
+    .select({ project: projectColumns, workspace: workspaces, role: workspaceMembers.role })
     .from(projects)
     .innerJoin(workspaces, eq(workspaces.id, projects.workspaceId))
     .innerJoin(
@@ -705,13 +960,37 @@ export async function sourceLastSeen(
   db: Database,
   projectId: string
 ): Promise<Map<string, Date>> {
+  return lastSeenIn(db, raw`${logEntries.projectId} = ${projectId}`);
+}
+
+/**
+ * The same answer for every source in a workspace, in one statement.
+ *
+ * The workspace-wide sources list would otherwise ask this once per project,
+ * which is a round trip per project to fill one column of one page.
+ */
+export async function workspaceSourceLastSeen(
+  db: Database,
+  workspaceId: string
+): Promise<Map<string, Date>> {
+  return lastSeenIn(
+    db,
+    raw`${logEntries.projectId} IN (
+          select ${projects.id} from ${projects}
+           where ${projects.workspaceId} = ${workspaceId}
+        )`
+  );
+}
+
+/** The shared body: the scope is the only thing the two callers disagree on. */
+async function lastSeenIn(db: Database, scope: SQL): Promise<Map<string, Date>> {
   const since = new Date(Date.now() - FACET_DAYS * DAY_MS);
 
   const rows = await db.execute<{ source_id: string | null; last_seen: string | null }>(raw`
     select ${logEntries.attributes} ->> ${ATTR.SOURCE_ID} as source_id,
            max(${logEntries.time})                        as last_seen
       from ${logEntries}
-     where ${logEntries.projectId} = ${projectId}
+     where ${scope}
        and ${logEntries.time} >= ${since}
        and ${logEntries.attributes} ->> ${ATTR.SOURCE_ID} is not null
      group by 1

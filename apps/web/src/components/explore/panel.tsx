@@ -161,6 +161,17 @@ export function ExplorePanel(props: {
   range: DateRange;
   discovery: Discovery;
   query: LogQuery;
+  /**
+   * What the preview actually runs: the card's query with the board's frame and
+   * permanent filter folded in, exactly as the card itself will run it.
+   *
+   * Separate from `query` because the BUILDER edits the card's own query and
+   * must not be shown the board's conditions as if they were the card's. The
+   * preview without this ignored the board's test-mode frame, so a drawer open
+   * over a production board would count test entries and disagree with the card
+   * two inches behind it. Defaults to `query` for a caller with no board.
+   */
+  previewQuery?: LogQuery;
   viz: Visualisation;
   disabled?: boolean;
   /** Preselects this source in the install guide the empty state links to. */
@@ -179,7 +190,7 @@ export function ExplorePanel(props: {
       <QueryPreview
         workspace={props.workspace}
         project={props.project}
-        query={props.query}
+        query={props.previewQuery ?? props.query}
         viz={props.viz}
         range={props.range}
       />

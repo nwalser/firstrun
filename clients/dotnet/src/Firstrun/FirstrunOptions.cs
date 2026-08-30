@@ -61,6 +61,18 @@ namespace Firstrun
         public IReadOnlyDictionary<string, object?>? Resource { get; set; }
 
         /// <summary>
+        /// Marks everything this client sends as test data, via <c>firstrun.test</c>.
+        /// </summary>
+        /// <remarks>
+        /// The dashboard shows one world or the other and never both, so a debug or CI
+        /// build with this set cannot move a number anybody is looking at. Wire it to
+        /// whatever the build already knows, such as <c>#if DEBUG</c>. Nothing is
+        /// inferred: a client that guessed would eventually guess wrong on somebody's
+        /// production machine, silently and in the direction nobody checks.
+        /// </remarks>
+        public bool TestMode { get; set; }
+
+        /// <summary>
         /// Attributes stamped onto every entry this client sends, for what is true of
         /// every entry but is not a property of the process: a tenant, a region, a
         /// deployment id. An entry's own attributes win.

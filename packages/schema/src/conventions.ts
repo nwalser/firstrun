@@ -87,6 +87,22 @@ export const ATTR = {
   /** Release channel of the customer's build: stable, beta, nightly. */
   CHANNEL: "firstrun.channel",
 
+  /**
+   * Test data. `true` on every entry a development or CI build produced.
+   *
+   * A resource attribute rather than a column, like everything else that is not
+   * one of the five. It is only ever written as the JSON boolean `true`, and a
+   * production entry OMITS it rather than sending `false`: the absent case is
+   * the overwhelming majority of rows, and `attributes @> '{"firstrun.test":
+   * true}'` is one GIN lookup whose negation is still a plain boolean. A `false`
+   * would cost a byte on every entry ever sent to say what silence already says.
+   *
+   * Nothing in the backend reads it. It is a filter the dashboard adds, which is
+   * why a customer who ignores this key entirely loses nothing except the
+   * toggle.
+   */
+  TEST: "firstrun.test",
+
   /** How long something took, in milliseconds. */
   DURATION_MS: "firstrun.duration_ms",
   /** A plain numeric sample, for entries that are a measurement. */

@@ -90,7 +90,16 @@ export function RadioGroupItem<T extends string = string>(props: {
         <KRadioGroup.ItemLabel class="text-body cursor-pointer leading-none font-medium select-none">
           {props.label}
         </KRadioGroup.ItemLabel>
-        <Show when={props.description}>
+        {/*
+          `in props` asks whether the key was PASSED. `when={props.description}`
+          would read the prop to test it, and reading a markup prop BUILDS its
+          nodes -- before the element meant to contain them exists. During
+          hydration that claims the server's nodes out of order, Solid throws a
+          hydration mismatch, and its own error path cannot print itself: the
+          console says `template2 is not a function`, the page renders from SSR
+          and then ignores every click on the whole route.
+        */}
+        <Show when={"description" in props}>
           <KRadioGroup.ItemDescription class="text-caption text-muted-foreground">
             {props.description}
           </KRadioGroup.ItemDescription>
@@ -165,7 +174,7 @@ export function RadioCard<T extends string>(props: {
           <KRadioGroup.ItemLabel class="text-body cursor-pointer leading-none font-medium select-none">
             {props.label}
           </KRadioGroup.ItemLabel>
-          <Show when={props.description}>
+          <Show when={"description" in props}>
             <KRadioGroup.ItemDescription class="text-small text-muted-foreground">
               {props.description}
             </KRadioGroup.ItemDescription>

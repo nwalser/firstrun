@@ -27,6 +27,7 @@ export const topics: WikiTopic[] = [
           app, nothing blocks the UI thread, and if firstrun is unreachable your app is unaffected.
         </p>
 
+        <h2>Add the crate</h2>
         <Snippet
           filename="src-tauri/Cargo.toml"
           lang="toml"
@@ -34,6 +35,7 @@ export const topics: WikiTopic[] = [
           note="Not published to crates.io yet, so it is a path or a git dependency."
         />
 
+        <h2>Start the client</h2>
         <Snippet
           filename="src-tauri/src/main.rs"
           lang="rust"
@@ -62,6 +64,7 @@ export const topics: WikiTopic[] = [
           }
         />
 
+        <h2>Write entries</h2>
         <Snippet
           lang="rust"
           code={

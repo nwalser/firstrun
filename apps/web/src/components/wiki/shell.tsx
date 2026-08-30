@@ -1,32 +1,43 @@
-import { Dialog } from "@kobalte/core/dialog";
 import { Link, useRouterState } from "@tanstack/solid-router";
 import BookOpen from "lucide-solid/icons/book-open";
-import ExternalLink from "lucide-solid/icons/external-link";
+import ChevronLeft from "lucide-solid/icons/chevron-left";
+import FileText from "lucide-solid/icons/file-text";
+import LogIn from "lucide-solid/icons/log-in";
 import {
   For,
   Show,
   createContext,
-  createSignal,
   onMount,
   useContext,
   type Accessor,
   type JSX,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import type { Surface } from "@firstrun/schema";
 import { cn } from "../../lib/cn.js";
 import type { SessionInfo, WikiContext, WikiSource } from "../../lib/api.js";
 import { useI18n } from "../../lib/i18n/index.js";
 import { createSelectedSource } from "../../lib/selected-source.js";
+import { ExpandSidebar, UserMenu } from "../app-shell.js";
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  ScrollArea,
+  Brandmark,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarInset,
+  SidebarLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarPane,
+  SidebarPaneHeader,
+  SidebarProvider,
+  SidebarRail,
   SidebarSeparator,
-  buttonVariants,
   hairlineBottom,
-  hairlineRight,
-  initials,
+  useSidebar,
 } from "../ui/index.js";
 import { OnThisPage } from "./on-this-page.js";
 import {
@@ -37,19 +48,48 @@ import {
   topicTitle,
   type WikiRenderContext,
 } from "./registry.js";
-import { SourcePicker } from "./source-picker.js";
+import { PlaceholderNotice, SourcePicker } from "./source-picker.js";
 
 /**
- * The wiki's own chrome.
+ * The wiki's chrome, which is the application's chrome.
  *
- * Deliberately not `AppShell`: that one is built around a workspace, and this
- * has to render for somebody who has never signed in -- an evaluator reading
- * the install guide before they have an account is the main audience, not an
- * edge case. So: a header, a table of contents, and one column of content.
+ * Not a second shell that resembles the first one. The same `SidebarProvider`,
+ * the same `Sidebar`, the same 92px header band, the same 36px rows, the same
+ * 52px collapsed strip, the same Ctrl+B, the same drawer on a phone, the same
+ * 56px three-column topbar, the same scrolling pane. Everything structural
+ * comes from `ui/sidebar.tsx` and `app-shell.tsx`, so there is one set of
+ * numbers rather than two that drift apart a pixel at a time.
  *
- * The page does not scroll. The document body is fixed to the viewport, and the
- * two things that scroll are the contents and the content column, so the header
- * and the source picker stay on screen the whole way down a guide.
+ * This used to be a hand-built copy: a bespoke 287px `aside`, its own nav row
+ * constants restating the sidebar's 36px and 6px and 38px, and its own mobile
+ * drawer. Every one of those was the app's measurement written down a second
+ * time, and the second copy is the one that goes stale.
+ *
+ * ## What changes is what is IN the shell, and how much of it there is
+ *
+ * The wiki is public, and that is the whole reason it is a different mount
+ * rather than a route inside the workspace shell: an evaluator reading the
+ * install guide before they have an account is the main audience here, not an
+ * edge case. So the slots fill in differently, and some do not fill in at all:
+ *
+ * | slot | app | wiki, signed in | wiki, signed out |
+ * | --- | --- | --- | --- |
+ * | header row 1 | workspace switcher | the wiki, linking to its overview | same |
+ * | header row 2 | Find | the source picker | a link to sign in |
+ * | nav | boards and settings | the contents | same |
+ * | footer | the account menu | the account menu | a link to sign in |
+ * | topbar left | project switcher | nothing | nothing |
+ * | pane header | the settings back chevron | the way back into the app | nothing |
+ * | topbar right | reserved | the placeholder notice | the placeholder notice |
+ *
+ * Nothing is disabled and nothing is a stub: a control a signed-out reader
+ * cannot use is simply not drawn, and the row it would have taken is not
+ * reserved either. That is what "the same shell with fewer things in it" has to
+ * mean, or it is just the app with the lights off.
+ *
+ * The page does not scroll. The provider is fixed to the viewport and the pane
+ * scrolls inside it, so the topbar and the contents stay put the whole way down
+ * a guide.
  */
 
 export interface WikiState {
@@ -136,111 +176,128 @@ export function WikiShell(props: {
       }),
   };
 
-  const [contentsOpen, setContentsOpen] = createSignal(false);
-
   return (
     <WikiCtx.Provider value={state}>
-      <div class="flex h-dvh flex-col overflow-hidden">
-        {/*
-          The same 56px three-column bar the app draws, and for the same reason:
-          the centre cell is centred on the WINDOW rather than on whatever the
-          left cell happens to be wide. This was a wrapping flex row, which grew
-          a second line as soon as the picker held a long source name and left
-          the bar a different height on different pages.
-        */}
-        <header
-          class={cn(
-            "z-50 grid h-14 shrink-0 items-center gap-2 bg-background",
-            "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]",
-            hairlineBottom
-          )}
-        >
-          <div class="z-10 flex min-w-0 items-center pl-4">
-            {/* The wordmark takes the 16px lead step: it is the one piece of
-                marketing type in a bar that is otherwise chrome. */}
-            <Link
-              to="/wiki"
-              class="focus-ring flex shrink-0 items-center gap-2 rounded-sm text-lead"
-            >
-              <span class="size-2 rounded-[3px] bg-chart-1 shadow-[0_0_12px_var(--color-chart-1)]" />
-              firstrun
-              <span class="text-muted-foreground font-normal">wiki</span>
-            </Link>
+      <SidebarProvider>
+        <Sidebar>
+          {/*
+            One row, not the app's two. The second row is the app's Find, and
+            the wiki has nothing to search from the navigation column; a row
+            reserved for a control that is not there is the shell with the
+            lights off. The header is 48px here and 92px in the app, and both
+            are the same header with what they have in them.
+          */}
+          <SidebarHeader>
+            <WikiScope />
+          </SidebarHeader>
 
-            <ContentsDrawer
-              open={contentsOpen()}
-              onOpenChange={setContentsOpen}
-              kind={selection.source()?.kind ?? null}
-            />
-          </div>
-
-          <WikiBreadcrumb />
-
-          <div class="flex min-w-0 items-center justify-self-end gap-1 pr-4">
-            <SourcePicker
-              sources={sources()}
-              signedIn={props.context.signedIn}
-              selected={selection.source()}
-              onSelect={selection.setSource}
-            />
-
-            <Show
-              when={props.session.user}
-              fallback={
-                <a href="/login" class={cn(buttonVariants({ size: "sm" }), "shrink-0")}>
-                  {i18n.t("wiki.sign_in")}
-                </a>
-              }
-            >
-              {(user) => (
-                <a
+          <SidebarContent>
+            {/*
+              One pane, always active. The app pushes a second pane for
+              settings; the wiki has nothing to push, and a pane component with
+              one pane in it costs nothing while keeping the padding, the
+              transition context and the scroll behaviour identical.
+            */}
+            <SidebarPane side="root" active>
+              {/*
+                The wiki is a pane you came into, so it leaves the way you came
+                out of any other one: the back chevron in the pane header, at the
+                top of the column, exactly where Settings puts it. It used to be
+                a labelled button in the topbar's left cell, which is the one
+                place in the shell that means SCOPE, and a link out of the app
+                is not a scope.
+              */}
+              <Show when={props.session.user}>
+                <SidebarPaneHeader
+                  as="a"
                   href="/"
-                  class={cn(
-                    buttonVariants({ variant: "ghost", size: "sm" }),
-                    "shrink-0 text-muted-foreground"
-                  )}
-                >
-                  <Avatar class="size-5">
-                    <AvatarImage src={user().avatarUrl ?? undefined} alt="" />
-                    <AvatarFallback class="text-[9px]">
-                      {initials(user().name?.trim() || user().login)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span class="hidden sm:inline">{i18n.t("wiki.open_app")}</span>
-                  <ExternalLink class="size-3.5" />
-                </a>
-              )}
+                  title={i18n.t("wiki.contents")}
+                  label={i18n.t("wiki.back_to_app")}
+                />
+              </Show>
+              <TableOfContents />
+            </SidebarPane>
+          </SidebarContent>
+
+          <SidebarFooter class="flex-row items-center gap-2">
+            <Show when={props.session.user} fallback={<SignInRow />}>
+              <UserMenu session={props.session} />
             </Show>
-          </div>
-        </header>
+          </SidebarFooter>
 
-        <div class="flex min-h-0 flex-1">
+          <SidebarRail />
+        </Sidebar>
+
+        <SidebarInset>
           {/*
-            The contents column at the measured 287px: 286 of content plus the
-            hairline, which the border sits inside.
-
-            Its visibility is a viewport breakpoint rather than a container
-            query, exactly as `ui/sidebar.tsx` keys the app sidebar. This column
-            is what SETS the content pane's width, so asking the pane how wide
-            it is would be asking it about itself. Everything INSIDE the pane is
-            keyed off the pane.
+            The app's topbar, unchanged: 56px, three columns at 1 / 2 / 1 so the
+            middle cell is centred on the pane rather than on whatever the left
+            cell happens to be wide, and one device pixel of separation from the
+            content.
           */}
-          <aside class={cn("hidden w-[287px] shrink-0 flex-col lg:flex", hairlineRight)}>
-            <TableOfContents kind={selection.source()?.kind ?? null} />
-          </aside>
+          <header
+            class={cn(
+              "@container/bar sticky top-0 z-chrome grid h-14 shrink-0 items-center gap-2",
+              "bg-card md:bg-background",
+              "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]",
+              hairlineBottom
+            )}
+          >
+            {/*
+              The cell the app fills with the project switcher stays empty here.
+              The wiki has no second scope to switch, and the way back into the
+              app is in the sidebar with every other back control. The cell
+              itself remains so the centred breadcrumb keeps its centre.
+            */}
+            <div class="z-10 flex min-w-0 items-center overflow-hidden pl-4">
+              <ExpandSidebar />
+            </div>
+
+            <WikiBreadcrumb />
+
+            {/*
+              The source, and the notice that goes with it, in the topbar's
+              trailing cell.
+
+              Not in the navigation column, which is the mistake this replaces.
+              The picker is not navigation: it does not change what page you are
+              on, it changes what the page in front of you SAYS -- and a control
+              that rewrites the thing you are reading belongs next to the thing
+              you are reading, not in the list of places you could go instead.
+              It also has to stay put while the column is collapsed to a strip,
+              and a row that is a 36px square with no label cannot say which
+              source is selected.
+
+              The notice is the same idea one step earlier -- these keys are not
+              real yet -- so it sits immediately before the control that fixes
+              it, and drops off first when the bar runs out of room.
+            */}
+            <div class="flex min-w-0 items-center justify-self-end gap-2 pr-4">
+              <Show when={!selection.source()}>
+                <PlaceholderNotice class="hidden @3xl/bar:flex" />
+              </Show>
+              <SourcePicker
+                sources={sources()}
+                signedIn={props.context.signedIn}
+                selected={selection.source()}
+                onSelect={selection.setSource}
+              />
+            </div>
+          </header>
 
           {/*
-            The content pane: the other of the page's two scroll containers, and
-            the container QUERY context for everything in it. A container rather
-            than viewport breakpoints because the pane is what the content
-            actually has -- the contents column appearing at `lg` takes 287px
-            away from it, and the layout inside has to reflow as if the window
-            had narrowed by that much.
+            The only scroll container on the page, and the container QUERY
+            context for everything inside it -- the app's arrangement exactly.
+            Container queries rather than viewport ones because the pane is what
+            the content actually has: the sidebar collapsing gives it 235px back
+            and the layout inside has to reflow as if the window had grown.
           */}
-          <ScrollArea
-            role="main"
+          <div
             data-wiki-scroller
-            class="@container/page min-h-0 min-w-0 flex-1"
+            class={cn(
+              "@container/page min-h-0 flex-1 overflow-y-auto overscroll-contain",
+              "[scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent]"
+            )}
           >
             {/*
               The page grid, the same `margin | content | margin` every other
@@ -255,8 +312,11 @@ export function WikiShell(props: {
               The rail is a sibling of the page rather than something the page
               renders, so a topic file stays a topic file. It finds the headings
               by reading this column -- hence the marker attribute, which is the
-              contract between the two. It appears at the first standard step at
-              or above the 61rem the two columns need together.
+              contract between the two. 61rem is what the two columns need
+              together -- 40 of prose, 3 of gap, 15 of rail, and the page's own
+              margins -- and it is stated rather than rounded up to the nearest
+              named step, which was 64rem and hid the rail on a 1280px screen
+              for 48px it did not need.
             */}
             <div class="page-track">
               <div class="flex justify-center gap-12">
@@ -266,14 +326,81 @@ export function WikiShell(props: {
                 <OnThisPage
                   contentSelector="[data-wiki-content]"
                   scrollSelector="[data-wiki-scroller]"
-                  class="hidden @5xl/page:block"
+                  class="hidden @min-[61rem]/page:block"
                 />
               </div>
             </div>
-          </ScrollArea>
-        </div>
-      </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
     </WikiCtx.Provider>
+  );
+}
+
+/**
+ * Scope segment 1: the wiki itself, in the sidebar header.
+ *
+ * The workspace switcher's slot and the workspace switcher's geometry -- a 40px
+ * row inside a 48px band, a 20px mark, the name at 14/500 -- with no chevron on
+ * it, because there is nothing to switch to. The documentation is not one of
+ * several things you could be reading; it is the thing you are in.
+ *
+ * The mark takes the avatar's 20px square rather than sitting loose in the row,
+ * so collapsing to the 52px strip leaves it exactly where a workspace logo
+ * would have been.
+ */
+
+function WikiScope() {
+  const i18n = useI18n();
+
+  return (
+    <div class="flex h-12 items-center px-2 py-1">
+      <div class="flex h-10 min-w-0 flex-1 items-center rounded-md">
+        <Link
+          to="/wiki"
+          class={cn(
+            "focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 pr-1 pl-2.5",
+            "text-body font-medium outline-none transition-colors hover:bg-sidebar-accent"
+          )}
+        >
+          {/* The product mark. `chart-1` is a data SERIES colour and drawing the
+              brand with it means a chart and the logo change together. */}
+          <span class="flex size-5 shrink-0 items-center justify-center">
+            <Brandmark class="h-3 w-auto" />
+          </span>
+          <SidebarLabel class="truncate">{i18n.t("wiki.title")}</SidebarLabel>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The footer, for somebody with no account.
+ *
+ * The account pill's shape and the account pill's place, because signing in is
+ * what a reader with no session has instead of an account. Putting it in the
+ * topbar instead would leave the one row in the shell that is always about
+ * "you" empty on exactly the pages where the invitation matters most.
+ */
+function SignInRow() {
+  const i18n = useI18n();
+  const { state } = useSidebar();
+
+  return (
+    <a
+      href="/login"
+      class={cn(
+        "focus-ring flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md pr-2 pl-2.5",
+        "text-body outline-none transition-colors hover:bg-sidebar-accent",
+        state() === "collapsed" && "w-9 flex-none justify-center px-0"
+      )}
+    >
+      <span class="bg-secondary text-muted-foreground flex size-5 shrink-0 items-center justify-center rounded-full">
+        <LogIn class="size-3" />
+      </span>
+      <SidebarLabel class="truncate">{i18n.t("wiki.sign_in")}</SidebarLabel>
+    </a>
   );
 }
 
@@ -332,142 +459,81 @@ function WikiBreadcrumb() {
 }
 
 /**
- * The contents, as a drawer, below the width the column appears at.
- *
- * Between 0 and `lg` the only navigation used to be a link back to the index,
- * which is one page of the wiki offering to show you the list of pages. Same
- * Kobalte dialog the app sidebar opens on a phone, at the same width, holding
- * the same list the column holds -- so there is one table of contents and two
- * places it can be.
- */
-function ContentsDrawer(props: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  kind: Surface | null;
-}) {
-  const i18n = useI18n();
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <div class="flex items-center lg:hidden">
-        <span aria-hidden="true" class="mr-1 ml-3 h-6 w-px bg-border" />
-        <Dialog.Trigger
-          class={cn(
-            "focus-ring flex h-control-sm shrink-0 cursor-pointer items-center gap-1.5",
-            "rounded-md px-2 text-body text-muted-foreground outline-none",
-            "transition-colors hover:text-foreground"
-          )}
-        >
-          <BookOpen class="size-4" />
-          {i18n.t("wiki.contents")}
-        </Dialog.Trigger>
-      </div>
-
-      <Dialog.Portal>
-        <Dialog.Overlay class="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] lg:hidden dark:bg-black/60" />
-        <Dialog.Content
-          aria-label={i18n.t("wiki.contents")}
-          class={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-[287px] flex-col lg:hidden",
-            "bg-sidebar text-sidebar-foreground",
-            hairlineRight
-          )}
-        >
-          <TableOfContents kind={props.kind} onNavigate={() => props.onOpenChange(false)} />
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog>
-  );
-}
-
-/**
- * One row of the contents.
- *
- * 36px tall on a 37px pitch, 6px radius, the chrome text step, 2px of padding
- * on the leading edge and a 36px square slot for the glyph -- which is what
- * puts every label at 38px from the row's left edge whether the row carries an
- * icon or not. Same numbers as `ui/sidebar.tsx`, because it is the same list in
- * a different shell.
- *
- * The current page is marked by fill and by colour, and NOT by weight. Bolding
- * the active row reflows the list a hair every time it moves, and next to a
- * stack of regular rows the fill is already unmissable.
- */
-const NAV_ROW = [
-  "focus-ring flex h-control-md items-center rounded-md pr-2 pl-0.5",
-  "text-body transition-colors",
-].join(" ");
-
-const navRowState = (current: boolean) =>
-  current ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground";
-
-/** 1px of gap on a 36px row is the measured 37px pitch. */
-const NAV_LIST = "flex w-full min-w-0 flex-col gap-px";
-
-/**
  * The contents.
  *
  * Filtered by the kind of source the reader picked, because a Tauri page in the
  * list while somebody is installing a website tag is a page they have to decide
  * to ignore. With nothing picked, everything shows -- somebody evaluating the
- * product should see that both surfaces are covered.
+ * product should see that every surface is covered.
  *
- * Rendered into the column at `lg` and into the drawer below it, so it draws
- * the list and nothing around it: 10px above and 8px below inside an 8px column
- * inset, which is the measured nav padding.
+ * Built out of the shell's own row components rather than out of classes that
+ * restate their numbers. That is not tidiness: `SidebarMenuButton` is what
+ * knows how to be 36px, how to fill when it is active, how to become a 36px
+ * square in the collapsed strip, and how to grow a tooltip once its label is
+ * gone. A hand-rolled row got the first two and silently missed the last two.
+ *
+ * Which is why every topic row carries an icon now. In the 52px strip the glyph
+ * IS the row, so a blank leading square would leave the contents a column of
+ * identical empty buttons; a topic that declares no icon gets the generic page
+ * mark rather than nothing.
+ *
+ * Sections are told apart by a rule, never by a heading. The reference has no
+ * group labels anywhere in navigation, and a row of type in a list whose whole
+ * point is that every row is the same height is the thing it removed -- the
+ * section name survives as the group's accessible name.
  */
-function TableOfContents(props: { kind: Surface | null; onNavigate?: () => void }) {
+function TableOfContents() {
   const i18n = useI18n();
   const routerState = useRouterState();
-  const path = () => routerState().location.pathname;
-  const groups = () => sectionedTopics(props.kind);
+  const path = () => routerState().location.pathname.replace(/\/+$/, "") || "/";
+  const groups = () => sectionedTopics();
 
   return (
-    <ScrollArea class="flex min-h-0 flex-1 flex-col px-2 pt-2.5 pb-2">
-      <ul class={NAV_LIST}>
-        <li>
-          <Link
-            to="/wiki"
-            onClick={() => props.onNavigate?.()}
-            class={cn(NAV_ROW, navRowState(path() === "/wiki"))}
-          >
-            <BookOpen class="mx-2.5 size-4 shrink-0" />
-            <span class="truncate">{i18n.t("wiki.overview")}</span>
-          </Link>
-        </li>
-      </ul>
+    <>
+      <SidebarGroup>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              as={Link}
+              to="/wiki"
+              tooltip={i18n.t("wiki.overview")}
+              isActive={path() === "/wiki"}
+            >
+              <BookOpen />
+              <SidebarLabel>{i18n.t("wiki.overview")}</SidebarLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
 
-      {/* Groups are told apart by a rule at 4px, full row width, and never by a
-          heading: the reference has no group labels anywhere in navigation, and
-          a row of type in a list whose whole point is that every row is the
-          same height is the thing it removed. */}
       <For each={groups()}>
         {(group) => (
           <>
             <SidebarSeparator />
-            <ul class={NAV_LIST} aria-label={sectionLabel(i18n.t, group.section)}>
-              <For each={group.topics}>
-                {(topic) => (
-                  <li>
-                    <Link
-                      to="/wiki/$topic"
-                      params={{ topic: topic.slug }}
-                      onClick={() => props.onNavigate?.()}
-                      class={cn(NAV_ROW, navRowState(path() === `/wiki/${topic.slug}`))}
-                    >
-                      {/* Stands in for the icon slot, so a row without a glyph
-                          starts its label at the same 38px as the one above it
-                          that has one. */}
-                      <span aria-hidden="true" class="w-9 shrink-0" />
-                      <span class="truncate">{topicTitle(i18n.t, topic)}</span>
-                    </Link>
-                  </li>
-                )}
-              </For>
-            </ul>
+            <SidebarGroup>
+              <SidebarMenu aria-label={sectionLabel(i18n.t, group.section)}>
+                <For each={group.topics}>
+                  {(topic) => (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        as={Link}
+                        to="/wiki/$topic"
+                        params={{ topic: topic.slug }}
+                        tooltip={topicTitle(i18n.t, topic)}
+                        isActive={path() === `/wiki/${topic.slug}`}
+                      >
+                        <Dynamic component={topic.icon ?? FileText} />
+                        <SidebarLabel>{topicTitle(i18n.t, topic)}</SidebarLabel>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                </For>
+              </SidebarMenu>
+            </SidebarGroup>
           </>
         )}
       </For>
-    </ScrollArea>
+    </>
   );
 }
 

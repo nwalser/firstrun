@@ -196,6 +196,8 @@ export class Firstrun {
   };
   private readonly baseResource: Attributes | undefined;
   private readonly defaultAttributes: Attributes | undefined;
+  /** True when every entry carries `firstrun.test`. Never per-entry: a process is one or the other. */
+  private readonly testMode: boolean;
 
   private readonly queue: BoundedQueue<Queued>;
   private readonly breaker: Breaker;
@@ -291,6 +293,7 @@ export class Firstrun {
     };
     this.baseResource = clampAttributes(options.resource);
     this.defaultAttributes = clampAttributes(options.defaultAttributes);
+    this.testMode = options.testMode === true;
 
     this.store =
       this.delivery.persistence === "disk"
@@ -894,6 +897,10 @@ export class Firstrun {
       if (value === undefined) continue;
       (out ??= {})[key] = value;
     }
+    // Last, and outside the loop above, because that map is string-typed and
+    // this one value must reach the wire as a JSON boolean. Last is also a
+    // fixed position, so the serialised resource stays a stable grouping key.
+    if (this.testMode) (out ??= {})[ATTR.TEST] = true;
     return out;
   }
 

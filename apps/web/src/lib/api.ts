@@ -1,4 +1,5 @@
 import { DateRange, type Surface } from "@firstrun/schema";
+import { FeedRequest, type FeedPage } from "@firstrun/schema/feed";
 import { createServerFn } from "@tanstack/solid-start";
 import { Board, type Board as BoardValue } from "@firstrun/schema/board";
 import {
@@ -54,19 +55,45 @@ export interface ProjectSummary {
   id: string;
   name: string;
   slug: string;
+  /**
+   * When the project's picture last changed, so its URL can be cache-busted.
+   * Null means no picture, and the initials are drawn instead.
+   */
+  logoUpdatedAt: string | null;
 }
 
 /**
  * A project as the workspace index lists it.
  *
  * "Is this thing actually receiving anything" is the question that page opens
- * to answer, and a project with sources and no entries is the interesting
- * failure, so the two facts travel together. Nowhere else pays for them.
+ * to answer, and the shape of the last month plus a rate is how it answers it.
+ *
+ * `sourceCount` and `lastEventAt` are no longer DRAWN on the row. They stay
+ * because the filter chips are built on them, and a chip is worth more than the
+ * caption it replaced: "Sources: Connected" plus "Activity: Nothing yet" asks
+ * for the interesting failure, which is a question no amount of reading rows
+ * answers.
  */
 export interface ProjectListItem extends ProjectSummary {
   sourceCount: number;
   /** On `time`, not `ingested_at`. Null when nothing has ever arrived. */
   lastEventAt: string | null;
+  /**
+   * Entries per day for the last thirty days, oldest first, zero-filled.
+   *
+   * Thirty numbers rather than thirty labelled points: the row draws one bar per
+   * day with no axis, so a date per bar would be thirty strings nothing reads.
+   * Bucketed in UTC, on `time` -- see `projectDailyCounts`.
+   */
+  daily: number[];
+  /**
+   * The same window read as a rate, entries per hour.
+   *
+   * Computed server-side from `daily` over the hours that have actually elapsed,
+   * so it never disagrees with the bars beside it and the client does no date
+   * arithmetic that SSR and hydration could answer differently.
+   */
+  perHour: number;
 }
 
 export interface MemberSummary {
@@ -93,6 +120,31 @@ export interface SourceSummary {
   ingestKey: string;
   /** On `time`, not `ingested_at`: last active, not last heard from. */
   lastSeenAt: string | null;
+}
+
+/**
+ * A source as the workspace-wide list draws it.
+ *
+ * The project travels with it, because at workspace scope "which product is
+ * this reporting into" is the first thing a reader needs and the second is the
+ * shape of its last month. Nowhere else pays for the histogram.
+ */
+export interface WorkspaceSourceSummary extends SourceSummary {
+  projectId: string;
+  projectName: string;
+  projectSlug: string;
+  /**
+   * Entries per day for the last thirty days, oldest first, zero-filled.
+   *
+   * The same window, the same units and the same chart as the project rows on
+   * the workspace overview: two lists whose bars mean different things is a
+   * comparison somebody will make anyway and get wrong.
+   */
+  daily: number[];
+}
+
+export interface WorkspaceSourcesView {
+  sources: WorkspaceSourceSummary[];
 }
 
 export interface DashboardSummary {
@@ -204,6 +256,39 @@ export const getProjectOverview = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<BoardSnapshot | null> => {
     const { loadProjectOverview } = await import("./api.server.js");
     return loadProjectOverview(data.workspace, data.project);
+  });
+
+/**
+ * Every source in the workspace, with the shape of its last thirty days.
+ *
+ * A read of its own rather than a widening of `getWorkspace`: the workspace
+ * layout route loads on every page under it, and a histogram per source is work
+ * that only one page draws.
+ */
+export const getWorkspaceSources = createServerFn({ method: "GET" })
+  .validator((slug: string) => slug)
+  .handler(async ({ data }): Promise<WorkspaceSourcesView | null> => {
+    const { loadWorkspaceSources } = await import("./api.server.js");
+    return loadWorkspaceSources(data);
+  });
+
+/**
+ * One page of the log, newest first.
+ *
+ * A POST because it carries a filter and a cursor, and the filter is PARSED
+ * here rather than trusted: it reaches SQL, and "the browser built it" is not a
+ * reason to believe anything about its shape. It returns rows rather than
+ * numbers, which is why it is not the query layer and not reachable from a
+ * saved card. See `packages/schema/src/feed.ts`.
+ */
+export const getEventFeed = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; filter: unknown }) => ({
+    workspace: input.workspace,
+    filter: FeedRequest.parse(input.filter),
+  }))
+  .handler(async ({ data }): Promise<FeedPage | null> => {
+    const { loadFeed } = await import("./api.server.js");
+    return loadFeed(data);
   });
 
 export const getProject = createServerFn({ method: "GET" })
@@ -353,6 +438,20 @@ export const clearWorkspaceLogoFn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Result> => {
     const { dropWorkspaceLogo } = await import("./api.server.js");
     return dropWorkspaceLogo(data);
+  });
+
+export const setProjectLogoFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; dataUrl: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { putProjectLogo } = await import("./api.server.js");
+    return putProjectLogo(data.workspace, data.project, data.dataUrl);
+  });
+
+export const clearProjectLogoFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { dropProjectLogo } = await import("./api.server.js");
+    return dropProjectLogo(data.workspace, data.project);
   });
 
 // ---------------------------------------------------------------------------

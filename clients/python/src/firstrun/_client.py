@@ -171,6 +171,7 @@ class Firstrun:
         locale: Optional[str] = None,
         resource: Optional[Mapping[str, Any]] = None,
         default_attributes: Optional[Mapping[str, Any]] = None,
+        test_mode: bool = False,
         min_severity: int = 0,
         distinct_id: Optional[str] = None,
         persist_distinct_id: bool = True,
@@ -251,6 +252,10 @@ class Firstrun:
             _wire.ATTR_OS_TYPE: self.os,
             _wire.ATTR_HOST_ARCH: self.arch,
             _wire.ATTR_BROWSER_LANGUAGE: self.locale,
+            # A real bool, so it serialises as JSON true rather than "True".
+            # The falsy filter below is what keeps it off a production body:
+            # production says nothing rather than saying false.
+            _wire.ATTR_TEST: bool(test_mode),
         }
         self.resource = _wire.merge_attributes(
             _wire.clean_attributes(resource),

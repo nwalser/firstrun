@@ -3,7 +3,6 @@ import ArrowRight from "lucide-solid/icons/arrow-right";
 import FileQuestionMark from "lucide-solid/icons/file-question-mark";
 import { Show } from "solid-js";
 import {
-  Badge,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -12,12 +11,12 @@ import {
 } from "../components/ui/index.js";
 import {
   buildRenderContext,
-  sectionLabel,
   topicBySlug,
   topicSummary,
   topicTitle,
 } from "../components/wiki/registry.js";
 import { Callout } from "../components/wiki/snippet.js";
+import { PageNav } from "../components/wiki/page-nav.js";
 import { WikiPage, useWiki } from "../components/wiki/shell.js";
 import { useI18n } from "../lib/i18n/index.js";
 
@@ -50,30 +49,29 @@ function WikiTopicPage() {
         {(entry) => (
           <>
             {/*
-              The title block. The h1 takes the DISPLAY step -- 40px on 48, at
-              -0.06em -- which is the measured heading of this design system and
-              the one thing that most says "documentation" before a word is
-              read. It was two steps down the ladder at 20px, which is a card
-              heading, and a page whose title is the same size as the heading
-              halfway down it has no title.
+              The title block, which is a title and nothing else.
 
-              The section above it is the measured section label: sentence case
-              at 14/500 in the primary text colour, not an 11px tracked-out
-              capital and not a muted caption. Uppercase micro-labels are the
-              shadcn dashboard house style; this is a Geist page.
+              The h1 takes the DISPLAY step -- 40px on 48, at -0.06em -- which
+              is the measured heading of this design system and the one thing
+              that most says "documentation" before a word is read.
+
+              What used to sit around it is gone. There was a section label
+              above ("Install guides") and an applicability badge beside it
+              ("server sources"), and the reference has neither: a documentation
+              page opens with its name, on its own line, and the first paragraph
+              under it is the first paragraph of the page.
+
+              Both were saying something already said better elsewhere. The
+              section is the group the current row sits in, in the contents,
+              two inches to the left and permanently on screen. The kind is
+              either irrelevant -- the reader is reading this page because they
+              want this page -- or it is a MISMATCH with the source they have
+              picked, and that case gets a sentence below rather than a badge
+              above, because a badge cannot say "and the key in these snippets
+              is the wrong one".
             */}
-            <div class="pb-4">
-              <div class="flex h-8 items-center text-body font-medium text-foreground">
-                {sectionLabel(i18n.t, entry().section)}
-              </div>
-              <div class="mt-2 flex flex-wrap items-center gap-3">
-                <h1 class="text-display">{topicTitle(i18n.t, entry())}</h1>
-                <Show when={entry().appliesTo}>
-                  {(kind) => (
-                    <Badge variant="outline">{i18n.t("wiki.kind_sources", { kind: kind() })}</Badge>
-                  )}
-                </Show>
-              </div>
+            <div class="pb-2">
+              <h1 class="text-display">{topicTitle(i18n.t, entry())}</h1>
               {/* The lede reads at the prose step and in the prose colour: it
                   is the first paragraph of the page, not a caption on it. */}
               <p class="mt-4 text-prose text-foreground">{topicSummary(i18n.t, entry())}</p>
@@ -123,6 +121,10 @@ function WikiTopicPage() {
                 kind: entry().appliesTo,
               })
             )}
+
+            {/* The way on. Outside the prose, because it is navigation rather
+                than part of what the page says. */}
+            <PageNav slug={entry().slug} />
           </>
         )}
       </Show>

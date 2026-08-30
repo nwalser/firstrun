@@ -36,7 +36,7 @@ export const topics: WikiTopic[] = [
           than entries rests on them.
         </p>
 
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Field</TableHead>

@@ -105,7 +105,7 @@ export const topics: WikiTopic[] = [
         </p>
 
         <h2>What you write</h2>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Field</TableHead>
@@ -129,7 +129,7 @@ export const topics: WikiTopic[] = [
         </p>
 
         <h2>What the server adds</h2>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Field</TableHead>
@@ -154,7 +154,7 @@ export const topics: WikiTopic[] = [
           steps inside it are there so a logger with nine levels of its own can map onto this one
           without losing the order.
         </p>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Band</TableHead>
@@ -180,7 +180,7 @@ export const topics: WikiTopic[] = [
           Suggestions, not law. Any other name you send is stored, indexed and queried
           identically, and no entry is ever rejected for the name it carries.
         </p>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -205,7 +205,7 @@ export const topics: WikiTopic[] = [
           where they do not. These are the keys the pickers offer before your project has written
           anything.
         </p>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Key</TableHead>

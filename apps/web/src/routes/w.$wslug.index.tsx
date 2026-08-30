@@ -97,10 +97,12 @@ interface Facet {
 /**
  * What the filter row can narrow the list by.
  *
- * Both facets are read off the two facts a row already shows, so a chip never
- * filters on something the reader cannot then see in the row it kept. A project
+ * These used to be read off the two captions a row printed. The row prints a
+ * rate and a chart now, so the chips are the ONLY way left to ask these two
+ * questions, which is a reason to keep them rather than to drop them: a project
  * with sources and nothing received is the interesting failure, and "Sources:
  * Connected" plus "Activity: Nothing yet" is how you ask for exactly that set.
+ * No amount of reading rows finds it.
  */
 const FACETS: Array<{
   key: FacetKey;
@@ -239,20 +241,33 @@ function WorkspaceProjects() {
 
   let searchField: HTMLInputElement | undefined;
 
-  // `/` focuses the search, which is the shortcut the placeholder advertises.
-  // Guarded on the event target so typing a slash into any other field, or into
-  // a card someone is renaming, still types a slash.
+  /*
+    `/` focuses the search, which is the shortcut the placeholder advertises.
+
+    Guarded on the event target so typing a slash into any other field, or into
+    a card someone is renaming, still types a slash.
+
+    CAPTURE phase, and it stops the event dead once it has handled it. The
+    shell's Find row advertises the same key on the same window, so without
+    this both fire: the page focuses this field and the palette opens over the
+    top of it and takes the focus back, which makes the hint in this input a
+    lie. A page that owns a search field owns the shortcut while it is on
+    screen, and window-capture runs before the shell's window-bubble listener.
+  */
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) {
+        return;
+      }
       event.preventDefault();
+      event.stopImmediatePropagation();
       searchField?.focus();
     };
-    window.addEventListener("keydown", onKey);
-    onCleanup(() => window.removeEventListener("keydown", onKey));
+    window.addEventListener("keydown", onKey, { capture: true });
+    onCleanup(() => window.removeEventListener("keydown", onKey, { capture: true }));
   });
 
   /** Newest activity first, nulls last, so "nothing yet" never leads the page. */
@@ -453,7 +468,7 @@ function WorkspaceProjects() {
           </div>
 
           {/* Body: the projects, and the rail beside them once there is room. */}
-          <div class="flex w-full flex-col gap-4 @3xl/page:flex-row @3xl/page:gap-6">
+          <div class="flex w-full flex-col gap-4 @smd-page/page:flex-row @smd-page/page:gap-6">
             <div class="min-w-0 flex-1">
               <SectionLabel
                 label={i18n.t("workspace.projects")}
@@ -496,7 +511,7 @@ function WorkspaceProjects() {
                     </Card>
                   }
                 >
-                  <div class="grid grid-cols-1 gap-4 @xl/page:grid-cols-2 @4xl/page:grid-cols-3">
+                  <div class="grid grid-cols-1 gap-4 @smd-page/page:grid-cols-2 @lg-page/page:grid-cols-3">
                     <For each={shown()}>
                       {(project) => (
                         <ProjectTile workspace={workspace().slug} project={project} />
@@ -507,7 +522,7 @@ function WorkspaceProjects() {
               </Show>
             </div>
 
-            <div class="flex shrink-0 flex-col gap-4 @3xl/page:w-[320px] @5xl/page:w-[404px]">
+            <div class="flex shrink-0 flex-col gap-4 @smd-page/page:w-[320px] @lg-page/page:w-[404px]">
               <div>
                 <SectionLabel label={i18n.t("workspace.activity")} />
                 <Card>
@@ -518,9 +533,14 @@ function WorkspaceProjects() {
                           <Link
                             to="/w/$wslug/$pslug"
                             params={{ wslug: workspace().slug, pslug: project.slug }}
-                            class="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent"
+                            class={cn(ROW_INTERACTION, "flex items-center gap-3 px-4 py-2.5")}
                           >
-                            <ProjectLogo name={project.name} />
+                            <ProjectLogo
+                              workspace={workspace().slug}
+                              name={project.name}
+                              slug={project.slug}
+                              logoUpdatedAt={project.logoUpdatedAt}
+                            />
                             <span class="min-w-0 flex-1 truncate text-body">{project.name}</span>
                             <span class="shrink-0 text-caption text-muted-foreground">
                               <Show
@@ -581,9 +601,19 @@ function SectionLabel(props: { label: string; trailing?: JSX.Element }) {
   return (
     <div class="mb-3 flex h-8 items-center justify-between gap-2 px-1.5">
       <span class="text-body font-medium text-foreground">{props.label}</span>
-      <Show when={props.trailing}>
-        <span class="text-caption text-muted-foreground">{props.trailing}</span>
-      </Show>
+      {/*
+        Always in the markup, empty when the label has no trailing figure, and
+        out of the layout when it is empty.
+
+        `when={props.trailing}` would read the prop to TEST it, and reading a
+        markup prop BUILDS its nodes -- before the span meant to contain them
+        exists. During hydration that claims the server's nodes out of order,
+        Solid throws a hydration mismatch, and its own error path cannot print
+        itself: the console says `template2 is not a function`, the page
+        renders from SSR and then ignores every click on the whole route. Same
+        rule as `components/page-header.tsx`.
+      */}
+      <span class="text-caption text-muted-foreground empty:hidden">{props.trailing}</span>
     </div>
   );
 }
@@ -615,56 +645,132 @@ function ViewButton(props: {
   );
 }
 
-/** A project's stand-in for an avatar: its initials, in the card radius. */
-function ProjectLogo(props: { name: string; class?: string }) {
+/**
+ * A project's picture, or its initials while it has none.
+ *
+ * On Kobalte's image primitive rather than a bare `<img>`, so the initials show
+ * while the image loads and STAY if it fails: a project whose logo 404s reads
+ * as one without a logo instead of as a torn image icon.
+ *
+ * Square, not round. A logo is a mark, and a circle eats the corners of most of
+ * them. Contained rather than cropped for the same reason: a wordmark that is
+ * three times as wide as it is tall is a wordmark, not a badly framed photo.
+ */
+function ProjectLogo(props: {
+  workspace: string;
+  name: string;
+  slug: string;
+  logoUpdatedAt: string | null;
+  class?: string;
+}) {
+  // The timestamp is the cache key. The URL is stable, so without it the
+  // browser keeps serving the picture it already has and a replacement looks
+  // like it did not save. Same reason the serving route sets an ETag.
+  const src = () =>
+    props.logoUpdatedAt
+      ? `/api/logo/${props.workspace}/${props.slug}?v=${new Date(props.logoUpdatedAt).getTime()}`
+      : undefined;
+
   return (
-    <span
-      class={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-md shadow-2xs",
-        "bg-muted text-caption font-semibold text-foreground",
-        props.class
-      )}
-    >
-      {initials(props.name)}
-    </span>
+    <Avatar class={cn("size-8 shrink-0 rounded-md bg-muted", props.class)}>
+      <Show when={src()}>
+        {(url) => <AvatarImage src={url()} alt="" class="rounded-md object-contain" />}
+      </Show>
+      <AvatarFallback class="rounded-md text-caption font-semibold">
+        {initials(props.name)}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
 /**
- * What a project row says, wherever it is drawn.
+ * What a project row says under its name: how much it is receiving, per hour.
  *
- * Sources and last activity, because "is this thing actually receiving
- * anything" is the question somebody opens this page to answer. A project with
- * sources and no entries is the interesting failure (the tag is installed and
- * not reporting), so the two facts sit next to each other rather than one being
- * folded into the other.
+ * One rate rather than the source count and the last entry time this used to
+ * carry. Those two were facts about configuration and about a single moment; a
+ * rate is the size of the thing, and it is the number the bars beside it draw.
+ * Both are the same window, so the sentence and the chart cannot disagree.
+ *
+ * The digits follow the magnitude, like `formatPercent` does: 240/hour does not
+ * want a decimal place and 0.04/hour is nothing without two.
  */
-function ProjectFacts(props: { project: ProjectListItem }) {
+function ProjectRate(props: { perHour: number; class?: string }) {
   const i18n = useI18n();
+
+  const rate = () => {
+    const value = props.perHour;
+    const digits = value === 0 || value >= 10 ? 0 : value >= 1 ? 1 : 2;
+    return i18n.num(value, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+  };
+
   return (
-    <>
-      {/* The count goes through the plural family rather than an `=== 1` check.
-          `Intl.PluralRules` picks the form, and the count is run through the
-          active locale on the way into the sentence. */}
-      <div class="truncate text-caption text-muted-foreground">
-        {i18n.t("workspace.sources", { count: props.project.sourceCount })}
-      </div>
-      <div class="truncate text-caption text-muted-foreground">
-        <Show
-          when={props.project.sourceCount > 0}
-          fallback={<span>{i18n.t("workspace.no_source_yet")}</span>}
-        >
-          <Show
-            when={props.project.lastEventAt}
-            fallback={<span class="text-warning">{i18n.t("workspace.nothing_received")}</span>}
-          >
-            {(at) => <>{i18n.t("workspace.last_entry", { when: i18n.relative(at()) })}</>}
-          </Show>
-        </Show>
-      </div>
-    </>
+    <div class={cn("truncate text-caption text-muted-foreground", props.class)}>
+      {i18n.t("workspace.per_hour", { rate: rate() })}
+    </div>
   );
 }
+
+/**
+ * Thirty days of ingest, as one bar per day.
+ *
+ * The shape of the last month is the fact the two captions beside it cannot
+ * carry: "last entry 2 hours ago" says nothing about whether this project has
+ * been quietly dying for a fortnight, and a bar per day says it at a glance.
+ *
+ * Drawn in viewBox units with `preserveAspectRatio="none"`, so the same
+ * component fills a 120px column in a row and a whole tile in the grid without
+ * anything measuring it. Bars are rectangles: stretching one horizontally
+ * distorts nothing a reader could misread, which is what makes the cheap answer
+ * the right one here. A card on a board, which has an axis to keep square,
+ * measures its box instead.
+ *
+ * The viewBox is 32 tall and the element is 32px tall, so a bar's minimum
+ * height lands on a real pixel rather than a fraction of one.
+ *
+ * A day with nothing gets a one-unit stub rather than nothing at all: thirty
+ * bars with gaps in them reads as thirty days, and thirty bars with days
+ * missing reads as a shorter window.
+ */
+function ProjectHistogram(props: { daily: number[]; class?: string }) {
+  const i18n = useI18n();
+
+  const total = createMemo(() => props.daily.reduce((sum, n) => sum + n, 0));
+  // At least 1, so a project that has sent nothing divides by one rather than
+  // by zero and draws thirty stubs.
+  const max = createMemo(() => Math.max(1, ...props.daily));
+  const width = createMemo(() => Math.max(1, props.daily.length * BAR_PITCH - BAR_GAP));
+
+  return (
+    <svg
+      class={cn("block h-8 w-full", props.class)}
+      viewBox={`0 0 ${width()} ${BAR_SPACE}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={i18n.t("workspace.ingest_30d", { count: total() })}
+    >
+      <For each={props.daily}>
+        {(value, i) => {
+          const height = () =>
+            value > 0 ? Math.max(2, (value / max()) * BAR_SPACE) : 1;
+          return (
+            <rect
+              class={value > 0 ? "fill-chart-1" : "fill-border"}
+              x={i() * BAR_PITCH}
+              y={BAR_SPACE - height()}
+              width={BAR_PITCH - BAR_GAP}
+              height={height()}
+            />
+          );
+        }}
+      </For>
+    </svg>
+  );
+}
+
+/** The histogram's own units: a 3-wide bar every 4, in a 32-tall box. */
+const BAR_PITCH = 4;
+const BAR_GAP = 1;
+const BAR_SPACE = 32;
 
 /**
  * A row of the list view: the reference's 75px project row.
@@ -681,18 +787,34 @@ function ProjectRow(props: { workspace: string; project: ProjectListItem }) {
         params={{ wslug: props.workspace, pslug: props.project.slug }}
         class="relative flex items-center gap-3 p-4 transition-colors hover:bg-accent"
       >
-        <div class="flex min-w-0 items-center gap-4 @xl/page:w-[calc(25%+48px)]">
-          <ProjectLogo name={props.project.name} class="size-10" />
+        {/*
+          The reference splits this row at its own extra-large pane step. We
+          split at the medium one: their measuring pane was 2258px wide and
+          ours rarely is, so holding a 75px row stacked until 1280px would
+          leave most panes showing the tall form of a short row.
+        */}
+        <div class="flex min-w-0 items-center gap-4 @md-page/page:w-[calc(25%+48px)]">
+          <ProjectLogo
+            workspace={props.workspace}
+            name={props.project.name}
+            slug={props.project.slug}
+            logoUpdatedAt={props.project.logoUpdatedAt}
+            class="size-10"
+          />
           <div class="min-w-0">
             <div class="truncate text-body font-medium">{props.project.name}</div>
-            <div class="truncate font-mono text-mono text-muted-foreground">
-              /{props.project.slug}
-            </div>
+            <ProjectRate perHour={props.project.perHour} />
           </div>
         </div>
 
-        <div class="hidden min-w-0 flex-1 flex-col gap-0.5 pr-12 @xl/page:flex">
-          <ProjectFacts project={props.project} />
+        {/*
+          The chart takes the whole rest of the row rather than a fixed column.
+          Thirty bars in 88px is a texture; thirty bars in three or four hundred
+          is a shape, and the shape is the only thing this row is here to show.
+          32px of right padding keeps the bars clear of the chevron.
+        */}
+        <div class="hidden min-w-0 flex-1 pr-8 @md-page/page:block">
+          <ProjectHistogram daily={props.project.daily} />
         </div>
 
         <ChevronRight class="absolute top-[21px] right-4 size-4 text-muted-foreground" />
@@ -701,7 +823,7 @@ function ProjectRow(props: { workspace: string; project: ProjectListItem }) {
   );
 }
 
-/** A card of the grid view. The same facts, stacked. */
+/** A card of the grid view. The same two facts, stacked. */
 function ProjectTile(props: { workspace: string; project: ProjectListItem }) {
   return (
     <Link
@@ -712,19 +834,23 @@ function ProjectTile(props: { workspace: string; project: ProjectListItem }) {
         "transition-colors hover:bg-accent"
       )}
     >
-      <div class="flex items-start gap-3">
-        <ProjectLogo name={props.project.name} />
+      <div class="flex items-center gap-3">
+        <ProjectLogo
+          workspace={props.workspace}
+          name={props.project.name}
+          slug={props.project.slug}
+          logoUpdatedAt={props.project.logoUpdatedAt}
+          class="size-10"
+        />
         <div class="min-w-0 flex-1">
           <div class="truncate text-body font-medium">{props.project.name}</div>
-          <div class="truncate font-mono text-mono text-muted-foreground">
-            /{props.project.slug}
-          </div>
+          <ProjectRate perHour={props.project.perHour} />
         </div>
         <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
       </div>
-      <div class="flex flex-col gap-0.5">
-        <ProjectFacts project={props.project} />
-      </div>
+      {/* Last, and the full width of the card: a tile has room to draw the
+          month at a size where one bad day is visible, where the row does not. */}
+      <ProjectHistogram daily={props.project.daily} class="h-12" />
     </Link>
   );
 }

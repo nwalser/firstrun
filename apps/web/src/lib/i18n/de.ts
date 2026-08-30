@@ -4,6 +4,7 @@ import { boards } from "./messages/boards.de.js";
 import { common } from "./messages/common.de.js";
 import { dashboard } from "./messages/dashboard.de.js";
 import { explore } from "./messages/explore.de.js";
+import { events } from "./messages/events.de.js";
 import { locale } from "./messages/locale.de.js";
 import { members } from "./messages/members.de.js";
 import { project } from "./messages/project.de.js";
@@ -47,6 +48,7 @@ export const de: Messages = {
 
   ...dashboard,
   ...explore,
+  ...events,
 
   ...ui,
   ...wiki,

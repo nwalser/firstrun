@@ -9,7 +9,12 @@ import { cn } from "../../lib/cn.js";
  * the tabular figures that make one legible. The edge is the 1px ring drawn as
  * a box-shadow, the same hairline every other surface uses, so there is no
  * border on it. Four-pixel radius, because at this size it is a small control
- * rather than a surface.
+ * rather than a surface, and 4px of padding: the chip sits inside a 48px slot
+ * in a popover header and inside a 36px row in the sidebar, so any more and it
+ * stops being a chip and starts being a button.
+ *
+ * The fill is the raised one, not `muted`: a key drawn on the page fill reads
+ * as a hole when the thing behind it is already a card.
  */
 export function Kbd(props: ComponentProps<"kbd">) {
   const [local, rest] = splitProps(props, ["class"]);
@@ -17,7 +22,7 @@ export function Kbd(props: ComponentProps<"kbd">) {
     <kbd
       class={cn(
         "pointer-events-none inline-flex h-5 min-w-5 items-center justify-center gap-1",
-        "rounded-sm bg-muted px-1.5 shadow-xs",
+        "rounded-sm bg-card px-1 shadow-xs",
         "font-mono text-mono font-medium text-muted-foreground select-none",
         local.class
       )}

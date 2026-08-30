@@ -1,6 +1,7 @@
 import {
   QueryError,
   addMemberByLogin,
+  feedEntries,
   clearWorkspaceLogo,
   createDashboard as createDashboardRecord,
   createProject,
@@ -13,16 +14,21 @@ import {
   deleteProject,
   deleteSource,
   deleteWorkspace,
+  entriesPerHour,
   listDashboards,
   listMembers,
+  listProjects,
   listProjectsWithStats,
   listSources,
   listWorkspaces,
   listWorkspaceSources,
   MAX_LOGO_BYTES,
+  clearProjectLogo,
+  projectDailyCounts,
   projectForUser,
   removeMember,
   saveLayout,
+  sourceDailyCounts,
   renameDashboard as renameDashboardRecord,
   duplicateDashboard as duplicateDashboardRecord,
   renameProject as renameProjectRecord,
@@ -30,13 +36,22 @@ import {
   reorderDashboards as reorderDashboardRecords,
   runQueries,
   setMemberRole,
+  setProjectLogo,
   setWorkspaceLogo,
   sourceLastSeen,
   workspaceForUser,
+  workspaceSourceLastSeen,
   type LogQuery as CompilerQuery,
   type QueryRow as CompilerRow,
 } from "@firstrun/db";
 import { configFromEnv } from "@firstrun/ingest";
+import {
+  FEED_PAGE,
+  severityFloor,
+  type FeedEntry,
+  type FeedPage,
+  type FeedRequest,
+} from "@firstrun/schema/feed";
 import {
   OVERVIEW_COMPARISON,
   OVERVIEW_RANGE,
@@ -70,6 +85,7 @@ import type {
   Result,
   SessionInfo,
   WikiContext,
+  WorkspaceSourcesView,
   WorkspaceView,
 } from "./api.js";
 import { currentUser, oauthConfig } from "./auth.server.js";
@@ -227,6 +243,15 @@ export async function loadWorkspace(slug: string): Promise<WorkspaceView | null>
     listMembers(db, access.workspace.id),
   ]);
 
+  // After the projects, because it is asked for exactly the ids that came back:
+  // a project deleted between the two statements draws no chart rather than a
+  // chart the list has no row for.
+  const daily = await projectDailyCounts(
+    db,
+    access.workspace.id,
+    projects.map((p) => p.id)
+  );
+
   return {
     workspace: {
       id: access.workspace.id,
@@ -235,16 +260,143 @@ export async function loadWorkspace(slug: string): Promise<WorkspaceView | null>
       role: access.workspace.role,
       logoUpdatedAt: access.workspace.logoUpdatedAt?.toISOString() ?? null,
     },
-    projects: projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      slug: p.slug,
-      sourceCount: p.sourceCount,
-      lastEventAt: p.lastEventAt?.toISOString() ?? null,
-    })),
+    projects: projects.map((p) => {
+      const series = daily.get(p.id) ?? [];
+      return {
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        logoUpdatedAt: p.logoUpdatedAt?.toISOString() ?? null,
+        sourceCount: p.sourceCount,
+        lastEventAt: p.lastEventAt?.toISOString() ?? null,
+        daily: series,
+        // Derived from the series, not counted again, so the rate and the bars
+        // under it are the same measurement.
+        perHour: entriesPerHour(series),
+      };
+    }),
     members,
     currentUserId: access.user.id,
   };
+}
+
+/**
+ * Every source in a workspace, with its last thirty days.
+ *
+ * Three statements rather than one per project: the sources come back in one
+ * list, and the two rollups behind them are each one grouped scan over the same
+ * window. A page that drew a chart per row by asking per row would be a round
+ * trip per source.
+ *
+ * The histogram and the last-seen stamp are both on `time` (rule 5), so a
+ * desktop app that uploaded a week of queued entries this morning draws them on
+ * the days it was actually used and reads as last active then.
+ *
+ * Read access is enough: this reads and changes nothing.
+ */
+export async function loadWorkspaceSources(slug: string): Promise<WorkspaceSourcesView | null> {
+  const access = await requireAccess(slug);
+  if (!access) return null;
+
+  const db = getStore().db;
+  const sources = await listWorkspaceSources(db, access.workspace.id);
+
+  // After the sources, and asked for exactly the ids that came back, so a
+  // source deleted between the two statements draws no chart rather than a
+  // chart with no row.
+  const [lastSeen, daily] = await Promise.all([
+    workspaceSourceLastSeen(db, access.workspace.id),
+    sourceDailyCounts(
+      db,
+      access.workspace.id,
+      sources.map((s) => s.id)
+    ),
+  ]);
+
+  return {
+    sources: sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      kind: s.kind,
+      assetName: s.assetName,
+      ingestKey: s.ingestKey,
+      lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
+      projectId: s.projectId,
+      projectName: s.projectName,
+      projectSlug: s.projectSlug,
+      daily: daily.get(s.id) ?? [],
+    })),
+  };
+}
+
+/**
+ * One page of the log.
+ *
+ * The scope is resolved here and nowhere else: `requireAccess` says which
+ * workspace, and the project slugs the caller sent are resolved against that
+ * workspace's own projects before anything reaches SQL. A slug naming a project
+ * in somebody else's workspace resolves to nothing and therefore matches
+ * nothing, which is the safe direction to fail in.
+ *
+ * `more` is "the page came back full", not a second COUNT. A Load more button
+ * that occasionally appears over an empty page is a better trade than a second
+ * query on every page of every log view.
+ */
+export async function loadFeed(input: {
+  workspace: string;
+  filter: FeedRequest;
+}): Promise<FeedPage | null> {
+  const access = await requireAccess(input.workspace);
+  if (!access) return null;
+
+  const db = getStore().db;
+  const window = resolveRange(input.filter.range);
+  const limit = input.filter.limit ?? FEED_PAGE;
+  const empty = {
+    entries: [],
+    from: window.from.toISOString(),
+    to: window.to.toISOString(),
+    more: false,
+  };
+
+  const wanted = input.filter.projects ?? [];
+  let projectIds: string[] = [];
+  if (wanted.length > 0) {
+    const all = await listProjects(db, access.workspace.id);
+    projectIds = all.filter((p) => wanted.includes(p.slug)).map((p) => p.id);
+    // Every slug named a project this reader cannot see. An empty answer, not
+    // an unfiltered one: dropping the filter would widen the query instead.
+    if (projectIds.length === 0) return empty;
+  }
+
+  const rows = await feedEntries(db, {
+    workspaceId: access.workspace.id,
+    from: window.from,
+    to: window.to,
+    projectIds,
+    sourceIds: input.filter.sources ?? [],
+    minSeverity: severityFloor(input.filter.severity),
+    search: input.filter.search ?? null,
+    before: input.filter.before
+      ? { time: new Date(input.filter.before.time), entryId: input.filter.before.entryId }
+      : null,
+    limit,
+  });
+
+  const entries: FeedEntry[] = rows.map((r) => ({
+    projectId: r.projectId,
+    projectName: r.projectName,
+    projectSlug: r.projectSlug,
+    entryId: r.entryId,
+    time: r.time.toISOString(),
+    ingestedAt: r.ingestedAt.toISOString(),
+    distinctId: r.distinctId,
+    severity: r.severity,
+    name: r.name,
+    attributes: r.attributes,
+  }));
+
+  return { ...empty, entries, more: entries.length >= limit };
 }
 
 export async function loadProjectNav(
@@ -274,7 +426,12 @@ export async function loadProjectNav(
       role: project.role,
       logoUpdatedAt: project.workspaceLogoUpdatedAt?.toISOString() ?? null,
     },
-    project: { id: project.id, name: project.name, slug: project.slug },
+    project: {
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      logoUpdatedAt: project.logoUpdatedAt?.toISOString() ?? null,
+    },
     role: project.role,
     dashboards: boards.map((b) => ({
       id: b.id,
@@ -330,7 +487,12 @@ export async function loadProject(
       role: project.role,
       logoUpdatedAt: project.workspaceLogoUpdatedAt?.toISOString() ?? null,
     },
-    project: { id: project.id, name: project.name, slug: project.slug },
+    project: {
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      logoUpdatedAt: project.logoUpdatedAt?.toISOString() ?? null,
+    },
     role: project.role,
     sources: sources.map((s) => ({
       id: s.id,
@@ -833,6 +995,34 @@ export async function removeWorkspace(workspaceSlug: string, confirm: string): P
  */
 const LOGO_DATA_URL = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i;
 
+/**
+ * The decode and the two checks, shared by both logos.
+ *
+ * One function so a project image can never end up with looser rules than a
+ * workspace image: the SVG refusal in particular is a security decision, and
+ * the way it stops holding is somebody adding a second upload path that forgot
+ * about it.
+ */
+function decodeLogo(dataUrl: string): { bytes: Buffer; mimeType: string } | { error: string } {
+  const match = LOGO_DATA_URL.exec(dataUrl.trim());
+  if (!match) return { error: "That does not look like an image." };
+
+  const mimeType = (match[1] ?? "").toLowerCase();
+  // No SVG. An SVG is a document that can carry script, and this one is served
+  // back from our own origin -- an uploaded logo would be same-origin
+  // JavaScript running against a signed-in session. Raster formats only.
+  if (!/^image\/(png|jpeg|webp)$/.test(mimeType)) {
+    return { error: "Logos must be a PNG, JPEG or WebP." };
+  }
+
+  const bytes = Buffer.from(match[2] ?? "", "base64");
+  if (bytes.byteLength === 0) return { error: "That image could not be read." };
+  if (bytes.byteLength > MAX_LOGO_BYTES) {
+    return { error: `That image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)}KB).` };
+  }
+  return { bytes, mimeType };
+}
+
 export async function putWorkspaceLogo(
   workspaceSlug: string,
   dataUrl: string
@@ -840,28 +1030,14 @@ export async function putWorkspaceLogo(
   const access = await requireAdmin(workspaceSlug);
   if (!access) return denied("You need admin access to change the logo.");
 
-  const match = LOGO_DATA_URL.exec(dataUrl.trim());
-  if (!match) return denied("That does not look like an image.");
-
-  const mimeType = (match[1] ?? "").toLowerCase();
-  // No SVG. An SVG is a document that can carry script, and this one is served
-  // back from our own origin -- an uploaded logo would be same-origin
-  // JavaScript running against a signed-in session. Raster formats only.
-  if (!/^image\/(png|jpeg|webp)$/.test(mimeType)) {
-    return denied("Logos must be a PNG, JPEG or WebP.");
-  }
-
-  const bytes = Buffer.from(match[2] ?? "", "base64");
-  if (bytes.byteLength === 0) return denied("That image could not be read.");
-  if (bytes.byteLength > MAX_LOGO_BYTES) {
-    return denied(`That image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)}KB).`);
-  }
+  const image = decodeLogo(dataUrl);
+  if ("error" in image) return denied(image.error);
 
   const result = await setWorkspaceLogo(
     getStore().db,
     access.workspace.id,
-    bytes,
-    mimeType
+    image.bytes,
+    image.mimeType
   );
   return "error" in result ? denied(result.error) : ok();
 }
@@ -870,6 +1046,45 @@ export async function dropWorkspaceLogo(workspaceSlug: string): Promise<Result> 
   const access = await requireAdmin(workspaceSlug);
   if (!access) return denied("You need admin access to change the logo.");
   await clearWorkspaceLogo(getStore().db, access.workspace.id);
+  return ok();
+}
+
+/**
+ * A project's picture, changed by an admin of the workspace it is in.
+ *
+ * `adminOnProject` rather than `requireAdmin` alone: membership is per
+ * workspace, so the role answers "may this person change things here" and the
+ * project lookup answers "is this project actually in that workspace". Skipping
+ * the second is how a slug from another workspace gets written by someone who
+ * is an admin of neither.
+ */
+export async function putProjectLogo(
+  workspaceSlug: string,
+  projectSlug: string,
+  dataUrl: string
+): Promise<Result> {
+  const found = await adminOnProject(workspaceSlug, projectSlug, "change the logo");
+  if (!found.ok) return denied(found.error);
+
+  const image = decodeLogo(dataUrl);
+  if ("error" in image) return denied(image.error);
+
+  const result = await setProjectLogo(
+    getStore().db,
+    found.project.id,
+    image.bytes,
+    image.mimeType
+  );
+  return "error" in result ? denied(result.error) : ok();
+}
+
+export async function dropProjectLogo(
+  workspaceSlug: string,
+  projectSlug: string
+): Promise<Result> {
+  const found = await adminOnProject(workspaceSlug, projectSlug, "change the logo");
+  if (!found.ok) return denied(found.error);
+  await clearProjectLogo(getStore().db, found.project.id);
   return ok();
 }
 

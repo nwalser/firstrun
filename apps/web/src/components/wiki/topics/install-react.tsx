@@ -24,8 +24,10 @@ export const topics: WikiTopic[] = [
     icon: Atom,
     render: (ctx) => (
       <WikiProse>
+        <h2>Install the package</h2>
         <Snippet lang="bash" code="npm i @firstrun/analytics" />
 
+        <h2>Add the component</h2>
         <Snippet
           filename="src/main.tsx"
           lang="tsx"
@@ -47,7 +49,9 @@ export const topics: WikiTopic[] = [
           }
         />
 
+        <h2>Send your own events</h2>
         <p>Nothing is stored and nothing is sent until consent is granted.</p>
+
         <Snippet
           lang="ts"
           code={

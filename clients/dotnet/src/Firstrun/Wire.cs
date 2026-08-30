@@ -113,6 +113,14 @@ namespace Firstrun
         public const string HttpRoute = "http.route";
 
         public const string Channel = "firstrun.channel";
+
+        /// <summary>
+        /// Marks test data. Written only as the JSON boolean <c>true</c>, and only when
+        /// true: the dashboard matches it with jsonb containment, where the string
+        /// <c>"true"</c> is a different value and would match neither world. A production
+        /// entry omits the key rather than sending <c>false</c>.
+        /// </summary>
+        public const string Test = "firstrun.test";
         public const string DurationMs = "firstrun.duration_ms";
         public const string Value = "firstrun.value";
         public const string Metric = "firstrun.metric";

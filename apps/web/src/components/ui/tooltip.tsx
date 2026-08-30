@@ -27,7 +27,7 @@ export function Tooltip(props: {
       <KTooltip.Portal>
         <KTooltip.Content
           class={cn(
-            "bg-popover text-popover-foreground z-50 w-fit rounded-md px-2 py-1",
+            "bg-popover text-popover-foreground z-overlay w-fit rounded-md px-2 py-1",
             "text-caption font-medium shadow-tooltip",
             "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95"
           )}
@@ -47,7 +47,7 @@ export function TooltipContent(props: ComponentProps<typeof KTooltip.Content> & 
   return (
     <KTooltip.Content
       class={cn(
-        "bg-popover text-popover-foreground z-50 w-fit rounded-md px-2 py-1",
+        "bg-popover text-popover-foreground z-overlay w-fit rounded-md px-2 py-1",
         "text-caption font-medium shadow-tooltip",
         local.class
       )}

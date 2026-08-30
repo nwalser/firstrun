@@ -4,7 +4,6 @@ export * from "./avatar.js";
 export * from "./badge.js";
 export * from "./brand-icons.js";
 export * from "./brandmark.js";
-export * from "./breadcrumb.js";
 export * from "./button.js";
 export * from "./calendar.js";
 export * from "./card.js";

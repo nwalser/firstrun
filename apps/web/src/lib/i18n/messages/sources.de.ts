@@ -52,6 +52,23 @@ export const sources: SourcesMessages = {
     "Fügen Sie Ihre Website und Ihre App hier hinzu, in diesem einen Projekt. Sie sind zwei " +
     "Quellen, nicht zwei Projekte, und ihre Zahlen stehen auf einem Board nebeneinander.",
 
+  "sources.workspace_hint":
+    "Alles, was in diesen Workspace meldet, über alle Projekte hinweg. Jede Quelle ist ihr " +
+    "eigener anonymer Id-Raum, und zwei Quellen werden nie miteinander verknüpft: derselbe " +
+    "Mensch auf der Website und in der App zählt zweimal.",
+  "sources.project_label": "Projekt",
+  "sources.all_projects": "Alle Projekte",
+  "sources.sort_volume": "Volumen",
+  "sources.ingest_30d_one": "{count} Eintrag in den letzten 30 Tagen",
+  "sources.ingest_30d_other": "{count} Einträge in den letzten 30 Tagen",
+  "sources.thirty_days": "30 Tage",
+  "sources.open_project": "{name} öffnen",
+  "sources.none_in_workspace": "Keine Quellen in diesem Workspace",
+  "sources.none_in_workspace_hint":
+    "Eine Quelle ist eine Sache, die Einträge schreibt: eine Website, eine App, ein Server. " +
+    "Öffne ein Projekt, um eine anzulegen; sie meldet, sobald sie installiert ist.",
+  "sources.open_projects": "Projekte öffnen",
+
   "sources.option_web_title": "Website",
   "sources.option_web_body":
     "Seiten, Sitzungen, Referrer, Kampagnen und Core Web Vitals, vom Tag für Sie gemessen. " +

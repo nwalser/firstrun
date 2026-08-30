@@ -81,7 +81,7 @@ export const topics: WikiTopic[] = [
           on a board.
         </p>
 
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Part</TableHead>
@@ -114,7 +114,7 @@ export const topics: WikiTopic[] = [
         </p>
 
         <h2>Some questions and the queries behind them</h2>
-        <Table>
+        <Table reference>
           <TableHeader>
             <TableRow>
               <TableHead>Question</TableHead>

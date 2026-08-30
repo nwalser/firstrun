@@ -35,14 +35,14 @@ export function SheetContent(
     <Dialog.Portal>
       <Dialog.Overlay
         class={cn(
-          "fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+          "fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
           "data-[expanded]:animate-in data-[expanded]:fade-in-0",
           "data-[closed]:animate-out data-[closed]:fade-out-0"
         )}
       />
       <Dialog.Content
         class={cn(
-          "bg-popover text-popover-foreground fixed z-50 flex h-full w-full flex-col gap-0",
+          "bg-popover text-popover-foreground fixed z-overlay flex h-full w-full flex-col gap-0",
           "border-l border-border shadow-lift-md outline-none",
           "top-0 sm:max-w-sm",
           side() === "right" ? "right-0" : "left-0 border-l-0 border-r border-border",
@@ -63,7 +63,7 @@ export function SheetContent(
 
 export function SheetHeader(props: { class?: string; children?: JSX.Element }) {
   return (
-    <div class={cn("flex flex-col gap-1 border-b border-border px-5 py-4", props.class)}>
+    <div class={cn("flex flex-col gap-1 border-b border-border px-4 py-4", props.class)}>
       {props.children}
     </div>
   );
@@ -72,7 +72,9 @@ export function SheetHeader(props: { class?: string; children?: JSX.Element }) {
 export function SheetTitle(props: ComponentProps<typeof Dialog.Title> & { class?: string }) {
   const [local, rest] = splitProps(props, ["class"]);
   // 16/24/600 at -0.02em, matching DialogTitle. See the note there.
-  return <Dialog.Title class={cn("text-lead", local.class)} {...rest} />;
+  // Application chrome is 14px. 16px is marketing prose, and a panel header
+  // set at the marketing size is the single loudest thing on a dashboard.
+  return <Dialog.Title class={cn("text-body font-medium tracking-snug", local.class)} {...rest} />;
 }
 
 export function SheetDescription(
@@ -85,14 +87,14 @@ export function SheetDescription(
 }
 
 export function SheetBody(props: { class?: string; children?: JSX.Element }) {
-  return <div class={cn("flex-1 overflow-y-auto px-5 py-4", props.class)}>{props.children}</div>;
+  return <div class={cn("flex-1 overflow-y-auto px-4 py-4", props.class)}>{props.children}</div>;
 }
 
 export function SheetFooter(props: { class?: string; children?: JSX.Element }) {
   return (
     <div
       class={cn(
-        "flex items-center justify-end gap-2 border-t border-border px-5 py-4",
+        "flex items-center justify-end gap-2 border-t border-border px-4 py-4",
         props.class
       )}
     >

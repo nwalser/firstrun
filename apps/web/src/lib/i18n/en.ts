@@ -4,6 +4,7 @@ import { boards } from "./messages/boards.en.js";
 import { common } from "./messages/common.en.js";
 import { dashboard } from "./messages/dashboard.en.js";
 import { explore } from "./messages/explore.en.js";
+import { events } from "./messages/events.en.js";
 import { locale } from "./messages/locale.en.js";
 import { members } from "./messages/members.en.js";
 import { project } from "./messages/project.en.js";
@@ -63,6 +64,7 @@ export const en = {
 
   ...dashboard,
   ...explore,
+  ...events,
 
   ...ui,
   ...wiki,

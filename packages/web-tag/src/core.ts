@@ -218,6 +218,16 @@ export interface TagConfig {
    * choosing on a web page.
    */
   flushOnSeverity?: number;
+  /**
+   * Marks everything this tag sends as test data, via `firstrun.test`.
+   *
+   * Set from `data-test-mode` on the script tag, or by the caller. Nothing is
+   * inferred from the hostname: a tag that decided for itself that `localhost`
+   * meant test would be deciding it again on somebody's intranet, on a preview
+   * domain and inside an Electron shell, and the failure is silent in both
+   * directions. One attribute in the snippet says it out loud instead.
+   */
+  testMode?: boolean;
 }
 
 /** Host of a URL, or "" when there is not one. `mailto:` and `tel:` land here. */
@@ -367,6 +377,9 @@ export function createTag(env: Env, config: TagConfig) {
     const r: Attrs = { "session.id": sessionId };
     put(r, "user.id", userId);
     if (dropped) r["firstrun.dropped"] = dropped;
+    // Only ever the boolean, and only ever when true. The dashboard matches it
+    // with jsonb containment, where `"true"` is a different value from `true`.
+    if (config.testMode) r["firstrun.test"] = true;
     put(r, "browser.language", env.pageInfo().locale);
     return r;
   }

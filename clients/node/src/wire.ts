@@ -212,6 +212,17 @@ export const ATTR = {
   SPAN_ID: "span_id",
 
   CHANNEL: "firstrun.channel",
+
+  /**
+   * Test data. Written as the JSON boolean `true` and never as the string.
+   *
+   * The dashboard matches it with `attributes @> '{"firstrun.test": true}'`,
+   * which is containment over jsonb: `"true"` is a different value from `true`
+   * and would not match, so an entry that sent the string would be invisible in
+   * BOTH worlds. Production omits the key rather than sending `false`.
+   */
+  TEST: "firstrun.test",
+
   DURATION_MS: "firstrun.duration_ms",
   VALUE: "firstrun.value",
   METRIC: "firstrun.metric",

@@ -40,6 +40,31 @@ export const sources = {
     "Add your site and your app here, in this one project. They are two sources, not two " +
     "projects, and their numbers sit side by side on one board.",
 
+  /*
+   * The workspace-wide list.
+   *
+   * The same page one scope up: every source in every project, so "what is
+   * reporting into this workspace at all" is one page rather than one page per
+   * project. It says which project each source belongs to, because at this
+   * scope that is the first thing a reader needs.
+   */
+  "sources.workspace_hint":
+    "Everything reporting into this workspace, across every project. Each source is its own " +
+    "anonymous id space, and two sources are never joined to each other: the same human on " +
+    "your site and in your app counts as two.",
+  "sources.project_label": "Project",
+  "sources.all_projects": "All projects",
+  "sources.sort_volume": "Volume",
+  "sources.ingest_30d_one": "{count} entry in the last 30 days",
+  "sources.ingest_30d_other": "{count} entries in the last 30 days",
+  "sources.thirty_days": "30 days",
+  "sources.open_project": "Open {name}",
+  "sources.none_in_workspace": "No sources in this workspace",
+  "sources.none_in_workspace_hint":
+    "A source is one thing that writes entries: a site, an app, a server. Open a project to " +
+    "add one, and it starts reporting the moment it is installed.",
+  "sources.open_projects": "Open projects",
+
   // The empty state's options: one card per kind the create flow can make.
   "sources.option_web_title": "Website",
   "sources.option_web_body":

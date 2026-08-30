@@ -24,8 +24,10 @@ export const topics: WikiTopic[] = [
     icon: Triangle,
     render: (ctx) => (
       <WikiProse>
+        <h2>Install the package</h2>
         <Snippet lang="bash" code="npm i @firstrun/analytics" />
 
+        <h2>Add the component</h2>
         <Snippet
           title="App Router"
           filename="app/layout.tsx"
@@ -78,7 +80,9 @@ export const topics: WikiTopic[] = [
           tag can watch, so <code>/react</code> there under-reports navigations.
         </Callout>
 
+        <h2>Send your own events</h2>
         <p>Nothing is stored and nothing is sent until consent is granted.</p>
+
         <Snippet
           lang="ts"
           code={
