@@ -2,7 +2,6 @@
 import { templateByKey } from "@firstrun/schema";
 import { ATTR, NAME, WEB_VITALS, type WebVital } from "@firstrun/schema/conventions";
 import { SEVERITY } from "@firstrun/schema/severity";
-import type { Surface } from "@firstrun/schema/surface";
 import { eq, sql as raw } from "drizzle-orm";
 import { createStore } from "./client.js";
 import { insertLogEntries, type AttributeValue, type LogEntryInput } from "./log-entries.js";
@@ -20,11 +19,11 @@ import { dashboards, projects, sources, users, workspaceMembers, workspaces } fr
  * carry, the severity they were stamped with and the attributes they hold. If
  * you can find a second write path in this file, it is a bug.
  *
- * THREE SURFACES, AND NOTHING JOINS THEM. The site has visitors, the app has
+ * THREE SOURCES, AND NOTHING JOINS THEM. The site has visitors, the app has
  * installs, the API has processes, they are three separate anonymous id spaces,
  * and no row here claims that two of them are the same person. That is not a
- * gap in the fixture: it is the product. A funnel whose steps cross two
- * surfaces reads zero at the crossing, and that is the honest answer.
+ * gap in the fixture: it is the product. A funnel whose steps cross two sources
+ * reads zero at the crossing, and that is the honest answer.
  *
  * The numbers are not decoration. A screen you cannot look at is a screen you
  * cannot judge: if the drop from install to second launch is invisible on fake
@@ -47,9 +46,9 @@ const SEED_PROJECT_ID = "7f9b5c2e-1d4a-4f8b-9c3e-6a2b8d5f1e40";
 const SEED_WEB_SOURCE_ID = "1b6f0c58-3f2a-4a91-8f2d-9c1e77a04b11";
 const SEED_DESKTOP_SOURCE_ID = "2c7a1d69-4e3b-4b02-9a3e-0d2f88b15c22";
 const SEED_SERVER_SOURCE_ID = "4e8c3b7a-6d15-4c23-b1f4-8a3e99c26d33";
-const SEED_WEB_KEY = "fr_web_5eed000000000001";
-const SEED_DESKTOP_KEY = "fr_desktop_5eed000000000002";
-const SEED_SERVER_KEY = "fr_server_5eed000000000003";
+const SEED_WEB_KEY = "fr_5eed000000000001";
+const SEED_DESKTOP_KEY = "fr_5eed000000000002";
+const SEED_SERVER_KEY = "fr_5eed000000000003";
 const SEED_USER_LOGIN = process.env.SEED_USER ?? "seed";
 const ASSET_NAME = "Themia-Setup";
 const DAYS = 30;
@@ -125,7 +124,7 @@ const ROUTES = [
 ] as const;
 
 /**
- * The things that go wrong, per surface. Every one of them becomes an entry
+ * The things that go wrong, per source. Every one of them becomes an event
  * named `exception` carrying the OTel `exception.*` attributes, which is the
  * whole of what "error tracking" is in this system: a log entry, at a severity
  * that says how bad, with the conventional keys filled in.
@@ -233,14 +232,14 @@ type Attrs = Record<string, AttributeValue | undefined>;
  * real clients do rather than a shortcut the fixture takes.
  */
 interface Client {
-  source: { id: string; surface: Surface };
+  source: { id: string };
   distinctId: string;
   base: Attrs;
 }
 
-const WEB_SOURCE = { id: SEED_WEB_SOURCE_ID, surface: "web" as const };
-const APP_SOURCE = { id: SEED_DESKTOP_SOURCE_ID, surface: "desktop" as const };
-const API_SOURCE = { id: SEED_SERVER_SOURCE_ID, surface: "server" as const };
+const WEB_SOURCE = { id: SEED_WEB_SOURCE_ID };
+const APP_SOURCE = { id: SEED_DESKTOP_SOURCE_ID };
+const API_SOURCE = { id: SEED_SERVER_SOURCE_ID };
 
 /** Undefined means "this client did not report that", and is not stored. */
 function clean(attrs: Attrs): Record<string, AttributeValue> {
@@ -281,7 +280,6 @@ function log(
     name,
     attributes: clean({
       [ATTR.SOURCE_ID]: c.source.id,
-      [ATTR.SOURCE_SURFACE]: c.source.surface,
       ...c.base,
       ...attrs,
     }),
@@ -473,8 +471,8 @@ function generateWeb(out: LogEntryInput[]): WebTotals {
       const endedAt = visit(first, arrival(day), utm.referrer);
 
       // Signing up is where a web visitor gets a user id. It is the customer's
-      // own id, from their own form, and it stays on the web surface: no id
-      // here is ever compared with an id from the app.
+      // own id, from their own form, and it stays with the site's source: no
+      // id here is ever compared with an id from the app.
       if (chance(0.035)) {
         identified++;
         userId = `u_site_${n.toString(36)}`;
@@ -542,7 +540,7 @@ function generateApp(out: LogEntryInput[]): AppTotals {
       const os = pick(OSES);
 
       // The install id the SDK generated on first run. It is not, and cannot
-      // be, any web visitor id: separate surface, separate id space.
+      // be, any web visitor id: separate source, separate id space.
       const distinctId = `i_${n.toString(36)}_${Math.floor(rand() * 1e6).toString(36)}`;
       const base: Attrs = {
         [ATTR.SERVICE_NAME]: "themia",
@@ -688,13 +686,13 @@ function generateApp(out: LogEntryInput[]): AppTotals {
 // ---------------------------------------------------------------------------
 
 /**
- * A backend surface, which is the one the old fixture had nothing of.
+ * A backend source, which is the one the old fixture had nothing of.
  *
  * `distinct_id` here is a PROCESS id, not a person: a server has no visitors,
  * and the id it persists is the identity of one running instance. Counting
- * uniques over this surface counts processes, which is the correct answer to a
+ * uniques over this source counts processes, which is the correct answer to a
  * question nobody should be asking of it, and is exactly why uniques are never
- * summed across surfaces.
+ * summed across sources.
  */
 interface ApiTotals {
   requests: number;
@@ -853,7 +851,6 @@ async function main(): Promise<void> {
           id: SEED_WEB_SOURCE_ID,
           projectId: SEED_PROJECT_ID,
           name: "themia.app",
-          kind: "web",
           assetName: null,
           ingestKey: SEED_WEB_KEY,
         },
@@ -861,7 +858,6 @@ async function main(): Promise<void> {
           id: SEED_DESKTOP_SOURCE_ID,
           projectId: SEED_PROJECT_ID,
           name: "Themia for Windows",
-          kind: "desktop",
           assetName: ASSET_NAME,
           ingestKey: SEED_DESKTOP_KEY,
         },
@@ -869,15 +865,14 @@ async function main(): Promise<void> {
           id: SEED_SERVER_SOURCE_ID,
           projectId: SEED_PROJECT_ID,
           name: "api.themia.app",
-          kind: "server",
           assetName: null,
           ingestKey: SEED_SERVER_KEY,
         },
       ])
       .onConflictDoNothing();
 
-    // Three boards, not one: a project has a tab strip, and the two
-    // surface-specific templates are the ones that light up on this data.
+    // Three boards, not one: a project has a tab strip, and the website and
+    // app templates are the ones that light up on this data.
     //
     // Rebuilt on every run rather than left alone if present. A board stored by
     // an older version of this file is a board from a different product, and a
@@ -946,7 +941,7 @@ async function main(): Promise<void> {
     console.log(`  api 5xx          ${api.failures}`);
     console.log(`  entries          ${rows.length}`);
     console.log("");
-    console.log("  The three surfaces are NOT joined. A funnel whose steps cross");
+    console.log("  The three sources are NOT joined. A funnel whose steps cross");
     console.log("  from web to desktop reads zero at the crossing, by design.");
     console.log("");
     console.log(`  bun run dev:login ${SEED_USER_LOGIN}`);

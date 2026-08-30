@@ -283,7 +283,6 @@ function ProjectSettings() {
                     <div class="flex flex-wrap items-center justify-between gap-2">
                       <div class="flex min-w-0 items-center gap-2">
                         <span class="truncate text-body font-medium">{source.name}</span>
-                        <Badge variant="secondary">{source.kind}</Badge>
                       </div>
                       <ConfirmDelete
                         trigger={

@@ -1,7 +1,7 @@
 import type { ProjectMessages } from "./project.en.js";
 
 /**
- * "Surface", "Uniques", "Board", "Event" and "Backend" stay English. They are
+ * "Uniques", "Board", "Event" and "Backend" stay English. They are
  * the words the schema, the clients' documentation and every other screen use,
  * and a reader who has one of those open is looking for that exact word.
  */
@@ -18,7 +18,7 @@ export const project: ProjectMessages = {
 
   "project.callout_title": "Ein Produkt, nicht eine Plattform",
   "project.callout_body":
-    "Ein Projekt ist ein Produkt. Jede Surface davon meldet sich hier als eigene Quelle, " +
+    "Ein Projekt ist ein Produkt. Alles, worauf es läuft, meldet sich hier als eigene Quelle, " +
     "deshalb gehören Ihre Marketing-Website, Ihre Desktop-App und Ihr Backend in dieses eine " +
     "Projekt. Genau das stellt ihre Zahlen auf einem Board nebeneinander statt auf drei, die " +
     "Sie von Hand vergleichen müssen.",
@@ -45,7 +45,7 @@ export const project: ProjectMessages = {
   "project.card_status": "Status",
   "project.card_uniques": "Uniques",
   "project.card_uniques_hint":
-    "Ein ID-Raum pro Surface. Wird nie über Surfaces hinweg summiert.",
+    "Ein ID-Raum pro Quelle. Wird nie über Quellen hinweg summiert.",
   "project.card_errors": "Fehler",
   "project.card_errors_hint": "Events mit Severity 17 und höher.",
   "project.card_names": "Was gesendet wird",

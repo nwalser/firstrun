@@ -106,8 +106,9 @@ namespace Firstrun
 
         /// <summary>
         /// Emits <c>app_install</c> on the run that created the anonymous id, and
-        /// <c>app_launch</c> on every run. Defaults to true for desktop and mobile source
-        /// keys, false for server and everything else. Nothing else is ever sent for you.
+        /// <c>session_start</c> then <c>app_launch</c> on every run. Defaults to true for
+        /// desktop and mobile source keys, false for server and everything else. Nothing
+        /// else is ever sent for you.
         /// </summary>
         public bool? TrackLifecycleEvents { get; set; }
 

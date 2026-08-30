@@ -1,18 +1,13 @@
-import Box from "lucide-solid/icons/box";
+import Antenna from "lucide-solid/icons/antenna";
 import Building from "lucide-solid/icons/building-2";
 import ChevronDown from "lucide-solid/icons/chevron-down";
 import ChevronRight from "lucide-solid/icons/chevron-right";
 import Folder from "lucide-solid/icons/folder";
-import Globe from "lucide-solid/icons/globe";
 import LogIn from "lucide-solid/icons/log-in";
-import Monitor from "lucide-solid/icons/monitor";
 import Plus from "lucide-solid/icons/plus";
 import Search from "lucide-solid/icons/search";
-import Server from "lucide-solid/icons/server";
-import Smartphone from "lucide-solid/icons/smartphone";
 import Wand from "lucide-solid/icons/wand-sparkles";
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
-import type { Surface } from "@firstrun/schema";
 import { cn } from "../../lib/cn.js";
 import type { DocsSource } from "../../lib/api.js";
 import { useI18n } from "../../lib/i18n/index.js";
@@ -67,18 +62,16 @@ import {
  * expanded because a hidden match is a match nobody found.
  */
 
-/** One icon per surface. The list is closed, so the record is total. */
-const SURFACE_ICON: Record<Surface, (props: { class?: string }) => ReturnType<typeof Globe>> = {
-  web: Globe,
-  desktop: Monitor,
-  mobile: Smartphone,
-  server: Server,
-  other: Box,
-};
-
-function SurfaceIcon(props: { kind: Surface; class?: string }) {
-  const Icon = () => SURFACE_ICON[props.kind] ?? Box;
-  return <>{Icon()({ class: props.class })}</>;
+/**
+ * One mark for every source, because there is one kind of source.
+ *
+ * There used to be five, chosen off the source's surface: a globe, a monitor, a
+ * phone, a server rack, a box. Together they read as a taxonomy, and the
+ * taxonomy is gone. A source is one thing that writes events, and the mark says
+ * only that this row is one of those.
+ */
+function SourceIcon(props: { class?: string }) {
+  return <Antenna class={props.class} />;
 }
 
 interface ProjectNode {
@@ -124,7 +117,7 @@ function groupSources(sources: DocsSource[]): WorkspaceNode[] {
 
 /** Everything a query could reasonably be aimed at, in one string. */
 const haystack = (source: DocsSource) =>
-  `${source.workspaceName} ${source.projectName} ${source.name} ${source.kind}`.toLowerCase();
+  `${source.workspaceName} ${source.projectName} ${source.name}`.toLowerCase();
 
 export function SourcePicker(props: {
   sources: DocsSource[];
@@ -256,7 +249,7 @@ export function SourcePicker(props: {
               rather than two unrelated bits of chrome.
             */}
             <Show when={props.selected} fallback={<Wand class="size-3.5 shrink-0 opacity-70" />}>
-              {(source) => <SurfaceIcon kind={source().kind} class="size-3.5 shrink-0 opacity-70" />}
+              <SourceIcon class="size-3.5 shrink-0 opacity-70" />
             </Show>
             <span class="truncate">
               {props.selected?.name ?? i18n.t("docs.pick_source")}
@@ -367,16 +360,11 @@ export function SourcePicker(props: {
                                                 : "hover:bg-accent hover:text-accent-foreground"
                                             )}
                                           >
-                                            {/* No trailing metadata, no chevron
-                                                and no keyboard hint: the
-                                                surface icon already says what
-                                                kind of source this is, and the
-                                                reference row carries none of
-                                                the three. */}
-                                            <SurfaceIcon
-                                              kind={source.kind}
-                                              class="size-3.5 shrink-0 opacity-70"
-                                            />
+                                            {/* No trailing metadata, no
+                                                chevron and no keyboard hint:
+                                                the reference row carries none
+                                                of the three. */}
+                                            <SourceIcon class="size-3.5 shrink-0 opacity-70" />
                                             <span class="truncate">{source.name}</span>
                                           </button>
                                         );
@@ -431,7 +419,7 @@ export function SourcePicker(props: {
 function BranchRow(props: {
   level: number;
   label: string;
-  icon: (iconProps: { class?: string }) => ReturnType<typeof Globe>;
+  icon: (iconProps: { class?: string }) => ReturnType<typeof Antenna>;
   open: boolean;
   onToggle: () => void;
 }) {

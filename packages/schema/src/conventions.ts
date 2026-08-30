@@ -1,4 +1,3 @@
-import type { Surface } from "./surface.js";
 
 /**
  * CONVENTIONS, NOT LAW.
@@ -71,8 +70,6 @@ export const ATTR = {
 
   /** Which ingestion site the entry arrived at. Stamped by the edge. */
   SOURCE_ID: "firstrun.source.id",
-  /** The surface recorded on that source. Stamped by the edge, never claimed. */
-  SOURCE_SURFACE: "firstrun.source.surface",
 
   REFERRER: "firstrun.referrer",
   /** The referring host alone. A full referrer groups into a thousand rows. */
@@ -120,27 +117,26 @@ export interface AttributeSuggestion {
   key: string;
   label: string;
   description: string;
-  /** Which surface usually sends it. `any` means all of them do. */
-  surface: Surface | "any";
+
 }
 
 export const CONVENTIONAL_ATTRIBUTES: AttributeSuggestion[] = [
-  { key: ATTR.URL_PATH, label: "Page", description: "The path alone, without the query string.", surface: "web" },
-  { key: ATTR.REFERRER_HOST, label: "Referrer", description: "The host that linked here.", surface: "web" },
-  { key: ATTR.UTM_SOURCE, label: "Campaign source", description: "The utm_source on the landing URL.", surface: "web" },
-  { key: ATTR.UTM_CAMPAIGN, label: "Campaign", description: "The utm_campaign on the landing URL.", surface: "web" },
-  { key: ATTR.OS_TYPE, label: "Operating system", description: "windows, darwin, linux, ios, android.", surface: "any" },
-  { key: ATTR.BROWSER_LANGUAGE, label: "Language", description: "The BCP-47 tag the client reported.", surface: "any" },
-  { key: ATTR.SERVICE_VERSION, label: "App version", description: "The build of your software that sent this.", surface: "any" },
-  { key: ATTR.CHANNEL, label: "Channel", description: "stable, beta, nightly.", surface: "desktop" },
-  { key: ATTR.SESSION_ID, label: "Session", description: "The session this entry belongs to.", surface: "any" },
-  { key: ATTR.USER_ID, label: "User", description: "Whatever you passed to identify().", surface: "any" },
-  { key: ATTR.EXCEPTION_TYPE, label: "Exception type", description: "The class of the thrown thing.", surface: "any" },
-  { key: ATTR.EXCEPTION_MESSAGE, label: "Exception message", description: "The message on the thrown thing.", surface: "any" },
-  { key: ATTR.HTTP_ROUTE, label: "Route", description: "The route template, not the resolved path.", surface: "server" },
-  { key: ATTR.HTTP_RESPONSE_STATUS_CODE, label: "Status code", description: "The HTTP status that went back.", surface: "server" },
-  { key: ATTR.DURATION_MS, label: "Duration", description: "How long it took, in milliseconds.", surface: "any" },
-  { key: ATTR.METRIC, label: "Measurement", description: "What a numeric sample is called.", surface: "any" },
+  { key: ATTR.URL_PATH, label: "Page", description: "The path alone, without the query string." },
+  { key: ATTR.REFERRER_HOST, label: "Referrer", description: "The host that linked here." },
+  { key: ATTR.UTM_SOURCE, label: "Campaign source", description: "The utm_source on the landing URL." },
+  { key: ATTR.UTM_CAMPAIGN, label: "Campaign", description: "The utm_campaign on the landing URL." },
+  { key: ATTR.OS_TYPE, label: "Operating system", description: "windows, darwin, linux, ios, android." },
+  { key: ATTR.BROWSER_LANGUAGE, label: "Language", description: "The BCP-47 tag the client reported." },
+  { key: ATTR.SERVICE_VERSION, label: "App version", description: "The build of your software that sent this." },
+  { key: ATTR.CHANNEL, label: "Channel", description: "stable, beta, nightly." },
+  { key: ATTR.SESSION_ID, label: "Session", description: "The session this entry belongs to." },
+  { key: ATTR.USER_ID, label: "User", description: "Whatever you passed to identify()." },
+  { key: ATTR.EXCEPTION_TYPE, label: "Exception type", description: "The class of the thrown thing." },
+  { key: ATTR.EXCEPTION_MESSAGE, label: "Exception message", description: "The message on the thrown thing." },
+  { key: ATTR.HTTP_ROUTE, label: "Route", description: "The route template, not the resolved path." },
+  { key: ATTR.HTTP_RESPONSE_STATUS_CODE, label: "Status code", description: "The HTTP status that went back." },
+  { key: ATTR.DURATION_MS, label: "Duration", description: "How long it took, in milliseconds." },
+  { key: ATTR.METRIC, label: "Measurement", description: "What a numeric sample is called." },
 ];
 
 // ---------------------------------------------------------------------------
@@ -196,24 +192,81 @@ export interface NameSuggestion {
   name: string;
   label: string;
   description: string;
-  surface: Surface | "any";
 }
 
 export const CONVENTIONAL_NAMES: NameSuggestion[] = [
-  { name: NAME.PAGE_VIEW, label: "Page view", description: "A page or screen was viewed.", surface: "any" },
-  { name: NAME.SESSION_START, label: "Session start", description: "The first entry of a visit or a run.", surface: "any" },
-  { name: NAME.APP_INSTALL, label: "App install", description: "An installation ran for the first time.", surface: "desktop" },
-  { name: NAME.APP_LAUNCH, label: "App launch", description: "Any launch of an installed app.", surface: "desktop" },
-  { name: NAME.IDENTIFY, label: "Identify", description: "A client learned which user it belongs to.", surface: "any" },
-  { name: NAME.PAGE_LEAVE, label: "Page leave", description: "A page was left. Carries time on page.", surface: "web" },
-  { name: NAME.OUTBOUND_CLICK, label: "Outbound click", description: "A link to another origin was followed.", surface: "web" },
-  { name: NAME.FILE_DOWNLOAD, label: "File download", description: "A link to a file was followed.", surface: "web" },
-  { name: NAME.FORM_SUBMIT, label: "Form submit", description: "A form was submitted.", surface: "web" },
-  { name: NAME.EXCEPTION, label: "Exception", description: "Something threw.", surface: "any" },
-  { name: NAME.WEB_VITAL, label: "Web vital", description: "One Core Web Vital sample.", surface: "web" },
-  { name: NAME.HTTP_REQUEST, label: "HTTP request", description: "One request served.", surface: "server" },
-  { name: NAME.MEASUREMENT, label: "Measurement", description: "A plain numeric sample.", surface: "any" },
+  { name: NAME.PAGE_VIEW, label: "Page view", description: "A page or screen was viewed." },
+  { name: NAME.SESSION_START, label: "Session start", description: "The first entry of a visit or a run." },
+  { name: NAME.APP_INSTALL, label: "App install", description: "An installation ran for the first time." },
+  { name: NAME.APP_LAUNCH, label: "App launch", description: "Any launch of an installed app." },
+  { name: NAME.IDENTIFY, label: "Identify", description: "A client learned which user it belongs to." },
+  { name: NAME.PAGE_LEAVE, label: "Page leave", description: "A page was left. Carries time on page." },
+  { name: NAME.OUTBOUND_CLICK, label: "Outbound click", description: "A link to another origin was followed." },
+  { name: NAME.FILE_DOWNLOAD, label: "File download", description: "A link to a file was followed." },
+  { name: NAME.FORM_SUBMIT, label: "Form submit", description: "A form was submitted." },
+  { name: NAME.EXCEPTION, label: "Exception", description: "Something threw." },
+  { name: NAME.WEB_VITAL, label: "Web vital", description: "One Core Web Vital sample." },
+  { name: NAME.HTTP_REQUEST, label: "HTTP request", description: "One request served." },
+  { name: NAME.MEASUREMENT, label: "Measurement", description: "A plain numeric sample." },
 ];
+
+// ---------------------------------------------------------------------------
+// Offering the conventions
+// ---------------------------------------------------------------------------
+
+/**
+ * How the pickers reach the two lists above.
+ *
+ * Attributes are DISCOVERED, not declared, and that stays true: a picker leads
+ * with what a project has actually written. But discovery is empty on the day
+ * somebody installs the SDK, which is precisely the day they need to be told
+ * what to send. So the conventional keys are offered underneath the discovered
+ * ones -- as suggestions, in the same picker, typeable and editable like any
+ * other key.
+ *
+ * A suggested key that nobody has sent is a filter that matches nothing. That
+ * is a legitimate thing to build and the reason the pickers have always
+ * accepted a typed key that appears in no list.
+ *
+ * These functions exist so that "which conventions are worth offering here" has
+ * ONE answer. Two pickers each filtering the list their own way is how one of
+ * them ends up offering a key the other has quietly dropped.
+ */
+
+const byKey = new Map(CONVENTIONAL_ATTRIBUTES.map((a) => [a.key, a]));
+const byName = new Map(CONVENTIONAL_NAMES.map((n) => [n.name, n]));
+
+/** The human name for a conventional key, or undefined when it is not one. */
+export const attributeLabel = (key: string): string | undefined => byKey.get(key)?.label;
+
+/** The human name for a conventional entry name, or undefined. */
+export const entryNameLabel = (name: string): string | undefined => byName.get(name)?.label;
+
+/** Conventional keys a project has not written in the visible window. */
+export const unsentAttributes = (seen: Iterable<string>): AttributeSuggestion[] => {
+  const known = new Set(seen);
+  return CONVENTIONAL_ATTRIBUTES.filter((a) => !known.has(a.key));
+};
+
+/** Conventional entry names a project has not written in the visible window. */
+export const unsentNames = (seen: Iterable<string>): NameSuggestion[] => {
+  const known = new Set(seen);
+  return CONVENTIONAL_NAMES.filter((n) => !known.has(n.name));
+};
+
+/**
+ * A key as a picker row reads it.
+ *
+ * The key is always shown, because the key is what the query runs on and a row
+ * that showed only "Campaign" would leave somebody guessing which of five utm
+ * keys they had just chosen. The human name goes in front of it when we have
+ * one, which is what turns the list from a glossary somebody has to already
+ * know into one they can read.
+ */
+export const attributeOptionLabel = (key: string): string => {
+  const label = attributeLabel(key);
+  return label ? `${label} (${key})` : key;
+};
 
 // ---------------------------------------------------------------------------
 // Web vitals

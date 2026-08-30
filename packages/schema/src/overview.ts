@@ -61,7 +61,7 @@ export interface OverviewQuestions {
    * round trip, instead of two that happen to draw the same line.
    */
   series: LogQuery;
-  /** Uniques, by the one definition of a unique. Never summed across surfaces. */
+  /** Uniques, by the one definition of a unique. Never summed across sources. */
   uniques: LogQuery;
   errors: LogQuery;
   /** What is being sent, most first. A group by on the name column, bounded. */

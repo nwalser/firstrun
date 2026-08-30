@@ -8,7 +8,7 @@ export const templates: TemplatesMessages = {
 
   "templates.overview": "Übersicht",
   "templates.overview_hint":
-    "Jede Surface nebeneinander: Traffic, Installationen und woher die Leute kamen.",
+    "Jede Quelle nebeneinander: Traffic, Installationen und woher die Leute kamen.",
   "templates.website": "Website",
   "templates.website_hint": "Traffic, Seiten, Referrer, Kampagnen und Vitals.",
   "templates.app_health": "App-Zustand",

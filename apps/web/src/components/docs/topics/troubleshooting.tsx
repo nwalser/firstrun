@@ -5,7 +5,7 @@ import type { DocsTopic } from "../registry.js";
 import { DocsProse } from "../shell.js";
 
 /**
- * One page for every surface, because the three ways a number goes wrong are
+ * One page for every client, because the three ways a number goes wrong are
  * the same everywhere: nothing arrives, it arrives late, or it is counted in a
  * scope the reader did not expect.
  *
@@ -100,19 +100,19 @@ export const topics: DocsTopic[] = [
         <h2>Uniques look wrong</h2>
         <ul>
           <li>
-            A unique is one anonymous id within <strong>one surface</strong>. The same person on
+            A unique is one anonymous id within <strong>one source</strong>. The same person on
             your site and in your app is two uniques, and that is the correct answer.
           </li>
           <li>
-            Surfaces are never linked to each other and never merged. Nothing is inferred from an
+            Sources are never linked to each other and never merged. Nothing is inferred from an
             address, a device or a coincidence in timing.
           </li>
           <li>
-            To count one person once across surfaces, call <code>identify()</code> with the same
+            To count one person once across sources, call <code>identify()</code> with the same
             id on each. That is the only thing that joins them.
           </li>
           <li>
-            Never add uniques from two surfaces together. Adding two counts of distinct ids gives
+            Never add uniques from two sources together. Adding two counts of distinct ids gives
             a number that is larger than the truth by however many people used both.
           </li>
         </ul>

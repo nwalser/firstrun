@@ -1,7 +1,7 @@
 //! The anonymous id for this installation, and where it lives on disk.
 //!
 //! One id per (user account, machine, app). It is generated here, it is never
-//! received from the server, and it is never linked to another surface's id: the
+//! received from the server, and it is never linked to another source's id: the
 //! same human on the website and in this app is two anonymous subjects, and that
 //! is the correct answer rather than something to reconcile. A `user_id` appears
 //! only when the host calls `identify`.

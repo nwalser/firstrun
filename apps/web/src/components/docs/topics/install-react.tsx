@@ -19,7 +19,6 @@ export const topics: DocsTopic[] = [
     title: "React",
     summary: "React, Vite and Remix. One component, mounted once.",
     section: "Install guides",
-    appliesTo: "web",
     order: 20,
     icon: Atom,
     render: (ctx) => (

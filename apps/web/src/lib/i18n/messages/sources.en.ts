@@ -6,7 +6,15 @@ export const sources = {
   "sources.new": "New source",
   "sources.create": "Create source",
   "sources.name_label": "Source name",
-  "sources.surface_label": "Surface",
+  // What the filter row narrows by. It used to be the surface; sources have no
+  // type, and activity is the question a source list is opened to ask.
+  // The unit under the headline rate, matching the project rows exactly: the
+  // two lists are read against each other, so they cannot word it differently.
+  "sources.per_hour_unit": "events/hour",
+  "sources.facet_activity": "Activity",
+  "sources.facet_receiving": "Receiving",
+  "sources.facet_quiet": "Quiet",
+  "sources.facet_never": "Never seen",
   // "Ingest key" rather than "Source key": it is what every screen in this area
   // actually says, and one product should not have two names for one value on
   // one page.
@@ -26,7 +34,7 @@ export const sources = {
     "same human on your site and in your app counts as two, which is the honest answer rather " +
     "than a bug.",
   "sources.add_filter": "Add filter",
-  "sources.remove_filter": "Remove the {surface} filter",
+  "sources.remove_filter": "Remove the {facet} filter",
   "sources.sort_by": "Sort by {field}",
   "sources.sort_activity": "Last seen",
   "sources.sort_name": "Name",
@@ -57,7 +65,6 @@ export const sources = {
   "sources.sort_volume": "Volume",
   "sources.ingest_30d_one": "{count} event in the last 30 days",
   "sources.ingest_30d_other": "{count} events in the last 30 days",
-  "sources.thirty_days": "30 days",
   "sources.open_project": "Open {name}",
   "sources.none_in_workspace": "No sources in this workspace",
   "sources.none_in_workspace_hint":
@@ -92,25 +99,11 @@ export const sources = {
 
   // The create flow: four steps, the last one after creation.
   "sources.admin_only": "Only an admin of this workspace can add a source.",
-  "sources.step_type": "Type",
   "sources.step_details": "Details",
   "sources.step_dashboard": "Dashboard",
   "sources.step_install": "Install",
-  "sources.step_type_title": "What is sending events?",
-  "sources.step_type_hint":
-    "Every surface of one product belongs in this one project, so its numbers sit on one " +
-    "board. Add the site now and the app after, or the other way round.",
-  "sources.kind_web": "Website",
-  "sources.kind_web_hint":
-    "Pages, sessions, referrers, campaigns and Core Web Vitals, measured for you. Anything " +
-    "else is a track() call you write.",
-  "sources.kind_desktop": "Desktop app",
-  "sources.kind_desktop_hint":
-    "Versions, retention and what people do once it is running. The queue is on disk, so " +
-    "events written offline arrive at the next launch.",
   "sources.step_details_title": "Name it",
   "sources.step_details_hint": "Only ever shown to you and the people in this workspace.",
-  "sources.name_placeholder_desktop": "Themia for Windows",
   "sources.asset_label": "Application name",
   "sources.asset_hint":
     "Optional. Used in the install guide snippets so they arrive naming your app. Nothing " +
@@ -130,29 +123,31 @@ export const sources = {
     "Nothing arrives until something sends it. Next: install it, which is five steps in the " +
     "documentation with this key already substituted into every snippet.",
 
-  // The handover into the documentation, one summary per surface.
-  //
-  // The `other` surface's key is `summary_generic`, not `summary_other`. A key
-  // ending in an `Intl.PluralRules` category is read as a member of a plural
-  // family, so `sources.summary_other` would leave the type as the `other` form
-  // of a `sources.summary` plural and stop being callable on its own. Nothing
-  // catches that at the call site; it fails as a missing key on the type.
+  // The handover into the documentation. One summary, because a source has no
+  // type left to write a different sentence for.
   "sources.install_guide": "Installation guide",
+  /*
+   * One source, on its own page.
+   *
+   * A list answers "when was it last seen". This answers "is it sending what I
+   * think it is", which needs the shape of its month, its own vocabulary, and
+   * the last few entries in full.
+   */
+  "sources.detail_hint":
+    "What this source has been sending, over the last thirty days. Everything here is measured " +
+    "the same way a card on a board is, filtered to this one source.",
+  "sources.back_to_list": "Back to sources",
+  "sources.open_source": "Open {name}",
+  "sources.activity": "Activity",
+  "sources.what_it_sends": "What it sends",
+  "sources.severity_mix": "Severity",
+  "sources.recent": "Latest events",
+  "sources.open_log": "See them all",
+  "sources.nothing_sent": "Nothing in this window.",
+
   "sources.install_title": "How to install it",
   "sources.open_guide": "Open the step-by-step guide",
   "sources.guide_note": "Opens with this source selected, so every snippet already carries its key.",
-  "sources.summary_web":
-    "Add the tag, gate it behind your consent banner, and call track() for anything you want " +
-    "counted. Page views, sessions, outbound clicks and Core Web Vitals are measured for you.",
-  "sources.summary_desktop":
-    "Add the crate, start it once at launch, then track() and identify(). The queue is on " +
-    "disk, so events written while the machine is offline arrive at the next launch.",
-  "sources.summary_server":
-    "Add the package, construct the client from an environment variable, and pass your own " +
-    "distinct id on every call. Nothing is awaited and nothing throws into your request path.",
-  "sources.summary_mobile":
-    "No first-party mobile client yet. Send batches to POST /v1/e yourself, or point an " +
-    "existing client at this host: the wire format is the same for every surface.",
   "sources.summary_generic":
     "Anything that can make an HTTPS request can report. Send batches to POST /v1/e with your " +
     "source key and a distinct id you generate once per install.",

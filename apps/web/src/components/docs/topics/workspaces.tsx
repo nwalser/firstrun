@@ -57,9 +57,10 @@ export const topics: DocsTopic[] = [
         </Table>
 
         <p>
-          A source is one thing that writes events, with a fixed surface: a website, a desktop app,
-          a backend. Each has a public key of the form <code>fr_&lt;surface&gt;_…</code> that names
-          a destination and authorises nothing: it cannot read a number, a board or a person.
+          A source is one thing that writes events: a website, a desktop app, a backend, a cron
+          job. There is only the one kind. Each has a public key of the form{" "}
+          <code>fr_&lt;16&gt;</code> that names a destination and authorises nothing: it cannot
+          read a number, a board or a person.
           Events from every source land at <code>{ctx.vars.origin}</code>.
         </p>
         <p>

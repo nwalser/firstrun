@@ -4,16 +4,6 @@ using System.Globalization;
 
 namespace Firstrun
 {
-    /// <summary>The kind of thing an event came from. Mirrors the server's Surface enum.</summary>
-    public enum FirstrunSurface
-    {
-        Web,
-        Desktop,
-        Mobile,
-        Server,
-        Other,
-    }
-
     /// <summary>
     /// Conventional entry names. SUGGESTIONS, NOT LAW: any name matching
     /// <see cref="Wire.IsValidLogName"/> is stored, counted, grouped and filtered
@@ -179,38 +169,19 @@ namespace Firstrun
         /// <summary><c>fr_(web|desktop|mobile|server|other)_[0-9a-z]{16}</c>.</summary>
         public static bool IsValidSourceKey(string? key)
         {
-            return SurfaceFromSourceKey(key) != null;
-        }
-
-        /// <summary>
-        /// The surface a source key claims, or null when the key is malformed.
-        /// Advisory only: the server trusts the stored source row, never the key text.
-        /// </summary>
-        public static FirstrunSurface? SurfaceFromSourceKey(string? key)
-        {
-            if (string.IsNullOrEmpty(key)) return null;
-            if (!key!.StartsWith("fr_", StringComparison.Ordinal)) return null;
-            int second = key.IndexOf('_', 3);
-            if (second < 0) return null;
-
-            string surface = key.Substring(3, second - 3);
-            string suffix = key.Substring(second + 1);
-            if (suffix.Length != 16) return null;
-            foreach (char c in suffix)
+            // fr_ then sixteen hex characters, and nothing else. The middle
+            // segment used to name the kind of source the key belonged to;
+            // there are no kinds of source, so there is nothing for it to say.
+            if (string.IsNullOrEmpty(key)) return false;
+            if (key!.Length != 19) return false;
+            if (!key.StartsWith("fr_", StringComparison.Ordinal)) return false;
+            for (int i = 3; i < key.Length; i++)
             {
-                bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z');
-                if (!ok) return null;
+                char c = key[i];
+                bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                if (!hex) return false;
             }
-
-            switch (surface)
-            {
-                case "web": return FirstrunSurface.Web;
-                case "desktop": return FirstrunSurface.Desktop;
-                case "mobile": return FirstrunSurface.Mobile;
-                case "server": return FirstrunSurface.Server;
-                case "other": return FirstrunSurface.Other;
-                default: return null;
-            }
+            return true;
         }
 
         /// <summary>Milliseconds since the Unix epoch, which is what an entry timestamp is.</summary>

@@ -1,6 +1,7 @@
 import Check from "lucide-solid/icons/check";
 import Copy from "lucide-solid/icons/copy";
 import { Show, createSignal } from "solid-js";
+import { cn } from "../lib/cn.js";
 import { Button, toast } from "./ui/index.js";
 import { useI18n } from "../lib/i18n/index.js";
 
@@ -17,7 +18,7 @@ import { useI18n } from "../lib/i18n/index.js";
  * workspace's -- and a key that copied whole on one page and truncated on the
  * other would be the kind of bug nobody reports and everybody works around.
  */
-export function IngestKeyCell(props: { value: string }) {
+export function IngestKeyCell(props: { value: string; class?: string }) {
   const i18n = useI18n();
   const [copied, setCopied] = createSignal(false);
 
@@ -34,7 +35,7 @@ export function IngestKeyCell(props: { value: string }) {
   }
 
   return (
-    <div class="flex min-w-0 items-center gap-1">
+    <div class={cn("flex min-w-0 items-center gap-1", props.class)}>
       <span class="truncate font-mono text-mono text-muted-foreground" title={props.value}>
         {props.value}
       </span>

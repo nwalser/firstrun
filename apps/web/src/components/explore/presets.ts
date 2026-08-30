@@ -1,5 +1,4 @@
 import { ATTR, NAME } from "@firstrun/schema/conventions";
-import type { Surface } from "@firstrun/schema";
 import type { BoardWidget } from "@firstrun/schema/board";
 import type { Discovery, LogQuery, Visualisation } from "@firstrun/schema/query";
 import {
@@ -94,8 +93,6 @@ export interface Preset {
   hintKey: SimpleKey;
   /** What it looks like before anyone resizes it. */
   size: { w: number; h: number };
-  /** Only worth offering on a board whose project has a source of this kind. */
-  surface?: Surface;
   build: (ctx: PresetContext) => Omit<BoardWidget, "id" | "x" | "y" | "w" | "h">;
 }
 
@@ -203,7 +200,6 @@ export const PRESETS: Preset[] = [
     labelKey: "dashboard.preset_pages",
     hintKey: "dashboard.preset_pages_hint",
     size: { w: 440, h: 320 },
-    surface: "web",
     build: () => query("list", rankingQuery({ by: attr(ATTR.URL_PATH), filter: nameIs(NAME.PAGE_VIEW) })),
   },
   {
@@ -211,7 +207,6 @@ export const PRESETS: Preset[] = [
     labelKey: "dashboard.preset_referrers",
     hintKey: "dashboard.preset_referrers_hint",
     size: { w: 440, h: 320 },
-    surface: "web",
     build: () =>
       query("list", rankingQuery({ by: attr(ATTR.REFERRER_HOST), filter: nameIs(NAME.PAGE_VIEW) })),
   },
@@ -220,7 +215,6 @@ export const PRESETS: Preset[] = [
     labelKey: "dashboard.preset_vitals",
     hintKey: "dashboard.preset_vitals_hint",
     size: { w: 440, h: 240 },
-    surface: "web",
     build: () => query("table", vitalsQuery(NAME.WEB_VITAL)),
   },
   {
@@ -228,7 +222,6 @@ export const PRESETS: Preset[] = [
     labelKey: "dashboard.preset_versions",
     hintKey: "dashboard.preset_versions_hint",
     size: { w: 620, h: 300 },
-    surface: "desktop",
     build: () => query("list", rankingQuery({ by: attr(ATTR.SERVICE_VERSION), limit: 20 })),
   },
   {
@@ -236,7 +229,6 @@ export const PRESETS: Preset[] = [
     labelKey: "dashboard.preset_slow_routes",
     hintKey: "dashboard.preset_slow_routes_hint",
     size: { w: 620, h: 300 },
-    surface: "server",
     build: () =>
       query(
         "table",
@@ -265,10 +257,6 @@ export const presetHint = (i18n: I18n, preset: Preset): string => i18n.t(preset.
 
 export const presetByKey = (key: string): Preset | undefined =>
   PRESETS.find((preset) => preset.key === key);
-
-/** The palette for a board whose project has these surfaces on it. */
-export const presetsFor = (surfaces: readonly Surface[]): Preset[] =>
-  PRESETS.filter((preset) => !preset.surface || surfaces.includes(preset.surface));
 
 /**
  * A blank query, for the "start from nothing" case.

@@ -16,7 +16,6 @@ import {
   type MemberRole,
   type Project,
   type Source,
-  type SourceKind,
   type User,
   type Workspace,
 } from "./schema.js";
@@ -615,7 +614,7 @@ function utcDayStart(at: Date): Date {
  * in full as it fills rather than cut off at the moment the page happened to
  * open.
  */
-function histogramWindow(now = new Date()): { from: Date; until: Date } {
+export function histogramWindow(now = new Date()): { from: Date; until: Date } {
   const today = utcDayStart(now);
   return {
     from: new Date(today.getTime() - (INGEST_HISTOGRAM_DAYS - 1) * DAY_MS),
@@ -1218,19 +1217,21 @@ export async function listSources(db: Database, projectId: string): Promise<Sour
 }
 
 /**
- * `kind` is the surface every event from this source will be stamped with, so
- * it is chosen once, here. A client sends a key and never claims a surface.
+ * A source is a name and a key. There is nothing else to choose.
+ *
+ * It used to take a `kind` as well, which decided the middle segment of the key
+ * and the value stamped onto every event that arrived through it. Both are gone:
+ * see the note on `sources` in schema.ts.
  */
 export async function createSource(
   db: Database,
   projectId: string,
   name: string,
-  kind: SourceKind,
   assetName: string | null
 ): Promise<Source> {
   const rows = await db
     .insert(sources)
-    .values({ projectId, name, kind, assetName, ingestKey: mintSourceKey(kind) })
+    .values({ projectId, name, assetName, ingestKey: mintSourceKey() })
     .returning();
   return rows[0]!;
 }

@@ -18,7 +18,7 @@ export const project = {
   // markup cannot be reordered into German.
   "project.callout_title": "One product, not one platform",
   "project.callout_body":
-    "A project is one product. Every surface of it reports in here as its own source, so your " +
+    "A project is one product. Everything it ships on reports in here as its own source, so your " +
     "marketing site, your desktop app and your backend belong in this one project. That is what " +
     "puts their numbers next to each other on one board instead of on three you have to compare " +
     "by hand.",
@@ -48,7 +48,7 @@ export const project = {
   "project.card_events": "Events",
   "project.card_status": "Status",
   "project.card_uniques": "Uniques",
-  "project.card_uniques_hint": "One id space per surface. Never summed across them.",
+  "project.card_uniques_hint": "One id space per source. Never summed across them.",
   "project.card_errors": "Errors",
   "project.card_errors_hint": "Events at severity 17 and above.",
   "project.card_names": "What is being sent",

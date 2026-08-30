@@ -1,4 +1,4 @@
-import { DASHBOARD_TEMPLATES, templatesFor, type DashboardTemplate } from "@firstrun/schema";
+import { DASHBOARD_TEMPLATES, type DashboardTemplate } from "@firstrun/schema";
 import { For, Show } from "solid-js";
 import { cn } from "../lib/cn.js";
 import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
@@ -163,14 +163,17 @@ const TEMPLATE_TEXT: Record<string, { name: SimpleKey; hint: SimpleKey }> = {
 export function TemplatePicker(props: {
   value: string;
   onChange: (key: string) => void;
-  /** Narrows the list to the boards worth offering for one kind of source. */
-  kind?: "web" | "desktop";
   class?: string;
 }) {
   const i18n = useI18n();
 
-  const templates = (): DashboardTemplate[] =>
-    props.kind ? templatesFor(props.kind) : DASHBOARD_TEMPLATES;
+  /*
+    Every template, because a source has no kind to narrow them by. The website
+    board on a project with only a desktop source draws empty cards, which is a
+    truthful answer to "what does this template look like on my data" and a
+    cheaper one to recover from than a template the customer cannot find.
+  */
+  const templates = (): DashboardTemplate[] => DASHBOARD_TEMPLATES;
 
   return (
     <RadioGroup

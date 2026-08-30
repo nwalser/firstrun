@@ -467,7 +467,7 @@ func New(opts Options) (*Client, error) {
 
 func validate(o *Options) error {
 	if !sourceKeyRE.MatchString(o.SourceKey) {
-		return errors.New("invalid SourceKey: expected fr_<surface>_<16 hex>")
+		return errors.New("invalid SourceKey: expected fr_<16 hex>")
 	}
 	u, err := url.Parse(strings.TrimRight(o.Host, "/"))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" {
@@ -715,7 +715,7 @@ func (c *Client) line(severity int, body string, attrs Attributes, e Entry) {
 	c.Log(e)
 }
 
-// Identify attaches the customer's own id to this surface's anonymous id.
+// Identify attaches the customer's own id to this client's anonymous id.
 //
 // Both ids are explicit because a server process is not a person: it handles
 // many at once, and any remembered "current user" would be whoever was served

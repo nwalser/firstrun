@@ -98,7 +98,7 @@ export interface Env {
   schedule(fn: () => void, ms: number): void;
 }
 
-/** The anonymous per-browser id. One surface's id, never joined to another's. */
+/** The anonymous per-browser id. One source's id, never joined to another's. */
 export const KEY_DID = "_frd";
 export const KEY_CONSENT = "_frc";
 /** `<last-activity ms>|<referrer host>`. One key, because two would be two writes. */

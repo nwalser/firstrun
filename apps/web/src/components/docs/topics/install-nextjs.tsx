@@ -19,7 +19,6 @@ export const topics: DocsTopic[] = [
     title: "Next.js",
     summary: "App Router and Pages Router, which take different imports.",
     section: "Install guides",
-    appliesTo: "web",
     order: 30,
     icon: Triangle,
     render: (ctx) => (

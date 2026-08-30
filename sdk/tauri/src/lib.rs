@@ -44,7 +44,7 @@
 //!
 //! Identity is two fields and nothing is inferred. `distinct_id` is anonymous,
 //! generated on this machine and persisted next to the queue; `user.id` is only
-//! ever the string the host passed to [`Analytics::identify`]. This surface is
+//! ever the string the host passed to [`Analytics::identify`]. This client is
 //! never linked to a website visitor or to any other app.
 //!
 //! ```no_run
@@ -116,7 +116,7 @@ use wire::{
 /// is stored, counted, grouped and filtered identically.
 pub use wire::{
     NAME_APP_INSTALL, NAME_APP_LAUNCH, NAME_EXCEPTION, NAME_IDENTIFY, NAME_LOG, NAME_MEASUREMENT,
-    NAME_PAGE_VIEW,
+    NAME_PAGE_VIEW, NAME_SESSION_START,
 };
 
 // ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ pub struct Config {
     /// Sent as `host.arch`. Defaults to this platform.
     pub arch: Option<String>,
     /// Sent as `browser.language`, a BCP-47 tag, which is what the convention
-    /// calls it on every surface. No default: the standard library cannot read
+    /// calls it on every client. No default: the standard library cannot read
     /// the user's UI language, and a guess here is worse than a null.
     pub locale: Option<String>,
 
@@ -381,8 +381,16 @@ pub struct Config {
     pub app_dir: Option<PathBuf>,
     /// Supply the anonymous id yourself instead of persisting one.
     pub distinct_id: Option<String>,
-    /// Emits `app_install` on the run that creates the anonymous id and
-    /// `app_launch` on every run. Nothing else is ever sent for you.
+    /// Emits `app_install` on the run that creates the anonymous id, and
+    /// `session_start` then `app_launch` on every run. Nothing else is ever
+    /// sent for you.
+    ///
+    /// `session_start` is sent because this client already HAS a session -- one
+    /// run is one session, and `session.id` rides on every entry -- and a
+    /// session nothing ever announces is one no board can count. The browser
+    /// tag has always sent it; a desktop app that carried a session id and
+    /// never opened it left every "sessions" card reading zero on data that
+    /// plainly had sessions in it.
     pub track_lifecycle: bool,
 
     /// Entries classified below this severity are dropped before they are
@@ -620,7 +628,7 @@ impl Analytics {
             // This is here so a typo shows up as a diagnostic rather than as
             // silence on a dashboard nobody is watching yet.
             report(&hook, DiagnosticCode::Internal, 0, || {
-                "source_key does not look like fr_<surface>_<16 chars>".into()
+                "source_key does not look like fr_<16 hex>".into()
             });
         }
 
@@ -711,6 +719,12 @@ impl Analytics {
             if first_run {
                 analytics.event(NAME_APP_INSTALL, &[]);
             }
+            // Ordered install, session, launch: an install is a fact about this
+            // machine, the session is the run those entries belong to, and the
+            // launch is the thing a daily-active count reads. All three carry
+            // the same `session.id`, so the order is a readability choice
+            // rather than something a query depends on.
+            analytics.event(NAME_SESSION_START, &[]);
             analytics.event(NAME_APP_LAUNCH, &[]);
         }
 
@@ -915,7 +929,7 @@ impl Analytics {
     ///
     /// The id becomes the `user.id` attribute of every later entry. This is the
     /// only way a user id ever appears. Nothing is inferred, nothing is derived,
-    /// nothing is merged, and this surface is never linked to any other. Pass
+    /// nothing is merged, and this source is never linked to any other. Pass
     /// `None` to go back to anonymous; the anonymous id is kept, because it
     /// belongs to this installation rather than to whoever signed in.
     pub fn identify(&self, user_id: Option<&str>) {

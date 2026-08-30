@@ -35,15 +35,15 @@ export const Route = createFileRoute("/login")({
  *
  * Named after events a customer would have chosen, because that is the claim:
  * nothing here is a built-in step, and none of these names means anything to
- * the server. The surface line is there so the point that surfaces sit side by
+ * the server. The source line is there so the point that sources sit side by
  * side lands without a sentence explaining it.
  */
 const PREVIEW_CARDS = [
-  { label: "page_view", surface: "web", value: 3402 },
-  { label: "download_clicked", surface: "web", value: 891 },
-  { label: "app_install", surface: "desktop", value: 446 },
-  { label: "project_created", surface: "desktop", value: 132 },
-  { label: "checkout_completed", surface: "server", value: 13 },
+  { label: "page_view", source: "themia.app", value: 3402 },
+  { label: "download_clicked", source: "themia.app", value: 891 },
+  { label: "app_install", source: "Themia for Windows", value: 446 },
+  { label: "project_created", source: "Themia for Windows", value: 132 },
+  { label: "checkout_completed", source: "api.themia.app", value: 13 },
 ];
 
 /** The series the preview's bar chart is captioned with. An event name, not a word. */
@@ -130,7 +130,7 @@ function Login() {
                     </div>
                     <div class="mt-1.5 text-h2">{i18n.num(card.value)}</div>
                     <div class="mt-1.5 text-small uppercase tracking-wider text-muted-foreground">
-                      {card.surface}
+                      {card.source}
                     </div>
                   </div>
                 )}

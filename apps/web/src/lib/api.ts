@@ -1,5 +1,5 @@
-import { DateRange, type Surface } from "@firstrun/schema";
-import { FeedRequest, type FeedPage } from "@firstrun/schema/feed";
+import { DateRange } from "@firstrun/schema";
+import { FeedRequest, type FeedEntry, type FeedPage } from "@firstrun/schema/feed";
 import { createServerFn } from "@tanstack/solid-start";
 import { Board, type Board as BoardValue } from "@firstrun/schema/board";
 import {
@@ -114,8 +114,6 @@ export interface WorkspaceView {
 export interface SourceSummary {
   id: string;
   name: string;
-  /** The surface recorded on the source row. Authoritative, never claimed. */
-  kind: Surface;
   assetName: string | null;
   ingestKey: string;
   /** On `time`, not `ingested_at`: last active, not last heard from. */
@@ -134,13 +132,54 @@ export interface WorkspaceSourceSummary extends SourceSummary {
   projectName: string;
   projectSlug: string;
   /**
-   * Entries per day for the last thirty days, oldest first, zero-filled.
+   * Events per day for the last thirty days, oldest first, zero-filled.
    *
    * The same window, the same units and the same chart as the project rows on
    * the workspace overview: two lists whose bars mean different things is a
    * comparison somebody will make anyway and get wrong.
    */
   daily: number[];
+  /**
+   * The same window read as a rate, events per hour.
+   *
+   * Computed server-side from `daily` by the same `entriesPerHour` a project
+   * row uses, so a source's figure and its project's are the same measurement
+   * over the same hours and can honestly be read against each other.
+   */
+  perHour: number;
+}
+
+/**
+ * One source, and everything its own page says about it.
+ *
+ * A source has a page because it is the thing a customer installs, and
+ * "installed it last Tuesday, is it working" is a question about ONE source
+ * that no list answers: a list says when it was last seen, and this says what
+ * it has been sending, at what severities, and what the last few actually
+ * looked like.
+ */
+export interface SourceDetailView {
+  id: string;
+  name: string;
+  assetName: string | null;
+  ingestKey: string;
+  projectName: string;
+  projectSlug: string;
+  /** On `time`, not `ingested_at`: last active, not last heard from. */
+  lastSeenAt: string | null;
+  /** Entries per day for the last thirty days, oldest first, zero-filled. */
+  daily: number[];
+  /** When the source row was created, which is not when it first reported. */
+  createdAt: string;
+  /** The window `names`, `severities` and `daily` were all measured over. */
+  from: string;
+  to: string;
+  /** What it sends, most first. Straight out of the query layer. */
+  names: Array<{ name: string; entries: number }>;
+  /** The severity mix, folded to bands: how much of the volume is noise. */
+  severities: Array<{ band: string; label: string; entries: number }>;
+  /** The last few entries from this source, newest first. */
+  recent: FeedEntry[];
 }
 
 export interface WorkspaceSourcesView {
@@ -243,7 +282,6 @@ export interface ProjectView {
 export interface DocsSource {
   id: string;
   name: string;
-  kind: Surface;
   assetName: string | null;
   ingestKey: string;
   projectName: string;
@@ -353,6 +391,29 @@ export const getWorkspaceUsage = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<WorkspaceUsageView | null> => {
     const { loadWorkspaceUsage } = await import("./api.server.js");
     return loadWorkspaceUsage(data.workspace, data.days, data.project ?? null);
+  });
+
+/**
+ * One entry, by id.
+ *
+ * `at` is the entry's own timestamp, carried in the link so the lookup can hit
+ * the primary key instead of scanning a window. It is a HINT, not a
+ * requirement: a link without it, or with a stale one, still resolves inside
+ * the bounded fallback. See `db/feed.ts`.
+ */
+export const getEvent = createServerFn({ method: "GET" })
+  .validator((input: { workspace: string; entryId: string; at?: string | null }) => input)
+  .handler(async ({ data }): Promise<FeedEntry | null> => {
+    const { loadEvent } = await import("./api.server.js");
+    return loadEvent(data.workspace, data.entryId, data.at ?? null);
+  });
+
+/** One source, with what it has been sending. */
+export const getSourceDetail = createServerFn({ method: "GET" })
+  .validator((input: { workspace: string; project: string; sourceId: string }) => input)
+  .handler(async ({ data }): Promise<SourceDetailView | null> => {
+    const { loadSourceDetail } = await import("./api.server.js");
+    return loadSourceDetail(data.workspace, data.project, data.sourceId);
   });
 
 export const getProject = createServerFn({ method: "GET" })
@@ -549,7 +610,6 @@ export const createSourceFn = createServerFn({ method: "POST" })
       workspace: string;
       project: string;
       name: string;
-      kind: Surface;
       assetName?: string;
       template?: string;
     }) => input

@@ -16,7 +16,6 @@ export const topics: DocsTopic[] = [
     title: "Astro",
     summary: "A component in the head that emits the script, not an island.",
     section: "Install guides",
-    appliesTo: "web",
     order: 50,
     icon: Rocket,
     render: (ctx) => (

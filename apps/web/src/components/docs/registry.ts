@@ -1,4 +1,3 @@
-import type { Surface } from "@firstrun/schema";
 import type { JSX } from "solid-js";
 import type { DocsSource } from "../../lib/api.js";
 import type { SimpleKey, TFn } from "../../lib/i18n/index.js";
@@ -10,8 +9,8 @@ import type { SimpleKey, TFn } from "../../lib/i18n/index.js";
  * design: a snippet has to arrive carrying the reader's own ingest key, and a
  * markdown runtime can only ever hand back a string somebody has to edit before
  * pasting. A plain TypeScript registry also means the table of contents, the
- * per-kind filtering and the not-found page all read from the same array
- * instead of three lists that drift.
+ * the table of contents and the not-found page read from the same array
+ * instead of two lists that drift.
  *
  * A page is registered by dropping a file into `./topics/` that exports
  * `topics`. Nothing here needs editing to add one -- see `discover()`.
@@ -83,29 +82,22 @@ export function sectionLabel(t: TFn, section: DocsSection): string {
 /**
  * A key that could not possibly be mistaken for a real one.
  *
- * Real keys are `fr_<surface>_` followed by sixteen characters, which is
+ * Real keys are `fr_` followed by sixteen hex characters, which is
  * `SOURCE_KEY_RE` in `packages/schema/src/log.ts`. These are exactly that
  * shape with sixteen literal x's: same prefix and same length, because a reader
  * remembers the shape of what they pasted, and obviously fake in the middle,
  * because nobody should paste one and then wait for events that are never
  * coming. An earlier pair of these was twelve characters long and used a
- * surface (`app`) that does not exist, so a reader who did paste one got a key
+ * segment (`app`) that was not a real one, so a reader who did paste one got a key
  * the server rejects rather than one it silently ignores.
  *
- * One per surface rather than one for the whole documentation: a page about a Go server
- * showing `fr_web_` teaches the wrong prefix while it is teaching the right
- * call.
+ * One placeholder for every page, because there is one key shape. It used to be
+ * one per surface, so a Go page could show `fr_server_`; keys carry no such
+ * segment now, and a page that invented one would be teaching a format the edge
+ * rejects.
  */
-export const PLACEHOLDER_KEYS: Record<Surface, string> = {
-  web: "fr_web_xxxxxxxxxxxxxxxx",
-  desktop: "fr_desktop_xxxxxxxxxxxxxxxx",
-  mobile: "fr_mobile_xxxxxxxxxxxxxxxx",
-  server: "fr_server_xxxxxxxxxxxxxxxx",
-  other: "fr_other_xxxxxxxxxxxxxxxx",
-};
+export const PLACEHOLDER_KEY = "fr_xxxxxxxxxxxxxxxx";
 
-/** The key a page gets when nothing is picked and it named no surface. */
-export const PLACEHOLDER_WEB_KEY = PLACEHOLDER_KEYS.web;
 /** Application name used before a source is picked. */
 export const PLACEHOLDER_APP = "YourApp";
 /** Project name used before a source is picked. */
@@ -138,17 +130,15 @@ export interface DocsRenderContext {
 /**
  * Build the values a page substitutes.
  *
- * `kind` decides which flavour of placeholder key is shown when nothing is
- * picked -- a desktop page should never show a `fr_web_` key, even a fake one,
- * because the reader will remember the shape rather than the value. It takes
- * the whole `Surface`, not the two surfaces we happened to write pages for
- * first, so a server page can ask for a `fr_server_` placeholder.
+ * The placeholder key is the same on every page, because there is one key
+ * shape. This used to take the page's surface and hand back a matching flavour,
+ * so a Go page showed `fr_server_`; a key carries no such segment any more, and
+ * a page that kept inventing one would be teaching a format the edge rejects.
  */
 export function buildRenderContext(input: {
   source: DocsSource | null;
   signedIn: boolean;
   publicOrigin: string;
-  kind?: Surface;
 }): DocsRenderContext {
   const source = input.source;
 
@@ -158,8 +148,8 @@ export function buildRenderContext(input: {
       signedIn: input.signedIn,
       publicOrigin: input.publicOrigin,
       vars: {
-        key: (input.kind && PLACEHOLDER_KEYS[input.kind]) || PLACEHOLDER_WEB_KEY,
         origin: input.publicOrigin,
+        key: PLACEHOLDER_KEY,
         app: PLACEHOLDER_APP,
         project: PLACEHOLDER_PROJECT,
         placeholder: true,
@@ -200,18 +190,6 @@ export interface DocsTopic {
   summary: string;
   /** Written as a literal, e.g. `"Install guides"`. See `DOCS_SECTIONS`. */
   section: DocsSection;
-  /**
-   * Only meaningful for one kind of source.
-   *
-   * A topic marked `desktop` is hidden from the contents while the reader has a
-   * web source picked, and the other way round. Omit it for anything that
-   * applies to every surface, which is most pages.
-   *
-   * The whole `Surface`, not a pair. While this was `"web" | "desktop"` a
-   * reader with a server source picked was filtered down to no install pages
-   * at all, because a server install page had no honest value to claim.
-   */
-  appliesTo?: Surface;
   /** Sort position inside the section. Lower first; unset sorts after 0-99. */
   order?: number;
   /** Optional lucide icon, imported from `lucide-solid/icons/<name>`. */
@@ -378,24 +356,17 @@ export interface DocsSectionGroup {
  *
  * There used to be a `topicsForKind` in front of this that dropped any topic
  * whose `appliesTo` did not match the picked source, so choosing a desktop
- * source deleted every web install guide from the documentation and choosing a web one
- * deleted Tauri and .NET. The argument was that a Tauri page is noise while you
- * are installing a website tag.
- *
- * It is the wrong trade, and it made the documentation a different manual depending on a
- * dropdown in the corner. A reader who picks a source has said which key they
- * want pasted into the snippets. They have not said which of a customer's four
- * surfaces they will never ship, and the common case -- one product, a
+ * source deleted every web install guide from the documentation and choosing a
+ * web one deleted Tauri and .NET. It made the documentation a different manual
+ * depending on a dropdown in the corner, and the common case -- one product, a
  * marketing site and a desktop app -- is somebody who needs BOTH guides in the
- * same afternoon. A page that vanishes cannot be found again by someone who
- * does not know a dropdown three feet away is why it went, and a link to it
- * from outside opens a page the contents claims does not exist.
+ * same afternoon.
  *
- * So the source affects the VALUES a page substitutes and nothing else.
- * `appliesTo` is still real: it decides which placeholder key flavour a page
- * shows, and it is what lets a page say out loud that it is written for a
- * different kind of source than the one currently picked. Neither of those
- * hides anything.
+ * That filter is gone, and now so is the value it read. A source has no kind, so
+ * there is nothing left to match a page against and no page can claim to be
+ * written for one sort of source over another. Every guide is in the contents,
+ * always, and the picked source decides the VALUES a page substitutes and
+ * nothing else.
  */
 export function sectionedTopics(): DocsSectionGroup[] {
   return DOCS_SECTIONS.map((section) => ({

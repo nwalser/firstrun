@@ -17,7 +17,6 @@ export const topics: DocsTopic[] = [
     title: "Python",
     summary: "Python 3.9+, standard library only, safe across a fork.",
     section: "Install guides",
-    appliesTo: "server",
     order: 72,
     icon: Terminal,
     render: (ctx) => (

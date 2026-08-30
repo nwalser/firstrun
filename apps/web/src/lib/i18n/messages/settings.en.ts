@@ -32,7 +32,7 @@ export const settings = {
   "settings.back_to_projects": "Back to projects",
 
   "settings.projects_description":
-    "One product each. Every surface of that product reports in as its own source, onto the same " +
+    "One product each. Everything that product ships on reports in as its own source, onto the same " +
     "boards.",
   "settings.no_projects": "No projects yet",
   "settings.no_projects_hint": "A project owns events, identity and a dashboard.",

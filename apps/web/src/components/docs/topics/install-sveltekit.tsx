@@ -16,7 +16,6 @@ export const topics: DocsTopic[] = [
     title: "SvelteKit",
     summary: "One call in the root layout, inside onMount.",
     section: "Install guides",
-    appliesTo: "web",
     order: 40,
     icon: Flame,
     render: (ctx) => (

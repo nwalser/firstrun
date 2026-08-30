@@ -17,7 +17,6 @@ export const topics: DocsTopic[] = [
     title: "Node.js",
     summary: "Server-side JavaScript and TypeScript for Node 18+, ESM and CommonJS.",
     section: "Install guides",
-    appliesTo: "server",
     order: 70,
     icon: Braces,
     render: (ctx) => (

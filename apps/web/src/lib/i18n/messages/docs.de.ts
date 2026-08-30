@@ -1,12 +1,10 @@
 import type { DocsMessages } from "./docs.en.js";
 
 /**
- * "Snippet", "Key", "Board", "Card", "Event", "Surface" and "Origin" stay
- * English: they are what the code blocks and the columns on those pages are
- * called in every other tool the reader has open, and "Ausschnitt", "Tafel" or
- * "Oberfläche" would send somebody looking for a different thing. "Surface" in
- * particular is one of the five closed values in the schema, and "Oberfläche"
- * means the visual surface of a UI, which is the opposite of what it holds.
+ * "Snippet", "Key", "Board", "Card", "Event" and "Origin" stay English: they
+ * are what the code blocks and the columns on those pages are called in every
+ * other tool the reader has open, and "Ausschnitt" or "Tafel" would send
+ * somebody looking for a different thing.
  *
  * The page titles are translated where the title is a label ("Querying" ->
  * "Abfragen") and left alone where it is a name (".NET", "Astro", "SvelteKit").
@@ -74,21 +72,19 @@ export const docs: DocsMessages = {
   "docs.no_pages_hint": "Im Documentation sind keine Themen registriert. Seiten liegen in",
 
   "docs.kind_sources": "{kind}-Quellen",
-  "docs.kind_mismatch":
-    "Diese Seite ist für {page}-Quellen, und {name} ist eine {kind}-Quelle. Die Snippets unten zeigen weiterhin ihren Key, und das ist nicht der, den diese Integration braucht.",
   "docs.no_page_called": "Keine Seite mit dem Namen „{slug}“",
   "docs.not_found_hint":
     "Sie wurde vielleicht umbenannt. Alles, was das Documentation hat, steht im Inhalt und auf der Übersicht.",
 
   "docs.topic_what_is_firstrun_title": "Was firstrun ist",
   "docs.topic_what_is_firstrun_summary":
-    "Ein strukturiertes Log für jede Surface, die Sie ausliefern, auf Ihrem eigenen Postgres.",
+    "Ein strukturiertes Log für alles, was Sie ausliefern, auf Ihrem eigenen Postgres.",
   "docs.topic_workspaces_title": "Workspaces, Projekte und Quellen",
   "docs.topic_workspaces_summary":
     "Die drei Ebenen, die zwei Rollen, und wer was ändern darf.",
   "docs.topic_identity_title": "Identität",
   "docs.topic_identity_summary":
-    "Zwei Felder, nichts abgeleitet, und warum Uniques immer nur innerhalb einer Surface gezählt werden.",
+    "Zwei Felder, nichts abgeleitet, und warum Uniques immer nur innerhalb einer Quelle gezählt werden.",
   "docs.topic_querying_title": "Abfragen",
   "docs.topic_querying_summary":
     "Filtern, gruppieren, aggregieren, bucketen, begrenzen: das ganze Vokabular, aus dem eine Card gebaut wird.",

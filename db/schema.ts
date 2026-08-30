@@ -32,8 +32,8 @@ import {
  * The hierarchy is workspace > project > source:
  *
  *   workspace   who can see things, and who can change them
- *   project     one product, and one namespace of entry names
- *   source      one thing that sends telemetry: a website, an app, a server
+ *   project     one product, and one namespace of event names
+ *   source      one thing that writes events. There is only the one kind.
  */
 
 /**
@@ -49,27 +49,6 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 // ---------------------------------------------------------------------------
 // Enumerations. Genuinely closed sets, so the database enforces them.
 // ---------------------------------------------------------------------------
-
-/**
- * What kind of thing a source is.
- *
- * The same five values as `Surface` in @firstrun/schema, in the same order, and
- * they have to stay that way: the wire format encodes one of these into every
- * source key. `other` exists so a CLI or a games console has a value to send
- * rather than a reason to claim it is a server.
- *
- * There is no matching enum on the entry side any more. A log entry records the
- * surface it arrived through as the `firstrun.source.surface` attribute, which
- * the edge stamps from the source row. An enum there would have been a sixth
- * promoted column pretending to be a type.
- */
-export const sourceKindEnum = pgEnum("source_kind", [
-  "web",
-  "desktop",
-  "mobile",
-  "server",
-  "other",
-]);
 
 /**
  * Two roles, and only two for now.
@@ -180,7 +159,7 @@ export const workspaceMembers = pgTable(
  * Every source inside a project reports into the same vocabulary, so a board
  * can put the website and the desktop app side by side and `page_view` means
  * the same thing on both. What a project is NOT is a namespace of people: the
- * anonymous ids of two surfaces are never linked to each other, here or
+ * anonymous ids of two sources are never linked to each other, here or
  * anywhere else. A browser has a visitor id, an app has an install id, and
  * nothing merges them.
  *
@@ -225,8 +204,13 @@ export const projects = pgTable(
  * tag, and in a binary anyone can unpack -- so it identifies and never
  * authorises. Nothing destructive is reachable with one.
  *
- * `kind` is where an event's `surface` comes from. The body never says: a
- * client that lied about its surface would put desktop rows in a web column.
+ * A source has no TYPE. There used to be five -- web, desktop, mobile, server,
+ * other -- recorded here and stamped onto every event. It bought a badge on a
+ * row, a filter chip, and a guess at which install page to open, and it cost a
+ * closed list the customer had to place their own software into. A CLI, a
+ * daemon, a games console and a browser extension all wrote to the same table
+ * either way. The list is gone rather than widened: whatever a source is, it
+ * is one thing that writes events, and the events say the rest in attributes.
  */
 export const sources = pgTable(
   "sources",
@@ -236,8 +220,7 @@ export const sources = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    kind: sourceKindEnum("kind").notNull(),
-    /** Installer basename for desktop sources, e.g. `Themia-Setup`. */
+    /** Optional installer basename, e.g. `Themia-Setup`. */
     assetName: text("asset_name"),
     ingestKey: text("ingest_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -375,7 +358,7 @@ export const logEntries = pgTable(
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
 
     /**
-     * The anonymous id the client generated and persisted for ITS OWN surface:
+     * The anonymous id the client generated and persisted for ITS OWN source:
      * a visitor id in a browser, an install id in an app. Required, because an
      * entry that belongs to nothing cannot be counted as a unique.
      *
@@ -463,5 +446,4 @@ export type Project = typeof projects.$inferSelect;
 export type Source = typeof sources.$inferSelect;
 export type Dashboard = typeof dashboards.$inferSelect;
 export type LogEntryRow = typeof logEntries.$inferSelect;
-export type SourceKind = (typeof sourceKindEnum.enumValues)[number];
 export type MemberRole = (typeof memberRoleEnum.enumValues)[number];

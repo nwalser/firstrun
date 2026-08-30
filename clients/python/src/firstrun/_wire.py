@@ -26,11 +26,11 @@ import re
 import time
 from typing import Any, Dict, List, Mapping, Optional
 
-#: The five surfaces. Closed list, from ``packages/schema/src/surface.ts``.
-SURFACES = ("web", "desktop", "mobile", "server", "other")
-
-#: ``fr_<surface>_<16 chars>``. Public by necessity, authorises nothing.
-SOURCE_KEY_RE = re.compile(r"^fr_(web|desktop|mobile|server|other)_[0-9a-z]{16}$")
+#: ``fr_<16 hex>``. Public by necessity, authorises nothing.
+#:
+#: The middle segment used to name the kind of source the key belonged to.
+#: There are no kinds of source, so there is nothing for it to say.
+SOURCE_KEY_RE = re.compile(r"^fr_[0-9a-f]{16}$")
 
 #: The server's entry-name rule. There is no allowlist anywhere in the system.
 #:
@@ -234,17 +234,6 @@ ATTR_UNIT = "firstrun.unit"
 def is_log_name(name: Any) -> bool:
     """True when the server will accept this as an entry name."""
     return isinstance(name, str) and LOG_NAME_RE.match(name) is not None
-
-
-def surface_from_source_key(key: Any) -> Optional[str]:
-    """The surface a key claims, or None when it is malformed.
-
-    Advisory only: the server trusts the stored source row, never the key text.
-    """
-    if not isinstance(key, str):
-        return None
-    match = SOURCE_KEY_RE.match(key)
-    return match.group(1) if match else None
 
 
 def now_ms() -> int:

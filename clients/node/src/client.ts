@@ -438,7 +438,7 @@ export class Firstrun {
 
   private configProblem(options: FirstrunOptions, globalFetch: unknown): string | null {
     if (!SOURCE_KEY_RE.test(this.sourceKey)) {
-      return "disabled: sourceKey is not a firstrun source key (fr_<surface>_<16 hex>)";
+      return "disabled: sourceKey is not a firstrun source key (fr_<16 hex>)";
     }
     if (!/^https?:\/\/[^/]+$/i.test(String(options.host ?? "").replace(/\/+$/, ""))) {
       return "disabled: host must be an http(s) origin with no path, e.g. https://t.example.com";
@@ -573,7 +573,7 @@ export class Firstrun {
   }
 
   /**
-   * Attaches the customer's own id to this surface's anonymous id.
+   * Attaches the customer's own id to this client's anonymous id.
    *
    * Both are explicit because a server process is not a person: it handles many
    * at once, and any remembered "current user" would be whoever was served

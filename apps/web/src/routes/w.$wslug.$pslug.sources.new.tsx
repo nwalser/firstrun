@@ -27,25 +27,20 @@ import { Route as ProjectRoute } from "./w.$wslug.$pslug.js";
 /**
  * Adding a source, as a page.
  *
- * Three questions and a handover, none of which fits in a drawer over the list
- * it is about to change. Stepped rather than one long form because the answers
- * depend on each other: which boards are worth offering, and whether an
- * installer basename is even a question, both follow from the kind.
+ * Two questions and a handover, none of which fits in a drawer over the list it
+ * is about to change.
+ *
+ * There used to be three, and the first was "what kind of source is this" -- a
+ * website or a desktop app. That answer decided the middle segment of the key,
+ * the value stamped onto every event, which boards were offered and whether the
+ * installer basename was even asked. All of it is gone: a source is one thing
+ * that writes events, and what it happens to run on is the customer's business.
  *
  * The last step comes after creation on purpose. The ingest key does not exist
  * until then, and the guide it hands over to is written against a real key
  * rather than a placeholder somebody pastes with the placeholder still in it.
  */
 export const Route = createFileRoute("/w/$wslug/$pslug/sources/new")({
-  /**
-   * The sources list offers one card per kind when it is empty, so the kind it
-   * offered arrives here rather than being asked for again on the first step.
-   *
-   * Anything else is dropped rather than rejected: a stray query parameter must
-   * not be able to 404 the page that creates a source.
-   */
-  validateSearch: (search: Record<string, unknown>): { kind?: "web" | "desktop" } =>
-    search.kind === "web" || search.kind === "desktop" ? { kind: search.kind } : {},
   component: NewSource,
 });
 
@@ -55,7 +50,6 @@ export const Route = createFileRoute("/w/$wslug/$pslug/sources/new")({
  * evaluated, and switching language would leave the stepper in English.
  */
 const STEP_KEYS: SimpleKey[] = [
-  "sources.step_type",
   "sources.step_details",
   "sources.step_dashboard",
   "sources.step_install",
@@ -67,31 +61,19 @@ function NewSource() {
   const router = useRouter();
   const navigate = useNavigate();
 
-  // Read once, for the initial value of each answer the link already gave. The
-  // reader still lands on step one: what arrives is a preselection, not a step
-  // taken on their behalf.
-  const offered = Route.useSearch()().kind;
-
   const [step, setStep] = createSignal(0);
-  const [kind, setKind] = createSignal<"web" | "desktop">(offered ?? "web");
   const [name, setName] = createSignal("");
-  const [assetName, setAssetName] = createSignal(offered === "desktop" ? "Setup" : "");
+  const [assetName, setAssetName] = createSignal("");
   const [wantsBoard, setWantsBoard] = createSignal(true);
-  const [template, setTemplate] = createSignal(offered === "desktop" ? "app" : "web");
+  // The overview, because nothing on this page says which board would suit
+  // better. It used to be picked from the kind, and there is no kind to pick
+  // from: every template is on offer and the reader chooses.
+  const [template, setTemplate] = createSignal("overview");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [created, setCreated] = createSignal<{ sourceId: string; ingestKey: string } | null>(null);
 
   const isAdmin = () => view().role === "admin";
-  const isDesktop = () => kind() === "desktop";
-
-  function chooseKind(next: "web" | "desktop") {
-    setKind(next);
-    // The default board follows the kind, since "Website" is not on offer for a
-    // desktop source and a stale key would silently create the wrong board.
-    setTemplate(next === "web" ? "web" : "app");
-    if (next === "desktop" && !assetName().trim()) setAssetName("Setup");
-  }
 
   async function create() {
     setBusy(true);
@@ -101,8 +83,7 @@ function NewSource() {
         workspace: view().workspace.slug,
         project: view().project.slug,
         name: name().trim(),
-        kind: kind(),
-        ...(isDesktop() ? { assetName: assetName().trim() || "Setup" } : {}),
+        ...(assetName().trim() ? { assetName: assetName().trim() } : {}),
         ...(wantsBoard() ? { template: template() } : {}),
       },
     });
@@ -112,7 +93,7 @@ function NewSource() {
       return;
     }
     setCreated({ sourceId: result.sourceId, ingestKey: result.ingestKey });
-    setStep(3);
+    setStep(2);
     // So the list, the tab strip and the sidebar all know about it before the
     // reader gets back to any of them.
     await router.invalidate();
@@ -120,12 +101,12 @@ function NewSource() {
 
   function submit(e: Event) {
     e.preventDefault();
-    if (step() === 1 && !name().trim()) return;
-    if (step() < 2) {
+    if (step() === 0 && !name().trim()) return;
+    if (step() < 1) {
       setStep(step() + 1);
       return;
     }
-    if (step() === 2) void create();
+    if (step() === 1) void create();
   }
 
   // The compact track, the measured 914px one Settings uses, rather than a
@@ -200,7 +181,7 @@ function NewSource() {
                 </div>
 
                 <Show when={created()}>
-                  {(source) => <InstallGuideLink kind={kind()} sourceId={source().sourceId} />}
+                  {(source) => <InstallGuideLink sourceId={source().sourceId} />}
                 </Show>
 
                 <div class="flex justify-end gap-2 border-t pt-6">
@@ -218,34 +199,6 @@ function NewSource() {
             <form onSubmit={submit} class="flex flex-col gap-6">
               <Show when={step() === 0}>
                 <div>
-                  <h1 class="text-h2">{i18n.t("sources.step_type_title")}</h1>
-                  <p class="mt-1 text-body text-muted-foreground">
-                    {i18n.t("sources.step_type_hint")}
-                  </p>
-                </div>
-
-                <RadioGroup
-                  value={kind()}
-                  onChange={(value) => chooseKind(value as "web" | "desktop")}
-                  class="grid grid-cols-1 gap-3 sm:grid-cols-2"
-                >
-                  <RadioCard
-                    value="web"
-                    label={i18n.t("sources.kind_web")}
-                    icon={<Globe />}
-                    description={i18n.t("sources.kind_web_hint")}
-                  />
-                  <RadioCard
-                    value="desktop"
-                    label={i18n.t("sources.kind_desktop")}
-                    icon={<Monitor />}
-                    description={i18n.t("sources.kind_desktop_hint")}
-                  />
-                </RadioGroup>
-              </Show>
-
-              <Show when={step() === 1}>
-                <div>
                   <h1 class="text-h2">{i18n.t("sources.step_details_title")}</h1>
                   <p class="mt-1 text-body text-muted-foreground">
                     {i18n.t("sources.step_details_hint")}
@@ -254,11 +207,9 @@ function NewSource() {
 
                 <Field label={i18n.t("common.name")}>
                   <Input
-                    // "themia.app" is a domain, so it stays as written. The
-                    // other half of this is a sentence and does not.
-                    placeholder={
-                      isDesktop() ? i18n.t("sources.name_placeholder_desktop") : "themia.app"
-                    }
+                    // A domain, so it stays as written. It is an example of a
+                    // name rather than a claim about what this source is.
+                    placeholder="themia.app"
                     value={name()}
                     onInput={(e) => setName(e.currentTarget.value)}
                   />
@@ -269,21 +220,19 @@ function NewSource() {
                   the SDK snippet's app name, so a reader copying one gets their
                   own application named back at them instead of "YourApp".
                 */}
-                <Show when={isDesktop()}>
-                  <Field
-                    label={i18n.t("sources.asset_label")}
-                    description={i18n.t("sources.asset_hint")}
-                  >
-                    <Input
-                      placeholder="Themia"
-                      value={assetName()}
-                      onInput={(e) => setAssetName(e.currentTarget.value)}
-                    />
-                  </Field>
-                </Show>
+                <Field
+                  label={i18n.t("sources.asset_label")}
+                  description={i18n.t("sources.asset_hint")}
+                >
+                  <Input
+                    placeholder="Themia"
+                    value={assetName()}
+                    onInput={(e) => setAssetName(e.currentTarget.value)}
+                  />
+                </Field>
               </Show>
 
-              <Show when={step() === 2}>
+              <Show when={step() === 1}>
                 <div>
                   <h1 class="text-h2">{i18n.t("sources.step_board_title")}</h1>
                   <p class="mt-1 text-body text-muted-foreground">
@@ -303,7 +252,6 @@ function NewSource() {
                     <FieldLabel>{i18n.t("sources.template_label")}</FieldLabel>
                     <FieldDescription>{i18n.t("sources.template_hint")}</FieldDescription>
                     <TemplatePicker
-                      kind={kind()}
                       value={template()}
                       onChange={setTemplate}
                       class="mt-2"
@@ -343,13 +291,13 @@ function NewSource() {
                     Spinner and the changed word, the treatment `ConfirmDelete`
                     already uses: a disabled button reading "Creating" is
                     indistinguishable from a disabled button that has stopped.
-                    Only the last step can be busy -- the first two are a step
+                    Only the last step can be busy -- the first is a step
                     counter, not a request. */}
-                <Button type="submit" disabled={busy() || (step() === 1 && !name().trim())}>
+                <Button type="submit" disabled={busy() || (step() === 0 && !name().trim())}>
                   <Show when={busy()}>
                     <Spinner />
                   </Show>
-                  {step() < 2
+                  {step() < 1
                     ? i18n.t("sources.continue")
                     : busy()
                       ? i18n.t("common.creating")

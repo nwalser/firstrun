@@ -92,8 +92,6 @@ export const docs = {
 
   // One topic page.
   "docs.kind_sources": "{kind} sources",
-  "docs.kind_mismatch":
-    "This page is for {page} sources, and {name} is a {kind} source. The snippets below still show its key, which is not the one this integration wants.",
   "docs.no_page_called": "No page called “{slug}”",
   "docs.not_found_hint":
     "It may have been renamed. Everything the documentation has is in the contents, and on the overview.",
@@ -101,12 +99,12 @@ export const docs = {
   // The pages, by slug. Navigation, not prose: see the note at the top.
   "docs.topic_what_is_firstrun_title": "What firstrun is",
   "docs.topic_what_is_firstrun_summary":
-    "One structured log for every surface you ship, on your own Postgres.",
+    "One structured log for everything you ship, on your own Postgres.",
   "docs.topic_workspaces_title": "Workspaces, projects and sources",
   "docs.topic_workspaces_summary": "The three levels, the two roles, and who can change what.",
   "docs.topic_identity_title": "Identity",
   "docs.topic_identity_summary":
-    "Two fields, nothing inferred, and why a unique is only ever counted inside one surface.",
+    "Two fields, nothing inferred, and why a unique is only ever counted inside one source.",
   "docs.topic_querying_title": "Querying",
   "docs.topic_querying_summary":
     "Filter, group, aggregate, bucket, limit: the whole vocabulary a card is built from.",

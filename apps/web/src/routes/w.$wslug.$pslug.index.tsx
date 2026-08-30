@@ -1,7 +1,6 @@
 import { OVERVIEW_RANGE, describeRange, overviewQuestions } from "@firstrun/schema";
 import { sparklineQuery } from "@firstrun/schema/board";
 import { queryKey, rowsAt, type LogQuery, type QueryRow } from "@firstrun/schema/query";
-import { SURFACE_LABELS, type Surface } from "@firstrun/schema/surface";
 import { Link, createFileRoute, notFound, redirect } from "@tanstack/solid-router";
 import ArrowRight from "lucide-solid/icons/arrow-right";
 import Calendar from "lucide-solid/icons/calendar";
@@ -334,7 +333,6 @@ function ProjectOverview() {
                       <span class="truncate text-foreground" title={source.name}>
                         {source.name}
                       </span>
-                      <Badge variant="secondary">{SURFACE_LABELS[source.kind]}</Badge>
                     </span>
                     {/*
                       Muted rather than a warning colour: a source added a minute
@@ -505,20 +503,6 @@ function StatusCard(props: {
     return { dot: "bg-positive", label: i18n.t("project.status_receiving") };
   };
 
-  /** "2 Web, 1 Desktop", so the shape of the project reads in one line. */
-  const surfaces = () => {
-    const counts = new Map<Surface, number>();
-    for (const source of props.sources) {
-      counts.set(source.kind, (counts.get(source.kind) ?? 0) + 1);
-    }
-    // The count goes through the active locale; the surface does not. It is one
-    // of the schema's five closed values and it is the same word in both
-    // languages, which is the point of leaving it in English.
-    return [...counts.entries()]
-      .map(([kind, n]) => `${i18n.num(n)} ${SURFACE_LABELS[kind]}`)
-      .join(", ");
-  };
-
   return (
     <OverviewCard title={i18n.t("project.card_status")} hint={props.measured}>
       <div class="flex h-full min-h-0 flex-col">
@@ -531,8 +515,13 @@ function StatusCard(props: {
         <Fact label={i18n.t("project.fact_last_event")}>
           {props.lastSeen ? i18n.relative(props.lastSeen) : i18n.t("common.never")}
         </Fact>
+        {/* A count. This used to read "2 Web, 1 Desktop", tallied by the
+            source's surface; there are no surfaces, and three sources is three
+            sources whatever they happen to be running on. */}
         <Fact label={i18n.t("project.fact_sources")}>
-          {surfaces() || i18n.t("common.none")}
+          <Show when={props.sources.length > 0} fallback={i18n.t("common.none")}>
+            {i18n.t("workspace.sources", { count: props.sources.length })}
+          </Show>
         </Fact>
         <Fact label={i18n.t("project.fact_boards")}>{i18n.num(props.boards)}</Fact>
       </div>

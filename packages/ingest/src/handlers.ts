@@ -92,15 +92,15 @@ function keepParsable(raw: unknown): { kept: unknown[]; dropped: number } {
 }
 
 /**
- * A batch of log entries, from any surface.
+ * A batch of log entries, from any client.
  *
  * One endpoint rather than one per kind of telemetry, and one body shape rather
  * than a compact browser dialect beside a verbose SDK one. The URL is what
  * customers put behind a CNAME, and every extra path is another thing to get
  * wrong in a proxy config.
  *
- * The surface an entry belongs to comes from the stored source row, so a body
- * cannot claim to be a surface it is not.
+ * Which source an entry arrived through comes from the key's own row, so a body
+ * cannot claim to have come from a source it did not.
  */
 export async function handleEntries(req: Request, ctx: Ctx): Promise<Response> {
   // Checked before the body is read, so an oversized one is never held. The
@@ -155,8 +155,6 @@ export async function handleEntries(req: Request, ctx: Ctx): Promise<Response> {
   const context: NormalizeContext = {
     projectId: source.projectId,
     sourceId: source.id,
-    // The stored source row, never the key and never the body.
-    surface: source.kind,
     ingestedAt: ctx.now(),
   };
 

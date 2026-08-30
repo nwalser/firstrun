@@ -168,6 +168,7 @@ export function EntriesDrawer(props: {
                   return (
                     <EntryRow
                       entry={entry}
+                      workspace={props.workspaceSlug}
                       showProject={false}
                       open={opened() === key}
                       onToggle={() => setOpened((current) => (current === key ? null : key))}

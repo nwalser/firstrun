@@ -20,7 +20,6 @@ export const topics: DocsTopic[] = [
     title: "Script tag",
     summary: "Two lines in the head. No build step and no package.",
     section: "Install guides",
-    appliesTo: "web",
     order: 10,
     icon: CodeXml,
     render: (ctx) => (

@@ -9,7 +9,7 @@ import ListFilter from "lucide-solid/icons/list-filter";
 import Search from "lucide-solid/icons/search";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
-import { IngestHistogram, ingestTotal } from "../components/ingest-histogram.js";
+import { IngestHistogram, IngestRate, ingestTotal } from "../components/ingest-histogram.js";
 import { PageHeader, ROW_INTERACTION } from "../components/page-header.js";
 import { RefreshButton } from "../components/refresh-button.js";
 import {
@@ -34,7 +34,6 @@ import {
   buttonVariants,
   initials,
 } from "../components/ui/index.js";
-import { NUM } from "../components/format.js";
 import { cn } from "../lib/cn.js";
 import type { MemberSummary, ProjectListItem } from "../lib/api.js";
 import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
@@ -707,49 +706,22 @@ function ProjectLogo(props: {
 }
 
 /**
- * How much a project is taking in, as a headline figure beside its chart.
+ * The rate, with the unit this page puts on it.
  *
- * The rate is the number this page is about, so it is set at the size of one
- * rather than folded into a caption: the bars say what the month LOOKED like
- * and this says how big it is, and the two are read together.
- *
- * Mono and tabular, like every other figure in the product (`NUM`), so a column
- * of these down a list lines up on the decimal point instead of dancing.
- *
- * The digits follow the magnitude, like `formatPercent` does: 240/hour does not
- * want a decimal place and 0.04/hour is nothing without two.
- *
- * Two arrangements, because the two views give it different room. In a row the
- * unit sits UNDER the number: a four-digit rate and a one-digit rate would
- * otherwise put the words in two different places down a list, where stacked
- * they are a column. In a tile the two sit on one baseline, above a chart that
- * then keeps the card's whole width -- a tile can be 175px across, and thirty
- * bars in what is left after a column beside them is a texture, not a shape.
+ * The figure lives in `components/ingest-histogram.tsx`, beside the bars it is
+ * read with: the sources list draws the identical pair at the identical size.
+ * The UNIT stays here, because the bars count this project's events on this page
+ * and one source's on that one.
  */
 function ProjectPerHour(props: { perHour: number; inline?: boolean; class?: string }) {
   const i18n = useI18n();
-
-  const rate = () => {
-    const value = props.perHour;
-    const digits = value === 0 || value >= 10 ? 0 : value >= 1 ? 1 : 2;
-    return i18n.num(value, { maximumFractionDigits: digits, minimumFractionDigits: digits });
-  };
-
   return (
-    <div
-      class={cn(
-        "shrink-0",
-        props.inline ? "flex items-baseline gap-1.5" : "text-right",
-        props.class
-      )}
-    >
-      <div class={cn("truncate text-2xl leading-none font-semibold text-foreground", NUM)}>
-        {rate()}
-      </div>
-      <div class={cn("truncate text-caption text-muted-foreground", props.inline ? "" : "mt-1")}>
-        {i18n.t("workspace.per_hour_unit")}
-      </div>
-    </div>
+    <IngestRate
+      perHour={props.perHour}
+      unit={i18n.t("workspace.per_hour_unit")}
+      inline={props.inline}
+      class={props.class}
+    />
   );
 }
 

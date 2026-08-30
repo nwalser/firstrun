@@ -15,7 +15,7 @@ export const topics: DocsTopic[] = [
   {
     slug: "what-is-firstrun",
     title: "What firstrun is",
-    summary: "One structured log for every surface you ship, on your own Postgres.",
+    summary: "One structured log for everything you ship, on your own Postgres.",
     section: "Getting started",
     order: 0,
     icon: Route,
@@ -49,7 +49,7 @@ export const topics: DocsTopic[] = [
           declared, so a key starts working the day you ship the build that sends it.
         </p>
 
-        <h2>An SDK for every surface</h2>
+        <h2>An SDK for everything you ship</h2>
         <p>
           A 4KB browser tag with framework wrappers, plus .NET, Node, Python, Go and a Rust crate
           for Tauri. The same calls everywhere: <code>init</code>, <code>event</code>,{" "}

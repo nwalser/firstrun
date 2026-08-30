@@ -23,7 +23,7 @@ export const workspace = {
   // The overview.
   "workspace.overview": "Overview",
   "workspace.projects": "Projects",
-  "workspace.projects_hint": "One project per product. Every surface it ships on reports into it.",
+  "workspace.projects_hint": "One project per product. Everything it ships on reports into it.",
   "workspace.search_placeholder": "Search projects…",
   "workspace.search_label": "Search projects",
   "workspace.count_of": "{shown} of {total}",

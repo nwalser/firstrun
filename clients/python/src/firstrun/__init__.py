@@ -72,13 +72,11 @@ from ._wire import (
     PAGE_VIEW,
     SESSION_START,
     SOURCE_KEY_RE,
-    SURFACES,
     TRACE,
     WARN,
     is_log_name,
     severity_number,
     severity_text,
-    surface_from_source_key,
 )
 
 __version__ = "0.1.0"
@@ -117,8 +115,6 @@ __all__ = [
     "is_log_name",
     "severity_number",
     "severity_text",
-    "surface_from_source_key",
-    "SURFACES",
     "SOURCE_KEY_RE",
     "LOG_NAME_RE",
     "LOG_NAME_MAX",

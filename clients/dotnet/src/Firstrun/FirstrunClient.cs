@@ -52,7 +52,7 @@ namespace Firstrun
         private readonly string? _resourceJson;
         private readonly Dictionary<string, object?>? _defaultAttributes;
 
-        // The two axes of the delivery policy, after the per-surface defaults and the one
+        // The two axes of the delivery policy, after the defaults and the one
         // coercion. See docs/delivery-policy.md and DeliveryPolicy.cs.
         private readonly ResolvedDeliveryPolicy _policy;
         private readonly DiskQueue? _journal;
@@ -102,11 +102,10 @@ namespace Firstrun
                 // Not fatal: the server is the authority on whether a key resolves. This
                 // is here so a typo shows up in diagnostics instead of as silence.
                 Report(FirstrunDiagnosticKind.InternalError,
-                       "SourceKey does not look like fr_<surface>_<16 chars>");
+                       "SourceKey does not look like fr_<16 hex>");
             }
 
-            Surface = Wire.SurfaceFromSourceKey(_options.SourceKey) ?? FirstrunSurface.Other;
-            _policy = DeliveryPolicy.Resolve(_options, Surface,
+            _policy = DeliveryPolicy.Resolve(_options,
                                              m => Report(FirstrunDiagnosticKind.ConfigAdjusted, m));
             DeliveryMode = _policy.Mode;
             Persistence = _policy.Persistence;
@@ -177,11 +176,20 @@ namespace Firstrun
 
             if (_policy.FlushOnExit) HookProcessExit();
 
-            bool lifecycle = _options.TrackLifecycleEvents
-                             ?? (Surface == FirstrunSurface.Desktop || Surface == FirstrunSurface.Mobile);
+            // Off unless asked for. It used to default on for a desktop or mobile key,
+            // and a source has no kind to read that from: the client cannot know whether
+            // app_install and app_launch mean anything here, so the app says.
+            bool lifecycle = _options.TrackLifecycleEvents ?? false;
             if (lifecycle)
             {
                 if (firstRun) Event(FirstrunNames.AppInstall);
+                // Install, session, launch. This client already HAS a session --
+                // one run is one session, and session.id rides on every entry --
+                // and a session nothing ever announces is one no board can count.
+                // The browser tag has always sent this; a desktop app that
+                // carried a session id and never opened it left every "sessions"
+                // card reading zero on data that plainly had sessions in it.
+                Event(FirstrunNames.SessionStart);
                 Event(FirstrunNames.AppLaunch);
             }
 
@@ -233,9 +241,6 @@ namespace Firstrun
             if (dropped > 0) Interlocked.Add(ref _droppedOverflow, dropped);
             return e.Seq;
         }
-
-        /// <summary>The surface the source key names. Advisory: the server uses its own record.</summary>
-        public FirstrunSurface Surface { get; }
 
         /// <summary>False when the client was misconfigured or explicitly disabled. It still accepts every call.</summary>
         public bool IsEnabled { get { return _options.Enabled && _disposed == 0; } }
@@ -454,7 +459,7 @@ namespace Firstrun
         /// </summary>
         /// <remarks>
         /// This is the only way a user id ever appears. Nothing is inferred, nothing is
-        /// merged, and this surface is never linked to any other surface's ids.
+        /// merged, and this source is never linked to any other source's ids.
         /// Pass null to go back to anonymous.
         /// </remarks>
         public void Identify(string? userId, IReadOnlyDictionary<string, object?>? attributes = null)
@@ -475,12 +480,22 @@ namespace Firstrun
                 _userId = null;
                 _sessionId = Guid.NewGuid().ToString("D");
             }
+            // The rotation half of this is a new session, and it is announced for
+            // the same reason a launch is. The forgotten user id is not announced:
+            // there is no entry that means "stopped being somebody".
+            Event(FirstrunNames.SessionStart);
         }
 
         /// <summary>Starts a new session id without touching the user id.</summary>
+        /// <remarks>
+        /// Announces the new session with a <c>session_start</c> entry, for the same
+        /// reason startup does: a rotation nothing records is a session that exists on
+        /// every later entry and is counted by nothing.
+        /// </remarks>
         public void NewSession()
         {
             lock (_identityGate) { _sessionId = Guid.NewGuid().ToString("D"); }
+            Event(FirstrunNames.SessionStart);
         }
 
         /// <summary>

@@ -13,7 +13,6 @@ import {
   type JSX,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { Surface } from "@firstrun/schema";
 import { cn } from "../../lib/cn.js";
 import type { SessionInfo, DocsContext, DocsSource } from "../../lib/api.js";
 import { useI18n } from "../../lib/i18n/index.js";
@@ -101,13 +100,13 @@ export interface DocsState {
   setSource: (source: DocsSource | null) => void;
   clear: () => void;
   /**
-   * The values a page substitutes, for a page of the given kind.
+   * The values a page substitutes.
    *
    * Call it inside JSX rather than hoisting the result: it reads the selection,
    * so calling it where it is used is what makes a page re-render when the
    * reader picks a different source.
    */
-  ctxFor: (kind?: Surface) => DocsRenderContext;
+  ctxFor: () => DocsRenderContext;
 }
 
 const DocsCtx = createContext<DocsState>();
@@ -167,12 +166,11 @@ export function DocsShell(props: {
     source: selection.source,
     setSource: selection.setSource,
     clear: selection.clear,
-    ctxFor: (kind) =>
+    ctxFor: () =>
       buildRenderContext({
         source: selection.source(),
         signedIn: props.context.signedIn,
         publicOrigin: props.context.publicOrigin,
-        kind,
       }),
   };
 
@@ -300,50 +298,46 @@ export function DocsShell(props: {
             )}
           >
             {/*
-              The page grid, the same `margin | content | margin` every other
-              surface hangs on. `page-track` places its own child, so there is
-              no column to name here.
+              ## The contents is pinned to the window, the page is not
 
-              ## The two columns are pushed apart, not centred together
+              Two different alignments in one row, and that is the measured
+              arrangement rather than an oversight.
 
-              The prose starts immediately after the navigation and the contents
-              is pinned to the far edge, with the slack falling BETWEEN them.
-              That is the measured arrangement and it is not a detail: a reader
-              moves along one line -- navigation, page, contents -- and each of
-              the three is where the edge it belongs to is.
+              The CONTENTS is a fixed 15rem hard against the right edge of the
+              window, at every width. It is chrome: it belongs to the frame the
+              same way the navigation on the other side does, and a rail that
+              drifts inward as the window grows stops reading as an edge and
+              starts reading as a third column of the document.
 
-              Centring the pair instead, which is what this did, parks the prose
-              in the middle of the pane with a 250px hole between it and the
-              navigation, and drags the contents inward off the right edge with
-              it. Every measurement was right and the page still looked wrong,
-              because what was wrong was where the whole block sat.
+              The PAGE is centred in whatever is left. Its measure is fixed, so
+              past a certain width there is slack, and the slack belongs in the
+              margins rather than on one side -- which is why the prose sits
+              close to the navigation on a laptop and drifts toward the middle
+              on a wide monitor. Both of those are correct and they are the same
+              rule.
 
-              So the prose GROWS -- `flex-1`, capped at the 48rem the reference
-              reaches at this width -- and the rail keeps its 15rem. A column
-              that grows without a cap is the thing a measure exists to prevent;
-              a column pinned to a fixed width in a pane that is wider than it
-              is a hole.
+              This is what was wrong before: the rail was INSIDE the centred
+              track, so it inherited the page's centring and floated in from the
+              right edge by however much slack the track had. At 1920 that was
+              200px of nothing between the contents and the window.
 
-              The rail is a sibling of the page rather than something the page
-              renders, so a topic file stays a topic file. It finds the headings
-              by reading this column -- hence the marker attribute, which is the
-              contract between the two. 61rem is what the two columns need
-              together -- 40 of prose at its narrowest, 3 of gap, 15 of rail,
-              and the page's own margins -- and it is stated rather than rounded
-              up to the nearest named step, which was 64rem and hid the rail on
-              a 1280px screen for 48px it did not need.
+              The rail finds its headings by reading the page column -- hence
+              the marker attribute, which is the contract between the two. It
+              appears at the first width where the two columns fit together.
             */}
-            <div class="page-track">
-              <div class="flex justify-between gap-12">
-                <div data-docs-content class="min-w-0 max-w-[48rem] flex-1">
+            <div class="flex items-start">
+              <div class="page-track min-w-0 flex-1">
+                {/* Capped and centred inside the track: the track is as wide as
+                    the pane allows, and the measure is a number of characters. */}
+                <div data-docs-content class="mx-auto w-full max-w-[48rem]">
                   {props.children}
                 </div>
-                <OnThisPage
-                  contentSelector="[data-docs-content]"
-                  scrollSelector="[data-docs-scroller]"
-                  class="hidden @min-[61rem]/page:block"
-                />
               </div>
+              <OnThisPage
+                contentSelector="[data-docs-content]"
+                scrollSelector="[data-docs-scroller]"
+                class="mr-5 hidden @min-[61rem]/page:block"
+              />
             </div>
           </div>
         </SidebarInset>
@@ -476,10 +470,9 @@ function DocsBreadcrumb() {
 /**
  * The contents.
  *
- * Filtered by the kind of source the reader picked, because a Tauri page in the
- * list while somebody is installing a website tag is a page they have to decide
- * to ignore. With nothing picked, everything shows -- somebody evaluating the
- * product should see that every surface is covered.
+ * Every page, always. It used to be filtered by the kind of source the reader
+ * had picked; sources have no kind, and the filter was the wrong trade before
+ * that anyway (see `sectionedTopics` in the registry).
  *
  * Built out of the shell's own row components rather than out of classes that
  * restate their numbers. That is not tidiness: `SidebarMenuButton` is what

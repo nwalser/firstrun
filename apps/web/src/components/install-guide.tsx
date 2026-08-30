@@ -1,4 +1,3 @@
-import type { Surface } from "@firstrun/schema";
 import { Link } from "@tanstack/solid-router";
 import ArrowRight from "lucide-solid/icons/arrow-right";
 import BookOpen from "lucide-solid/icons/book-open";
@@ -24,45 +23,22 @@ import { buttonVariants } from "./ui/index.js";
  */
 
 /**
- * The documentation page to open first for a source of this surface.
+ * Where the install link lands, now that a source has no type.
  *
- * One landing page per surface, not the whole list: a surface now has several
- * install pages (web alone has five) and the reader has to be put on one of
- * them, not asked to choose a framework before they have seen a snippet. Web
- * gets the script tag because it is the one that works regardless of what the
- * site is built with, and every framework page is one click away in the
- * contents. `mobile` and `other` have no client of their own yet, so they go to
- * the page that explains what to check when nothing arrives.
- */
-const TOPIC: Record<Surface, string> = {
-  web: "install-script",
-  desktop: "install-tauri",
-  server: "install-node",
-  mobile: "troubleshooting",
-  other: "troubleshooting",
-};
-
-export function installTopicFor(kind: Surface): string {
-  return TOPIC[kind] ?? "troubleshooting";
-}
-
-/**
- * One summary per surface, by key rather than by word.
+ * The documentation index, not a page. This used to pick one: web went to the
+ * script tag, desktop to Tauri, server to Node. It could only do that because a
+ * source carried a surface, and it was already the weakest thing that value
+ * bought -- a customer whose "web" source was a Chrome extension, or whose
+ * "other" source was a Rust daemon, was sent to the wrong snippet with total
+ * confidence.
  *
- * A record of literals so `t` still sees its closed union, and read inside the
- * component rather than here: a sentence resolved at module scope is frozen in
- * whichever language happened to be active when this file was first evaluated.
+ * We do not know what a source is any more, and that is the honest position: it
+ * is whatever the customer points at the key. So the reader picks their own
+ * client from the index, arriving with their source already selected, and every
+ * snippet on whichever page they choose carries their real key.
  */
-const SUMMARY: Record<Surface, SimpleKey> = {
-  web: "sources.summary_web",
-  desktop: "sources.summary_desktop",
-  server: "sources.summary_server",
-  mobile: "sources.summary_mobile",
-  other: "sources.summary_generic",
-};
 
 export function InstallGuideLink(props: {
-  kind: Surface;
   /** Preselected in the documentation, so every snippet arrives carrying this key. */
   sourceId: string;
   class?: string;
@@ -81,7 +57,7 @@ export function InstallGuideLink(props: {
       </div>
 
       <p class="mt-2 text-body leading-relaxed text-muted-foreground">
-        {i18n.t(SUMMARY[props.kind])}
+        {i18n.t("sources.summary_generic")}
       </p>
 
       {/*
@@ -91,8 +67,7 @@ export function InstallGuideLink(props: {
         a navigation should not change what the documentation shows next time.
       */}
       <Link
-        to="/docs/$topic"
-        params={{ topic: installTopicFor(props.kind) }}
+        to="/docs"
         search={{ source: props.sourceId }}
         class={cn(buttonVariants({ size: "sm" }), "mt-4")}
       >

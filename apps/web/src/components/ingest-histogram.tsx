@@ -1,5 +1,7 @@
 import { For, createMemo } from "solid-js";
 import { cn } from "../lib/cn.js";
+import { NUM } from "./format.js";
+import { useI18n } from "../lib/i18n/index.js";
 
 /**
  * Thirty days of ingest, as one bar per day.
@@ -81,3 +83,57 @@ const BAR_SPACE = 32;
 /** What the bars add up to, for the sentence a caller writes around them. */
 export const ingestTotal = (daily: readonly number[]): number =>
   daily.reduce((sum, n) => sum + n, 0);
+
+/**
+ * The same thirty days read as a rate, as a headline figure beside the bars.
+ *
+ * Lives here rather than on the workspace overview because both lists that draw
+ * the histogram draw this next to it, at the same size, in the same place. Two
+ * copies would be two things to keep in step, and a reader comparing a project's
+ * rate against one of its sources' would be comparing two numbers that only
+ * looked alike.
+ *
+ * Mono and tabular, like every figure in the product (`NUM`), so a column of
+ * these down a list lines up on the decimal point instead of dancing.
+ *
+ * The digits follow the magnitude, like `formatPercent` does: 240/hour does not
+ * want a decimal place and 0.04/hour is nothing without two.
+ *
+ * Two arrangements, because the two places give it different room. In a row the
+ * unit sits UNDER the number: a four-digit rate and a one-digit rate would
+ * otherwise put the words in two different places down a list, where stacked
+ * they are a column. `inline` puts the two on one baseline, for a tile whose
+ * chart then keeps the card's whole width.
+ */
+export function IngestRate(props: {
+  perHour: number;
+  /** The unit, from the calling page's own catalogue. */
+  unit: string;
+  inline?: boolean;
+  class?: string;
+}) {
+  const i18n = useI18n();
+
+  const rate = () => {
+    const value = props.perHour;
+    const digits = value === 0 || value >= 10 ? 0 : value >= 1 ? 1 : 2;
+    return i18n.num(value, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+  };
+
+  return (
+    <div
+      class={cn(
+        "shrink-0",
+        props.inline ? "flex items-baseline gap-1.5" : "text-right",
+        props.class
+      )}
+    >
+      <div class={cn("truncate text-2xl leading-none font-semibold text-foreground", NUM)}>
+        {rate()}
+      </div>
+      <div class={cn("truncate text-caption text-muted-foreground", props.inline ? "" : "mt-1")}>
+        {props.unit}
+      </div>
+    </div>
+  );
+}

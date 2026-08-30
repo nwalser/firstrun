@@ -20,7 +20,6 @@ export const topics: DocsTopic[] = [
     title: ".NET",
     summary: "One package for WPF, WinForms, Avalonia, MAUI, console tools and ASP.NET.",
     section: "Install guides",
-    appliesTo: "desktop",
     order: 60,
     icon: SquareCode,
     render: (ctx) => (

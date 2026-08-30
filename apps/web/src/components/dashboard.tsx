@@ -1,5 +1,5 @@
-import type { BoardFrame, Comparison, DateRange, Rect, Surface } from "@firstrun/schema";
-import { effectiveQuery, findFreeSlot } from "@firstrun/schema";
+import type { BoardFrame, Comparison, DateRange, Rect } from "@firstrun/schema";
+import { effectiveQuery, findFreeSlot, resolveRange } from "@firstrun/schema";
 import { useRouter } from "@tanstack/solid-router";
 import BringToFront from "lucide-solid/icons/bring-to-front";
 import Copy from "lucide-solid/icons/copy";
@@ -9,6 +9,7 @@ import Funnel from "lucide-solid/icons/funnel";
 import LayoutGrid from "lucide-solid/icons/layout-grid";
 import Move from "lucide-solid/icons/move";
 import Plus from "lucide-solid/icons/plus";
+import ScrollText from "lucide-solid/icons/scroll-text";
 import SlidersHorizontal from "lucide-solid/icons/sliders-horizontal";
 import Trash2 from "lucide-solid/icons/trash-2";
 import X from "lucide-solid/icons/x";
@@ -34,6 +35,7 @@ import {
   createCanvas,
   type CanvasController,
 } from "./canvas.js";
+import { EntriesDrawer } from "./entries-drawer.js";
 import { FilterEditor } from "./explore/builder.js";
 import { ExplorePanel } from "./explore/panel.js";
 import {
@@ -41,7 +43,6 @@ import {
   presetContext,
   presetHint,
   presetLabel,
-  presetsFor,
   type Preset,
 } from "./explore/presets.js";
 import type { Board, BoardWidget, QueryWidget } from "@firstrun/schema/board";
@@ -132,7 +133,7 @@ export interface DashboardProps {
   dashboardId: string;
   layout: Board;
   snapshot: BoardSnapshot;
-  sources: Array<{ id: string; name: string; kind: Surface }>;
+  sources: Array<{ id: string; name: string }>;
   /** What this project has actually written, so every picker offers real keys. */
   discovery: Discovery;
   canEdit: boolean;
@@ -164,6 +165,8 @@ export function Dashboard(props: DashboardProps) {
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [filtering, setFiltering] = createSignal(false);
   const [configuring, setConfiguring] = createSignal<string | null>(null);
+  /** Which card's rows are being read. One drawer, whichever card asked. */
+  const [drilling, setDrilling] = createSignal<string | null>(null);
   const [state, setState] = createSignal<SaveState>("idle");
   const [error, setError] = createSignal<string | null>(null);
 
@@ -292,8 +295,35 @@ export function Dashboard(props: DashboardProps) {
 
   const current = () => widgets().find((w) => w.id === configuring()) ?? null;
 
-  const surfaces = (): Surface[] => props.sources.map((s) => s.kind);
-  const palette = () => (props.sources.length === 0 ? PRESETS : presetsFor(surfaces()));
+  /**
+   * The card whose rows are open, and the exact question it was measured with.
+   *
+   * `effectiveQuery` is what the board FETCHED with -- the frame's test-mode
+   * filter, the board's permanent filter and the card's own, in that order --
+   * so the drawer selects the entries the number counted rather than a
+   * near-enough approximation of them. Deriving it here, from the same function
+   * the planner uses, is the same discipline as deriving a query key: two
+   * descriptions of one question is how a total and its rows stop agreeing.
+   */
+  const drilled = createMemo(() => {
+    const widget = widgets().find((w) => w.id === drilling());
+    if (!widget || widget.kind !== "query") return null;
+    const window = resolveRange(board().range);
+    return {
+      title: widget.title ?? defaultTitle(i18n, widget),
+      filter: effectiveQuery(board(), widget).filter ?? emptyFilter(),
+      window: { from: window.from.toISOString(), to: window.to.toISOString() },
+    };
+  });
+
+  /*
+    Every preset, always. A few of them used to be held back unless the project
+    had a source of a matching kind -- the web vitals card, the installs card --
+    and a source has no kind to match. It was the wrong shape anyway: what a
+    card needs is the ATTRIBUTE it groups on, which discovery already knows and
+    the picker already offers, not a guess from a label on the source.
+  */
+  const palette = () => PRESETS;
 
   const filterCount = () => countConditions(board().filter);
 
@@ -502,6 +532,7 @@ export function Dashboard(props: DashboardProps) {
                         canvas={canvas}
                         arranging={canArrange()}
                         onConfigure={() => setConfiguring(id)}
+                        onDrill={card().kind === "query" ? () => setDrilling(id) : null}
                         onDuplicate={() => duplicate(card())}
                         onBringToFront={() => void bringToFront(id)}
                         onRemove={() => void remove(id)}
@@ -637,6 +668,24 @@ export function Dashboard(props: DashboardProps) {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/*
+        The rows behind one card. Reachable while looking, because "that number
+        is wrong" is a thing somebody thinks about a board they are reading.
+      */}
+      <Show when={drilled()}>
+        {(target) => (
+          <EntriesDrawer
+            open={drilling() !== null}
+            onOpenChange={(open) => !open && setDrilling(null)}
+            workspaceSlug={props.workspaceSlug}
+            projectSlug={props.projectSlug}
+            window={target().window}
+            filter={target().filter}
+            title={i18n.t("dashboard.drill_title", { card: target().title })}
+          />
+        )}
+      </Show>
 
       {/* Per-card settings: the query builder itself. Never inline. */}
       <Sheet open={configuring() !== null} onOpenChange={(open) => !open && setConfiguring(null)}>

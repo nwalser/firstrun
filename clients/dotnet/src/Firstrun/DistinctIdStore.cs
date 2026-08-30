@@ -9,7 +9,7 @@ namespace Firstrun
     /// </summary>
     /// <remarks>
     /// One id per (user account, machine, app). It is generated here, it is never
-    /// received from the server, and it is never joined to another surface's id: a
+    /// received from the server, and it is never joined to another source's id: a
     /// browser visitor and this install are two different anonymous people, always.
     ///
     /// Whether this is a first run is decided by whether the file existed, not by a

@@ -1,11 +1,6 @@
 import type { SourcesMessages } from "./sources.en.js";
 
 /**
- * "Surface" stays English. It is one of this product's five named values
- * (`web`, `desktop`, `mobile`, `server`, `other`), it is the word in the schema
- * and in every client's documentation, and "Oberfläche" means the visual
- * surface of a UI, which is the opposite of what this column holds.
- *
  * "Ingest Key", "Source Key", "Snippet", "Queue", "Event" and "Core Web Vitals"
  * stay as well, and keep their capitals: an English proper term inside a German
  * sentence is a noun, and German nouns are capitalised. A compound with one
@@ -19,7 +14,11 @@ export const sources: SourcesMessages = {
   "sources.new": "Neue Quelle",
   "sources.create": "Quelle erstellen",
   "sources.name_label": "Name der Quelle",
-  "sources.surface_label": "Surface",
+  "sources.per_hour_unit": "Events/Std.",
+  "sources.facet_activity": "Aktivität",
+  "sources.facet_receiving": "Empfängt",
+  "sources.facet_quiet": "Ruhig",
+  "sources.facet_never": "Nie gesehen",
   "sources.key_label": "Ingest Key",
   "sources.key_hint": "Notwendigerweise öffentlich. Er benennt ein Ziel und berechtigt zu nichts.",
   "sources.copy_key": "Ingest Key kopieren",
@@ -38,7 +37,7 @@ export const sources: SourcesMessages = {
     "derselbe Mensch auf Ihrer Website und in Ihrer App zählt zweimal, was die ehrliche " +
     "Antwort ist und kein Fehler.",
   "sources.add_filter": "Filter hinzufügen",
-  "sources.remove_filter": "Filter {surface} entfernen",
+  "sources.remove_filter": "Filter {facet} entfernen",
   "sources.sort_by": "Sortieren nach {field}",
   "sources.sort_activity": "Zuletzt gesehen",
   "sources.sort_name": "Name",
@@ -61,7 +60,6 @@ export const sources: SourcesMessages = {
   "sources.sort_volume": "Volumen",
   "sources.ingest_30d_one": "{count} Event in den letzten 30 Tagen",
   "sources.ingest_30d_other": "{count} Events in den letzten 30 Tagen",
-  "sources.thirty_days": "30 Tage",
   "sources.open_project": "{name} öffnen",
   "sources.none_in_workspace": "Keine Quellen in diesem Workspace",
   "sources.none_in_workspace_hint":
@@ -93,25 +91,11 @@ export const sources: SourcesMessages = {
     "Zwischenablage nicht erreichbar. Markieren Sie den Key und kopieren Sie ihn.",
 
   "sources.admin_only": "Nur ein Admin dieses Workspace kann eine Quelle hinzufügen.",
-  "sources.step_type": "Typ",
   "sources.step_details": "Details",
   "sources.step_dashboard": "Dashboard",
   "sources.step_install": "Installation",
-  "sources.step_type_title": "Was sendet Events?",
-  "sources.step_type_hint":
-    "Jede Surface eines Produkts gehört in dieses eine Projekt, damit seine Zahlen auf einem " +
-    "Board stehen. Fügen Sie jetzt die Website hinzu und die App danach, oder andersherum.",
-  "sources.kind_web": "Website",
-  "sources.kind_web_hint":
-    "Seiten, Sitzungen, Referrer, Kampagnen und Core Web Vitals, für Sie gemessen. Alles " +
-    "andere ist ein track()-Aufruf, den Sie schreiben.",
-  "sources.kind_desktop": "Desktop-App",
-  "sources.kind_desktop_hint":
-    "Versionen, Retention und was Menschen tun, sobald sie läuft. Die Queue liegt auf der " +
-    "Festplatte, deshalb kommen offline geschriebene Events beim nächsten Start an.",
   "sources.step_details_title": "Benennen Sie sie",
   "sources.step_details_hint": "Wird nur Ihnen und den Personen in diesem Workspace angezeigt.",
-  "sources.name_placeholder_desktop": "Themia für Windows",
   "sources.asset_label": "Name der Anwendung",
   "sources.asset_hint":
     "Optional. Wird in den Snippets der Installationsanleitung verwendet, damit sie mit dem " +
@@ -133,26 +117,22 @@ export const sources: SourcesMessages = {
     "Documentation, mit diesem Key bereits in jedem Snippet eingesetzt.",
 
   "sources.install_guide": "Installationsanleitung",
+  "sources.detail_hint":
+    "Was diese Quelle in den letzten dreißig Tagen gesendet hat. Alles hier wird genauso " +
+    "gemessen wie eine Karte auf einem Board, gefiltert auf diese eine Quelle.",
+  "sources.back_to_list": "Zurück zu den Quellen",
+  "sources.open_source": "{name} öffnen",
+  "sources.activity": "Aktivität",
+  "sources.what_it_sends": "Was sie sendet",
+  "sources.severity_mix": "Severity",
+  "sources.recent": "Neueste Events",
+  "sources.open_log": "Alle ansehen",
+  "sources.nothing_sent": "Nichts in diesem Zeitraum.",
+
   "sources.install_title": "So installieren Sie es",
   "sources.open_guide": "Schritt-für-Schritt-Anleitung öffnen",
   "sources.guide_note":
     "Öffnet mit dieser Quelle ausgewählt, sodass jedes Snippet bereits ihren Key trägt.",
-  "sources.summary_web":
-    "Fügen Sie das Tag ein, schalten Sie es hinter Ihrem Consent-Banner frei und rufen Sie " +
-    "track() für alles auf, was gezählt werden soll. Seitenaufrufe, Sitzungen, ausgehende " +
-    "Klicks und Core Web Vitals werden für Sie gemessen.",
-  "sources.summary_desktop":
-    "Fügen Sie die Crate hinzu, starten Sie sie einmal beim Programmstart, dann track() und " +
-    "identify(). Die Queue liegt auf der Festplatte, deshalb kommen Events, die offline " +
-    "geschrieben wurden, beim nächsten Start an.",
-  "sources.summary_server":
-    "Fügen Sie das Paket hinzu, erzeugen Sie den Client aus einer Umgebungsvariable und " +
-    "übergeben Sie bei jedem Aufruf Ihre eigene Distinct ID. Nichts wird abgewartet und nichts " +
-    "wirft eine Ausnahme in Ihren Request-Pfad.",
-  "sources.summary_mobile":
-    "Noch kein eigener Mobile-Client. Senden Sie Batches selbst an POST /v1/e, oder richten " +
-    "Sie einen vorhandenen Client auf diesen Host: Das Wire-Format ist für jede Surface " +
-    "dasselbe.",
   "sources.summary_generic":
     "Alles, was eine HTTPS-Anfrage stellen kann, kann melden. Senden Sie Batches an POST /v1/e " +
     "mit Ihrem Source Key und einer Distinct ID, die Sie einmal pro Installation erzeugen.",

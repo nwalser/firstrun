@@ -81,7 +81,7 @@ export const topics: DocsTopic[] = [
             third-party pixels, no cross-site tracking.
           </li>
           <li>
-            No linking of one surface to another, and no identity shared between projects. See{" "}
+            No linking of one source to another, and no identity shared between projects. See{" "}
             <Link to="/docs/$topic" params={{ topic: "identity" }}>
               Identity
             </Link>

@@ -63,6 +63,19 @@ export const events: EventsMessages = {
   "events.client_id": "Client-Id",
   "events.source_label": "Quelle",
 
+  "events.open_event": "{name} öffnen",
+  "events.detail_hint":
+    "Ein Event, genau so, wie es geschrieben wurde. Den Zeitstempel setzt der Client: ein Event " +
+    "von einem Rechner, der offline war, gehört zu dem Moment, in dem es passiert ist, nicht zu " +
+    "dem, in dem wir davon erfahren haben.",
+  "events.detail_facts": "Was es ist",
+  "events.back_to_log": "Zurück zum Log",
+  "events.related": "Alles Weitere",
+  "events.same_name": "Weitere {name}-Events",
+  "events.same_client": "Alles von diesem Client",
+  "events.open_source": "Quelle öffnen",
+  "events.one_source": "Diese Quelle",
+
   "events.happened": "Passiert",
   "events.received": "Empfangen",
   "events.late_by": "{delay} verspätet angekommen",

@@ -1,7 +1,7 @@
 """The anonymous per-install id, and where it lives.
 
 One id per (user account, machine, app). It is generated here, it is never
-received from the server, and it is never joined to another surface's id: a
+received from the server, and it is never joined to another source's id: a
 browser visitor and this installation are two different anonymous people,
 always.
 

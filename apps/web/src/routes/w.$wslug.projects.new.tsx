@@ -24,7 +24,7 @@ import { Route as WorkspaceRoute } from "./w.$wslug.js";
 /**
  * Creating a project, as a page.
  *
- * A project is a decision, not a field. It is one product, and every surface of
+ * A project is a decision, not a field. It is one product, and every source of
  * that product reports into it: one project per PRODUCT, never per platform. A
  * site in one project and its app in another still work, and nothing looks
  * broken, but the two halves of one product never appear on the same board and
@@ -173,7 +173,7 @@ function NewProject() {
 /**
  * The one thing on this page that must not be skimmed.
  *
- * Drawn rather than only written, because "every surface of one product" is an
+ * Drawn rather than only written, because "every source of one product" is an
  * abstraction and three boxes pointing at one board is not.
  */
 function OneProductCallout() {

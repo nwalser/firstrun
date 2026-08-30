@@ -30,14 +30,13 @@ const SHAPE: Row[] = [
   { key: "time", what: "When it happened. Stamped by the client, and what every query buckets on." },
   { key: "name", what: "What happened. Any string up to 128 characters." },
   { key: "severity", what: "1 to 24. A number, not a word. See the ladder below." },
-  { key: "distinct_id", what: "The anonymous id that surface generated for itself. Required." },
+  { key: "distinct_id", what: "The anonymous id that client generated for itself. Required." },
   { key: "attributes", what: "Everything else, as JSON. Up to 64 keys, 4 levels deep." },
 ];
 
 const STAMPED: Row[] = [
   { key: "project_id", what: "Resolved from your source key. Never sent, never claimed." },
   { key: "firstrun.source.id", what: "Which source the event arrived through." },
-  { key: "firstrun.source.surface", what: "web, desktop, mobile, server or other, from that source." },
   { key: "ingested_at", what: "Arrival time. Debugging only: nothing sorts or buckets on it." },
 ];
 

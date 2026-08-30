@@ -100,9 +100,33 @@ export function OnThisPage(props: {
   const [active, setActive] = createSignal<string | null>(null);
 
   onMount(() => {
-    const root = document.querySelector<HTMLElement>(props.contentSelector);
-    const scroller = document.querySelector<HTMLElement>(props.scrollSelector);
-    if (!root || !scroller) return;
+    /**
+     * Wait for the two elements this reads, rather than giving up on them.
+     *
+     * They are found by selector because the page is rendered by a route and
+     * the scroller by the shell, and neither is this component's child. On a
+     * plain load both are already in the document -- but not on every load: a
+     * hot reload, a resumed navigation, or a route whose loader settles a tick
+     * late can all run this before the column exists.
+     *
+     * This used to `return` in that case, which is permanent: no observer gets
+     * attached, so nothing ever brings the rail back and the page simply has no
+     * contents until it is reloaded by hand. Retrying costs a handful of
+     * timers, and stopping after a second is what keeps a page that genuinely
+     * has no column from holding a timer open forever.
+     */
+    let attempts = 0;
+    const start = () => {
+      const root = document.querySelector<HTMLElement>(props.contentSelector);
+      const scroller = document.querySelector<HTMLElement>(props.scrollSelector);
+      if (!root || !scroller) {
+        if (attempts++ < 20) setTimeout(start, 50);
+        return;
+      }
+      wire(root, scroller);
+    };
+
+    const wire = (root: HTMLElement, scroller: HTMLElement) => {
 
     /**
      * Which heading the reader is under.
@@ -150,11 +174,14 @@ export function OnThisPage(props: {
 
     scroller.addEventListener("scroll", mark, { passive: true });
 
-    onCleanup(() => {
-      observer.disconnect();
-      scroller.removeEventListener("scroll", mark);
-      if (queued) clearTimeout(queued);
-    });
+      onCleanup(() => {
+        observer.disconnect();
+        scroller.removeEventListener("scroll", mark);
+        if (queued) clearTimeout(queued);
+      });
+    };
+
+    start();
   });
 
   return (

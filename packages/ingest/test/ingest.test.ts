@@ -51,7 +51,7 @@ const entry = (n: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe("a batch lands", () => {
-  test("from the browser tag, on the surface its source says", async () => {
+  test("from the browser tag, stamped with the source its key names", async () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.webKey,
@@ -74,8 +74,8 @@ describe("a batch lands", () => {
     const rows = await rowsFor("v_lands");
     expect(rows.map((r) => r.name)).toEqual(["page_view", "download_clicked"]);
     expect(rows[0]!.severity).toBe(SEVERITY.INFO);
-    // The surface is read off the stored source row, never off the body.
-    expect(rows.every((r) => r.attributes["firstrun.source.surface"] === "web")).toBe(true);
+    // The source is read off the key's own row, never off the body.
+    expect(rows.every((r) => r.attributes["firstrun.source.id"] === stack.webSourceId)).toBe(true);
     expect(rows[0]!.attributes["url.path"]).toBe("/pricing");
     expect(rows[1]!.attributes.asset).toBe("Setup");
   });
@@ -114,20 +114,21 @@ describe("a batch lands", () => {
     expect((await rowsFor("i_override"))[0]!.attributes["service.version"]).toBe("1.5.0-beta");
   });
 
-  test("but a client cannot claim a surface: the edge stamps over it", async () => {
+  test("but a client cannot claim a different source: the edge stamps over it", async () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.webKey,
         d: "v_liar",
-        r: { "firstrun.source.surface": "desktop" },
-        e: [entry("page_view", { a: { "firstrun.source.surface": "server" } })],
+        r: { "firstrun.source.id": "not-a-real-source" },
+        e: [entry("page_view", { a: { "firstrun.source.id": "also-not-real" } })],
       }),
       stack.ctx
     );
 
+    // The key's own row wins over both the resource and the entry. There is no
+    // surface to lie about any more, and this is the claim that replaced it.
     const row = (await rowsFor("v_liar"))[0]!;
-    expect(row.attributes["firstrun.source.surface"]).toBe("web");
-    expect(row.attributes["firstrun.source.id"]).toBeString();
+    expect(row.attributes["firstrun.source.id"]).toBe(stack.webSourceId);
   });
 
   test("with a name nothing has ever heard of", async () => {
@@ -311,7 +312,7 @@ describe("a malformed entry", () => {
     expect(await ok(res)).toEqual({ accepted: 1, duplicates: 0, dropped: 0 });
     const row = (await rowsFor("i_bad_resource"))[0]!;
     expect(row.attributes.k0).toBeUndefined();
-    expect(row.attributes["firstrun.source.surface"]).toBe("desktop");
+    expect(row.attributes["firstrun.source.id"]).toBe(stack.appSourceId);
   });
 
   test("but a batch with no distinct id is refused: there is nothing to attribute", async () => {

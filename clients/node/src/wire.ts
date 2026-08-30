@@ -22,8 +22,13 @@
  * never by a closed set of types in the backend.
  */
 
-/** `fr_server_9f3a...`. The prefix names the surface. */
-export const SOURCE_KEY_RE = /^fr_(web|desktop|mobile|server|other)_[0-9a-z]{16}$/;
+/**
+ * `fr_9f3ab21c4d5e6f70`. Sixteen hex characters, and nothing before them.
+ *
+ * The middle segment used to name the kind of source the key belonged to. There
+ * are no kinds of source, so there is nothing for it to say.
+ */
+export const SOURCE_KEY_RE = /^fr_[0-9a-f]{16}$/;
 
 /** Entry names are shape-checked only. There is no allowlist. */
 export const LOG_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;

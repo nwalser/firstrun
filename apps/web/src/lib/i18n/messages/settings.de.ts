@@ -4,8 +4,6 @@ import type { SettingsMessages } from "./settings.en.js";
  * "Workspace", "Board", "Dashboard", "Event", "Source Key" and "Ingest-Key"
  * stay English: they are the product's own names for things, and a customer
  * who has read the docs or talked to support is looking for that exact word.
- * "Surface" especially, because "Oberflaeche" means the visual surface of a UI
- * and the column holds the opposite of that.
  *
  * The two delete confirmations are plural families on the number of projects
  * and the number of sources, because German needs a different verb form as
@@ -38,7 +36,7 @@ export const settings: SettingsMessages = {
   "settings.back_to_projects": "Zurück zu den Projekten",
 
   "settings.projects_description":
-    "Je ein Produkt. Jede Surface dieses Produkts meldet sich als eigene Quelle, auf denselben " +
+    "Je ein Produkt. Alles, worauf dieses Produkt läuft, meldet sich als eigene Quelle, auf denselben " +
     "Boards.",
   "settings.no_projects": "Noch keine Projekte",
   "settings.no_projects_hint": "Ein Projekt besitzt Events, Identität und ein Dashboard.",

@@ -15,7 +15,7 @@ import { Callout } from "../snippet.js";
  * The page that stops somebody misreading their own numbers.
  *
  * The mistake it exists to prevent is silent: adding two uniques counts that
- * belong to two surfaces. Nothing errors, the board looks fine, and the total
+ * belong to two sources. Nothing errors, the board looks fine, and the total
  * is a lie. So that one is the page's single red callout and everything else is
  * stated flatly and briefly around it.
  */
@@ -25,7 +25,7 @@ export const topics: DocsTopic[] = [
     slug: "identity",
     title: "Identity",
     summary:
-      "Two fields, nothing inferred, and why a unique is only ever counted inside one surface.",
+      "Two fields, nothing inferred, and why a unique is only ever counted inside one source.",
     section: "How firstrun works",
     order: 20,
     icon: Users,
@@ -49,7 +49,7 @@ export const topics: DocsTopic[] = [
               <TableCell class="whitespace-nowrap font-mono text-xs">distinct_id</TableCell>
               <TableCell>The client, on every event</TableCell>
               <TableCell>
-                A column. Anonymous and scoped to one surface: a visitor id in a browser, an
+                A column. Anonymous and scoped to one source: a visitor id in a browser, an
                 install id on a machine, whatever your server passes per call.
               </TableCell>
             </TableRow>
@@ -66,21 +66,21 @@ export const topics: DocsTopic[] = [
           </TableBody>
         </Table>
 
-        <h2>A unique is counted inside one surface</h2>
+        <h2>A unique is counted inside one source</h2>
         <p>
           One definition, everywhere: <code>count(distinct coalesce(user.id, distinct_id))</code>,
-          scoped to a single surface. An identified client folds into its user; an anonymous one
+          scoped to a single source. An identified client folds into its user; an anonymous one
           stands on its own.
         </p>
 
-        <Callout variant="caution" title="Never add uniques across surfaces">
+        <Callout variant="caution" title="Never add uniques across sources">
           The same human on your website and in your app is <strong>two uniques</strong>, and that
           is the correct answer rather than a bug. The two ids were generated in different places
-          and have never met, so a figure totalled across surfaces counts that person twice.
-          Nothing on screen will look wrong. Read each surface on its own.
+          and have never met, so a figure totalled across sources counts that person twice.
+          Nothing on screen will look wrong. Read each source on its own.
         </Callout>
 
-        <h2>Surfaces are never linked</h2>
+        <h2>Sources are never linked</h2>
         <p>
           Two sources in one project are two separate anonymous id spaces reported next to each
           other. A project is a namespace for events, sources and boards; it is not an identity
@@ -88,7 +88,7 @@ export const topics: DocsTopic[] = [
           heuristic, and no merging, ever.
         </p>
         <p>
-          If you want one person joined across two surfaces, call <code>identify()</code> with the
+          If you want one person joined across two sources, call <code>identify()</code> with the
           same id on both. That is the only link there is, and it is your data and your decision
           rather than something reconstructed from behaviour. It applies to the events that carry
           the id: nothing is merged retroactively.

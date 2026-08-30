@@ -33,6 +33,11 @@ import {
   type ValueType,
   type Visualisation,
 } from "@firstrun/schema/query";
+import {
+  attributeOptionLabel,
+  unsentAttributes,
+  unsentNames,
+} from "@firstrun/schema/conventions";
 import { useI18n } from "../../lib/i18n/index.js";
 import { queryLabels } from "../query-labels.js";
 import { localTimezone } from "./presets.js";
@@ -116,9 +121,34 @@ export function FieldPicker(props: {
     for (const attr of attributes()) {
       out.push({
         value: `a:${attr.key}:${props.numeric ? "number" : "text"}`,
-        label: attr.key,
+        label: attributeOptionLabel(attr.key),
       });
     }
+
+    /*
+     * Then the conventions this project has not written yet.
+     *
+     * Discovery leads, because what a project actually sends is the truth about
+     * it. But discovery is empty on the day somebody installs the SDK, and an
+     * empty picker on that day teaches nothing: the vocabulary we suggest is
+     * written down in `conventions.ts` and was reaching nobody. These are
+     * suggestions in the same list, and choosing one builds an ordinary filter
+     * that matches nothing until the client starts sending it.
+     *
+     * Not offered to a numeric aggregation: whether a key holds numbers is
+     * something only the data can say, and a percentile over a key nobody has
+     * sent is a column of nulls presented as a measurement.
+     */
+    if (!props.numeric) {
+      const seen = props.discovery.attributes.map((a) => a.key);
+      for (const suggestion of unsentAttributes(seen)) {
+        out.push({
+          value: `a:${suggestion.key}:text`,
+          label: attributeOptionLabel(suggestion.key),
+        });
+      }
+    }
+
     // A field the picker has never seen is still a field. Discovery is a
     // sample, and a key nobody sent in the window is a filter that matches
     // nothing rather than an error.
@@ -219,7 +249,13 @@ export function FieldPicker(props: {
 function samplesFor(discovery: Discovery, field: Field | null): string[] {
   if (!field) return [];
   if (field.kind === "column" && field.column === "name") {
-    return discovery.names.map((n) => n.name).slice(0, 12);
+    // What the project sends, then the names we suggest it could. A project
+    // with no entries yet gets the conventional list rather than an empty
+    // datalist, which is the one moment somebody is deciding what to call
+    // things.
+    const sent = discovery.names.map((n) => n.name);
+    const suggested = unsentNames(sent).map((n) => n.name);
+    return [...sent, ...suggested].slice(0, 16);
   }
   if (field.kind !== "attribute" || field.path.length !== 1) return [];
   return discovery.attributes.find((a) => a.key === field.path[0])?.samples ?? [];

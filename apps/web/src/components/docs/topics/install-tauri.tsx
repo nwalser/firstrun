@@ -17,7 +17,6 @@ export const topics: DocsTopic[] = [
     title: "Tauri",
     summary: "The Rust crate, with a disk-backed queue that survives being offline or killed.",
     section: "Install guides",
-    appliesTo: "desktop",
     order: 62,
     icon: AppWindow,
     render: (ctx) => (

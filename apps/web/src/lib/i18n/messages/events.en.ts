@@ -73,6 +73,26 @@ export const events = {
    * was offline, and a log view that showed one number would be quietly lying
    * about the other.
    */
+  /*
+   * One event, on its own page.
+   *
+   * An event is addressable because an event is something people SEND each
+   * other. The row still expands in place -- that is how a log is read -- and
+   * the page is how one is cited.
+   */
+  "events.open_event": "Open {name}",
+  "events.detail_hint":
+    "One event, exactly as it was written. The timestamp is the client's own, so an event from " +
+    "a machine that was offline belongs to the moment it happened rather than the moment we " +
+    "heard about it.",
+  "events.detail_facts": "What it is",
+  "events.back_to_log": "Back to the log",
+  "events.related": "Everything else",
+  "events.same_name": "Other {name} events",
+  "events.same_client": "Everything from this client",
+  "events.open_source": "Open the source",
+  "events.one_source": "This source",
+
   "events.happened": "Happened",
   "events.received": "Received",
   "events.late_by": "Arrived {delay} late",

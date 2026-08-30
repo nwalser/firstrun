@@ -25,9 +25,6 @@ pub const LOG_NAME_MAX: usize = 128;
 /// The longest a `distinct_id` or an id-shaped attribute may be.
 pub const ID_MAX: usize = 512;
 
-/// The surfaces a source key may name. Closed list, mirroring `SURFACES`.
-pub const SURFACES: [&str; 5] = ["web", "desktop", "mobile", "server", "other"];
-
 /// How many entries one `POST /v1/e` may carry.
 ///
 /// Read out of the wire format rather than guessed: this is `MAX_BATCH_ENTRIES`
@@ -156,6 +153,7 @@ pub fn severity_text(n: u8) -> String {
 
 /// Conventional entry names. SUGGESTIONS, NOT LAW: any string matching
 /// [`is_valid_log_name`] is stored, counted, grouped and filtered identically.
+pub const NAME_SESSION_START: &str = "session_start";
 pub const NAME_APP_INSTALL: &str = "app_install";
 pub const NAME_APP_LAUNCH: &str = "app_launch";
 pub const NAME_IDENTIFY: &str = "identify";
@@ -228,23 +226,15 @@ pub fn is_valid_log_name(name: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
 }
 
-/// The surface a source key claims, or `None` when the key is malformed.
+/// `fr_` then sixteen hex characters, and nothing else.
 ///
-/// Advisory only. The server records a surface on the source row and trusts
-/// that, never the text of the key, so a client cannot claim to be something
-/// else by editing the string it was given.
-pub fn surface_from_source_key(key: &str) -> Option<&'static str> {
-    let rest = key.strip_prefix("fr_")?;
-    let (surface, suffix) = rest.split_once('_')?;
-    if suffix.len() != 16 || !suffix.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
-        return None;
-    }
-    SURFACES.iter().copied().find(|s| *s == surface)
-}
-
-/// `fr_<surface>_<16 lower-case alphanumerics>`.
+/// The middle segment used to name the kind of source the key belonged to.
+/// There are no kinds of source, so there is nothing for it to say.
 pub fn is_valid_source_key(key: &str) -> bool {
-    surface_from_source_key(key).is_some()
+    match key.strip_prefix("fr_") {
+        Some(hex) => hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        None => false,
+    }
 }
 
 /// Milliseconds since the Unix epoch, which is what `timestamp` is.

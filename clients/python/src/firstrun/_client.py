@@ -224,7 +224,6 @@ class Firstrun:
 
         self.source_key = source_key or ""
         self.host = (host or "").rstrip("/")
-        self.surface = _wire.surface_from_source_key(self.source_key) or "other"
 
         self._enabled = bool(enabled and self.source_key and self.host)
         if enabled and not (self.source_key and self.host):
@@ -235,7 +234,7 @@ class Firstrun:
         elif self._enabled and not _wire.SOURCE_KEY_RE.match(self.source_key):
             # Not fatal: the server is the authority on whether a key resolves.
             # This exists so a typo shows up in diagnostics instead of as silence.
-            self._report(INTERNAL_ERROR, "source_key does not look like fr_<surface>_<16 chars>")
+            self._report(INTERNAL_ERROR, "source_key does not look like fr_<16 hex>")
 
         self.channel = channel
         self.os = os_name if os_name is not None else _wire.os_name()
@@ -379,7 +378,7 @@ class Firstrun:
         # When the `interval` schedule next fires. Only that schedule has a tick.
         self._next_tick_at = time.monotonic() + self.flush_interval
 
-        # Identity. Anonymous, scoped to this surface, never joined to another's.
+        # Identity. Anonymous, scoped to this source, never joined to another's.
         self._user_id: Optional[str] = None
         self._session_id = str(uuid.uuid4())
 
@@ -423,9 +422,11 @@ class Firstrun:
                 atexit.register(_at_exit)
                 self._atexit = _at_exit
 
-        lifecycle = track_lifecycle
-        if lifecycle is None:
-            lifecycle = self.surface in ("desktop", "mobile")
+        # Off unless asked for. It used to default on when the key's middle
+        # segment said "desktop" or "mobile"; a source has no such segment and no
+        # kind, so the client cannot know whether app_install and app_launch mean
+        # anything here. An app that wants them passes track_lifecycle=True.
+        lifecycle = bool(track_lifecycle)
         if lifecycle and self._enabled:
             if self.is_first_run:
                 self.event(_wire.APP_INSTALL)
@@ -728,7 +729,7 @@ class Firstrun:
         """Attach the customer's own user id to everything sent from now on.
 
         This is the only way a ``user.id`` ever appears. Nothing is inferred,
-        nothing is merged, and this surface is never linked to another surface's
+        nothing is merged, and this source is never linked to another source's
         ids. Pass None to go back to anonymous.
         """
         clamped = _wire.clamp_id(user_id)

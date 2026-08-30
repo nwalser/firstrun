@@ -230,7 +230,7 @@ export function log(entry: Entry): void {
  * It sets the `user.id` attribute and nothing else: firstrun never infers one,
  * never derives one from behaviour, and never links this browser's anonymous id
  * to an id from your app or your backend. If you want a person counted once
- * across surfaces, call `identify` with the same id on each of them.
+ * across sources, call `identify` with the same id on each of them.
  */
 export function identify(userId?: string | null): void {
   if (instance) instance.identify(userId);

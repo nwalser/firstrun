@@ -2,6 +2,8 @@ import {
   QueryError,
   addMemberByLogin,
   feedEntries,
+  feedEntry,
+  type FeedRow,
   clearWorkspaceLogo,
   createDashboard as createDashboardRecord,
   createProject,
@@ -41,13 +43,19 @@ import {
   setWorkspaceLogo,
   sourceLastSeen,
   workspaceForUser,
+  histogramWindow,
   workspaceSourceLastSeen,
   workspaceUsage,
   type LogQuery as CompilerQuery,
   type QueryRow as CompilerRow,
 } from "@firstrun/db";
 import { configFromEnv } from "@firstrun/ingest";
-import { SEVERITY_LABELS, severityBand } from "@firstrun/schema/severity";
+import { ATTR } from "@firstrun/schema/conventions";
+import {
+  SEVERITY_LABELS,
+  severityBand,
+  type SeverityBand,
+} from "@firstrun/schema/severity";
 import {
   FEED_PAGE,
   feedWindow,
@@ -67,7 +75,6 @@ import {
   type Comparison,
   type DateRange,
   type ResolvedWindow,
-  type Surface,
 } from "@firstrun/schema";
 import { getRequest } from "@tanstack/solid-start/server";
 import {
@@ -80,6 +87,7 @@ import {
   type BoardSnapshot,
   type DiscoveredAttribute,
   type Discovery,
+  type Filter,
   type QueryResult,
 } from "@firstrun/schema/query";
 import type {
@@ -90,6 +98,7 @@ import type {
   Result,
   SessionInfo,
   DocsContext,
+  SourceDetailView,
   WorkspaceSourcesView,
   WorkspaceUsageView,
   WorkspaceView,
@@ -182,7 +191,6 @@ export async function loadDocsContext(): Promise<DocsContext> {
       return rows.map((s) => ({
         id: s.id,
         name: s.name,
-        kind: s.kind,
         assetName: s.assetName,
         ingestKey: s.ingestKey,
         projectName: s.projectName,
@@ -323,15 +331,195 @@ export async function loadWorkspaceSources(slug: string): Promise<WorkspaceSourc
     sources: sources.map((s) => ({
       id: s.id,
       name: s.name,
-      kind: s.kind,
       assetName: s.assetName,
       ingestKey: s.ingestKey,
       lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
+      perHour: entriesPerHour(daily.get(s.id) ?? []),
       projectId: s.projectId,
       projectName: s.projectName,
       projectSlug: s.projectSlug,
       daily: daily.get(s.id) ?? [],
     })),
+  };
+}
+
+/** How many of a source's own entries its page shows before "see all". */
+const SOURCE_RECENT = 8;
+
+/** How many distinct names a source's page lists. */
+const SOURCE_NAMES = 8;
+
+/**
+ * One entry, by id, for its own page.
+ *
+ * Scoped by `requireAccess` and by the workspace join inside the lookup, so an
+ * id belonging to somebody else's workspace is a not-found rather than a read.
+ * Read access is enough.
+ */
+export async function loadEvent(
+  slug: string,
+  entryId: string,
+  at: string | null
+): Promise<FeedEntry | null> {
+  const access = await requireAccess(slug);
+  if (!access) return null;
+
+  // A hint that is not a date is dropped rather than refused: the fallback
+  // still finds the entry, and a broken link should cost a scan, not an error.
+  const parsed = at ? new Date(at) : null;
+  const hint = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+
+  const row = await feedEntry(getStore().db, {
+    workspaceId: access.workspace.id,
+    entryId,
+    at: hint,
+  });
+  return row ? toWire(row) : null;
+}
+
+/**
+ * One source, and what it has been sending for the last month.
+ *
+ * Four questions, asked together because the page asks them together: the
+ * shape of its month, the last few entries it wrote, what it calls them, and
+ * how bad they were.
+ *
+ * The last two go through the QUERY COMPILER rather than through SQL written
+ * here, filtered on the attribute the edge stamps. That is the point of the
+ * query layer: "what does this source send" is a group by on `name` with a
+ * filter, which is a question a customer can also build on a card. Nothing on
+ * this page reaches a number they could not have asked for themselves.
+ */
+export async function loadSourceDetail(
+  workspaceSlug: string,
+  projectSlug: string,
+  sourceId: string
+): Promise<SourceDetailView | null> {
+  await ensureReady();
+  const user = await currentUser(getRequest());
+  if (!user) return null;
+
+  const store = getStore();
+  const project = await projectForUser(store.db, workspaceSlug, projectSlug, user.id);
+  if (!project) return null;
+
+  // From the project's own list, so a source id belonging to another project is
+  // a not-found rather than a read of somebody else's row.
+  const sources = await listSources(store.db, project.id);
+  const source = sources.find((s) => s.id === sourceId);
+  if (!source) return null;
+
+  // The SAME window the histogram buckets, so the bars, the names, the severity
+  // mix and the recent list all describe one thirty days. Read off
+  // `histogramWindow` rather than computed here: a second copy of the
+  // midnight-UTC rule is a second thing to get wrong, and the page would state
+  // a range its own bars did not cover.
+  const { from, until: to } = histogramWindow();
+
+  /** Everything this source wrote, as a filter the query layer understands. */
+  const written: Filter = {
+    op: "eq",
+    field: { kind: "attribute", path: [ATTR.SOURCE_ID] },
+    value: source.id,
+  };
+
+  const [lastSeen, daily, recent, answers] = await Promise.all([
+    sourceLastSeen(store.db, project.id),
+    sourceDailyCounts(store.db, project.workspaceId, [source.id]),
+    feedEntries(store.db, {
+      workspaceId: project.workspaceId,
+      from,
+      to,
+      projectIds: [project.id],
+      sourceIds: [source.id],
+      limit: SOURCE_RECENT,
+    }),
+    runQueries(
+      store,
+      [
+        {
+          key: "names",
+          query: {
+            filter: written,
+            groupBy: [{ kind: "column", column: "name" }],
+            aggregations: [{ fn: "count" }],
+            orderBy: [{ key: { aggregate: 0 }, direction: "desc" }],
+            limit: SOURCE_NAMES,
+          },
+        },
+        {
+          key: "severities",
+          query: {
+            filter: written,
+            groupBy: [{ kind: "column", column: "severity" }],
+            aggregations: [{ fn: "count" }],
+            orderBy: [{ key: { aggregate: 0 }, direction: "desc" }],
+            limit: 24,
+          },
+        },
+      ],
+      { projectId: project.id, from, to }
+    ),
+  ]);
+
+  const names = (answers.names ?? [])
+    .map((row) => ({ name: row.group[0] ?? "", entries: row.value[0] ?? 0 }))
+    .filter((row) => row.name !== "");
+
+  // Folded to bands here rather than grouped as bands in SQL: the ladder is
+  // twenty-four numbers and the band is a reading of them, so the compiler
+  // returns what is stored and this decides how it reads.
+  const bands = new Map<string, number>();
+  for (const row of answers.severities ?? []) {
+    const raw = row.group[0];
+    const band = raw === null || raw === undefined ? null : severityBand(Number(raw));
+    const key = band ?? "NONE";
+    bands.set(key, (bands.get(key) ?? 0) + (row.value[0] ?? 0));
+  }
+
+  return {
+    id: source.id,
+    name: source.name,
+    assetName: source.assetName,
+    ingestKey: source.ingestKey,
+    projectName: project.name,
+    projectSlug: project.slug,
+    lastSeenAt: lastSeen.get(source.id)?.toISOString() ?? null,
+    daily: daily.get(source.id) ?? [],
+    createdAt: source.createdAt.toISOString(),
+    from: from.toISOString(),
+    to: to.toISOString(),
+    names,
+    severities: [...bands.entries()]
+      .map(([band, entries]) => ({
+        band,
+        label: band === "NONE" ? "Unclassified" : SEVERITY_LABELS[band as SeverityBand],
+        entries,
+      }))
+      .sort((a, b) => b.entries - a.entries),
+    recent: recent.map(toWire),
+  };
+}
+
+/**
+ * One row, as the wire carries it.
+ *
+ * Instants become ISO strings because this crosses a server-function boundary,
+ * and it is written once so the list and the single-entry lookup cannot
+ * disagree about what an entry is.
+ */
+function toWire(r: FeedRow): FeedEntry {
+  return {
+    projectId: r.projectId,
+    projectName: r.projectName,
+    projectSlug: r.projectSlug,
+    entryId: r.entryId,
+    time: r.time.toISOString(),
+    ingestedAt: r.ingestedAt.toISOString(),
+    distinctId: r.distinctId,
+    severity: r.severity,
+    name: r.name,
+    attributes: r.attributes,
   };
 }
 
@@ -593,7 +781,6 @@ export async function loadProjectNav(
     sources: sources.map((s) => ({
       id: s.id,
       name: s.name,
-      kind: s.kind,
       assetName: s.assetName,
       ingestKey: s.ingestKey,
       lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
@@ -648,7 +835,6 @@ export async function loadProject(
     sources: sources.map((s) => ({
       id: s.id,
       name: s.name,
-      kind: s.kind,
       assetName: s.assetName,
       ingestKey: s.ingestKey,
       lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
@@ -1322,7 +1508,6 @@ export async function addSource(input: {
   workspace: string;
   project: string;
   name: string;
-  kind: Surface;
   assetName?: string;
   template?: string;
 }): Promise<Result<{ sourceId: string; ingestKey: string }>> {
@@ -1331,12 +1516,14 @@ export async function addSource(input: {
 
   const store = getStore();
   const name = input.name.trim().slice(0, 60) || "Untitled";
+  // The asset name is whatever the customer typed, or nothing. It used to be
+  // forced to "Setup" for a desktop source and forced to null for every other
+  // kind; there are no kinds, so it is simply an optional field again.
   const source = await createSource(
     store.db,
     found.project.id,
     name,
-    input.kind,
-    input.kind === "desktop" ? input.assetName?.trim() || "Setup" : null
+    input.assetName?.trim() || null
   );
 
   // A board for the new source, named after it -- unless the project already

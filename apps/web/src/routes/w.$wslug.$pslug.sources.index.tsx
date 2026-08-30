@@ -1,22 +1,14 @@
-import { ALL_SURFACES, SURFACE_LABELS, type Surface } from "@firstrun/schema/surface";
 import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
 import Antenna from "lucide-solid/icons/antenna";
 import BookOpen from "lucide-solid/icons/book-open";
-import Box from "lucide-solid/icons/box";
 import Check from "lucide-solid/icons/check";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
 import Copy from "lucide-solid/icons/copy";
-import Globe from "lucide-solid/icons/globe";
 import ListFilter from "lucide-solid/icons/list-filter";
-import Monitor from "lucide-solid/icons/monitor";
 import Search from "lucide-solid/icons/search";
-import Server from "lucide-solid/icons/server";
-import Smartphone from "lucide-solid/icons/smartphone";
 import Trash2 from "lucide-solid/icons/trash-2";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import { installTopicFor } from "../components/install-guide.js";
 import { PageHeader } from "../components/page-header.js";
 import { RefreshButton } from "../components/refresh-button.js";
 import {
@@ -71,16 +63,38 @@ export const Route = createFileRoute("/w/$wslug/$pslug/sources/")({
   component: Sources,
 });
 
-/** One icon per surface. The list is closed, so the record is total. */
-const SURFACE_ICON: Record<Surface, (props: { class?: string }) => ReturnType<typeof Globe>> = {
-  web: Globe,
-  desktop: Monitor,
-  mobile: Smartphone,
-  server: Server,
-  other: Box,
+type Sort = "activity" | "name";
+
+/** How long a source can say nothing before "receiving" stops being true. */
+const QUIET_AFTER_MS = 24 * 60 * 60 * 1000;
+
+type ActivityFacet = "receiving" | "quiet" | "never";
+
+/**
+ * What the filter row narrows by, now that a source has no type.
+ *
+ * It used to be the surface, which was the only facet this page had: with the
+ * types gone the control would have been a button that opened an empty menu.
+ * Activity replaces it because it answers the question somebody opens a source
+ * list to ask -- which of these has stopped -- and because the row states the
+ * same fact in words, so a chip never hides a row for a reason the reader
+ * cannot see in the rows it kept.
+ */
+const ACTIVITY: Record<ActivityFacet, { labelKey: SimpleKey; match: (s: SourceSummary) => boolean }> = {
+  receiving: {
+    labelKey: "sources.facet_receiving",
+    match: (s) =>
+      s.lastSeenAt !== null && Date.now() - new Date(s.lastSeenAt).getTime() <= QUIET_AFTER_MS,
+  },
+  quiet: {
+    labelKey: "sources.facet_quiet",
+    match: (s) =>
+      s.lastSeenAt !== null && Date.now() - new Date(s.lastSeenAt).getTime() > QUIET_AFTER_MS,
+  },
+  never: { labelKey: "sources.facet_never", match: (s) => s.lastSeenAt === null },
 };
 
-type Sort = "activity" | "name";
+const ACTIVITY_FACETS = Object.keys(ACTIVITY) as ActivityFacet[];
 
 /**
  * The key each sort names, rather than the word. Read inside the component, so
@@ -92,36 +106,6 @@ const SORT_KEYS = {
   name: "sources.sort_name",
 } as const satisfies Record<Sort, SimpleKey>;
 
-/**
- * The empty state's options, one card per kind the new-source flow can actually
- * create. Not one per surface: `mobile`, `server` and `other` have no step in
- * that flow yet, and an option leading nowhere is worse than a missing one.
- */
-const NEW_SOURCE_OPTIONS: {
-  kind: "web" | "desktop";
-  title: SimpleKey;
-  body: SimpleKey;
-  /*
-   * The action carries its own key rather than being built from "Add a " and a
-   * lower-cased title. Lower-casing a German noun to fit it into a sentence is
-   * wrong in every case, and that is what the English version did.
-   */
-  action: SimpleKey;
-}[] = [
-  {
-    kind: "web",
-    title: "sources.option_web_title",
-    body: "sources.option_web_body",
-    action: "sources.option_web_action",
-  },
-  {
-    kind: "desktop",
-    title: "sources.option_desktop_title",
-    body: "sources.option_desktop_body",
-    action: "sources.option_desktop_action",
-  },
-];
-
 function Sources() {
   const i18n = useI18n();
   const view = ProjectRoute.useLoaderData();
@@ -132,7 +116,7 @@ function Sources() {
 
   const [query, setQuery] = createSignal("");
   const [sort, setSort] = createSignal<Sort>("activity");
-  const [facets, setFacets] = createSignal<Surface[]>([]);
+  const [facets, setFacets] = createSignal<ActivityFacet[]>([]);
 
   let searchField: HTMLInputElement | undefined;
 
@@ -166,18 +150,16 @@ function Sources() {
   });
 
   /**
-   * Only the surfaces this project actually has, in the schema's own order. A
-   * facet that can only ever match nothing is not a filter anybody would pick
-   * on purpose.
+   * Only the states this project's sources are actually in. A facet that can
+   * only ever match nothing is not a filter anybody would pick on purpose.
    */
-  const present = createMemo(() => {
-    const seen = new Set<Surface>(view().sources.map((source) => source.kind));
-    return ALL_SURFACES.filter((kind) => seen.has(kind));
-  });
+  const present = createMemo(() =>
+    ACTIVITY_FACETS.filter((state) => view().sources.some(ACTIVITY[state].match))
+  );
 
-  function toggleFacet(kind: Surface) {
+  function toggleFacet(state: ActivityFacet) {
     setFacets((current) =>
-      current.includes(kind) ? current.filter((k) => k !== kind) : [...current, kind]
+      current.includes(state) ? current.filter((s) => s !== state) : [...current, state]
     );
   }
 
@@ -193,12 +175,16 @@ function Sources() {
     const needle = query().trim().toLowerCase();
     const chosen = facets();
     return [...view().sources]
-      .filter((source) => chosen.length === 0 || chosen.includes(source.kind))
+      .filter((source) => chosen.length === 0 || chosen.some((s) => ACTIVITY[s].match(source)))
+      /*
+        Not on the key. The row stopped showing it, and a search that silently
+        matches something invisible reports a row whose reason for being there
+        the reader cannot see.
+      */
       .filter(
         (source) =>
           !needle ||
-          source.name.toLowerCase().includes(needle) ||
-          source.ingestKey.toLowerCase().includes(needle)
+          source.name.toLowerCase().includes(needle)
       )
       .sort(sort() === "name" ? (a, b) => a.name.localeCompare(b.name) : byActivity);
   });
@@ -240,17 +226,17 @@ function Sources() {
                   {i18n.t("sources.add_filter")}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                  <DropdownMenuLabel>{i18n.t("sources.surface_label")}</DropdownMenuLabel>
+                  <DropdownMenuLabel>{i18n.t("sources.facet_activity")}</DropdownMenuLabel>
                   <For each={present()}>
-                    {(kind) => (
-                      <DropdownMenuItem onSelect={() => toggleFacet(kind)}>
+                    {(state) => (
+                      <DropdownMenuItem onSelect={() => toggleFacet(state)}>
                         <Check
                           class={cn(
                             "size-4",
-                            facets().includes(kind) ? "opacity-100" : "opacity-0"
+                            facets().includes(state) ? "opacity-100" : "opacity-0"
                           )}
                         />
-                        {SURFACE_LABELS[kind]}
+                        {i18n.t(ACTIVITY[state].labelKey)}
                       </DropdownMenuItem>
                     )}
                   </For>
@@ -258,16 +244,17 @@ function Sources() {
               </DropdownMenu>
 
               <For each={facets()}>
-                {(kind) => (
+                {(state) => (
                   <Button
                     variant="outline"
                     size="sm"
                     aria-label={i18n.t("sources.remove_filter", {
-                      surface: SURFACE_LABELS[kind],
+                      facet: i18n.t(ACTIVITY[state].labelKey),
                     })}
-                    onClick={() => toggleFacet(kind)}
+                    onClick={() => toggleFacet(state)}
                   >
-                    {i18n.t("sources.surface_label")}: {SURFACE_LABELS[kind]}
+                    <span class="text-muted-foreground">{i18n.t("sources.facet_activity")}:</span>
+                    {i18n.t(ACTIVITY[state].labelKey)}
                     <X class="size-3.5 text-muted-foreground" />
                   </Button>
                 )}
@@ -294,28 +281,20 @@ function Sources() {
                 question again on the next page.
               */}
               <EmptyContent class="w-full max-w-[820px] flex-col gap-3">
-                <For each={NEW_SOURCE_OPTIONS}>
-                  {(option) => (
-                    <div class="flex w-full flex-col items-start gap-3 rounded-md bg-card p-4 text-left shadow-2xs">
-                      <div>
-                        <div class="text-body font-semibold text-foreground">
-                          {i18n.t(option.title)}
-                        </div>
-                        <p class="mt-1 text-copy-13 text-muted-foreground">
-                          {i18n.t(option.body)}
-                        </p>
-                      </div>
-                      <Link
-                        to="/w/$wslug/$pslug/sources/new"
-                        params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
-                        search={{ kind: option.kind }}
-                        class={buttonVariants({ size: "sm" })}
-                      >
-                        {i18n.t(option.action)}
-                      </Link>
-                    </div>
-                  )}
-                </For>
+                {/*
+                  One action, because there is one kind of source. This used to
+                  be two cards, "a website" and "a desktop app", which chose the
+                  first step of the wizard for the reader. That step is gone with
+                  the kinds, and a chooser in front of a form with nothing to
+                  choose is a click that asks a question it already knows.
+                */}
+                <Link
+                  to="/w/$wslug/$pslug/sources/new"
+                  params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
+                  class={buttonVariants({ size: "sm" })}
+                >
+                  {i18n.t("sources.add")}
+                </Link>
               </EmptyContent>
             </Show>
           </Empty>
@@ -413,6 +392,8 @@ function Sources() {
                   {(source) => (
                     <SourceRow
                       source={source}
+                      workspace={view().workspace.slug}
+                      project={view().project.slug}
                       isAdmin={isAdmin()}
                       onRemove={() => remove(source)}
                     />
@@ -432,19 +413,38 @@ function Sources() {
  * the row lands at about 75px. A left block naming it, a middle block carrying
  * the key, and a right block of icon actions.
  */
-function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: () => void }) {
+function SourceRow(props: {
+  source: SourceSummary;
+  workspace: string;
+  project: string;
+  isAdmin: boolean;
+  onRemove: () => void;
+}) {
   const i18n = useI18n();
   return (
-    <li class="flex items-center gap-3 p-4">
+    // `relative`, for the stretched link below.
+    <li class="relative flex items-center gap-3 p-4 has-[a:hover]:bg-accent">
+      {/*
+        The row opens the source. Stretched from underneath rather than wrapped
+        around the row, because the row also carries a copy button, a guide link
+        and a delete: inside one anchor, copying a key would be a navigation.
+      */}
+      <Link
+        to="/w/$wslug/$pslug/sources/$sid"
+        params={{ wslug: props.workspace, pslug: props.project, sid: props.source.id }}
+        class="absolute inset-0 z-0 outline-none"
+        aria-label={i18n.t("sources.open_source", { name: props.source.name })}
+      />
       {/*
         The reference splits this row at its own extra-large pane step. We
         split at the medium one: their measuring pane was 2258px wide and
         ours rarely is, so holding a 75px row stacked until 1280px would
         leave most panes showing the tall form of a short row.
       */}
-      <div class="flex min-w-0 items-center gap-4 @md-page/page:w-[calc(25%+48px)]">
+      <div class="pointer-events-none flex min-w-0 items-center gap-4 @md-page/page:w-[calc(25%+48px)]">
+        {/* One mark for every source, because there is one kind of source. */}
         <div class="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-          <Dynamic component={SURFACE_ICON[props.source.kind] ?? Box} class="size-4" />
+          <Antenna class="size-4" />
         </div>
         <div class="min-w-0">
           <div class="truncate text-body font-medium" title={props.source.name}>
@@ -457,8 +457,6 @@ function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: (
             when we last heard from it.
           */}
           <div class="truncate text-caption text-muted-foreground">
-            {SURFACE_LABELS[props.source.kind]}
-            {" · "}
             <Show when={props.source.lastSeenAt} fallback={i18n.t("sources.never_seen")}>
               {(at) => <>{i18n.t("sources.seen", { when: i18n.relative(at()) })}</>}
             </Show>
@@ -466,12 +464,16 @@ function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: (
         </div>
       </div>
 
-      <div class="hidden min-w-0 flex-1 flex-col gap-0.5 @md-page/page:flex">
-        <span class="text-caption text-muted-foreground">{i18n.t("sources.key_label")}</span>
-        <KeyCell value={props.source.ingestKey} />
-      </div>
+      {/*
+        No key on the row. It was the widest column here and it earned none of
+        that: a public identifier nobody reads, that everybody scans past, in a
+        list whose job is "which of these has stopped". It is still one click
+        away on the source itself, where somebody who actually wants to paste it
+        has gone looking for it.
+      */}
+      <div class="flex-1" />
 
-      <div class="ml-auto flex shrink-0 items-center gap-2">
+      <div class="relative z-10 ml-auto flex shrink-0 items-center gap-2">
         {/*
           The id travels in the query string, so the documentation opens with this source
           already selected and every snippet on it carries this key. An icon,
@@ -479,8 +481,7 @@ function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: (
           read, which is the documentation and the step that just created the key.
         */}
         <Link
-          to="/docs/$topic"
-          params={{ topic: installTopicFor(props.source.kind) }}
+          to="/docs"
           search={{ source: props.source.id }}
           class={buttonVariants({ variant: "ghost", size: "toolbar-icon" })}
           aria-label={i18n.t("sources.how_to_install", { name: props.source.name })}
@@ -540,7 +541,9 @@ function KeyCell(props: { value: string }) {
   }
 
   return (
-    <div class="flex min-w-0 items-center gap-1">
+    // Raised above the row's stretched link, and only as wide as it needs to
+    // be: copying a key must not navigate, and the space beside it still must.
+    <div class="pointer-events-auto relative z-10 flex w-fit max-w-full min-w-0 items-center gap-1">
       <span class="truncate font-mono text-mono text-muted-foreground" title={props.value}>
         {props.value}
       </span>

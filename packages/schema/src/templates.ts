@@ -1,5 +1,4 @@
 import { ATTR, NAME } from "./conventions.js";
-import type { Surface } from "./surface.js";
 import { BOARD_VERSION, type Board, type BoardWidget } from "./board.js";
 import { emptyFilter, type LogQuery, type Visualisation } from "./query.js";
 import {
@@ -190,8 +189,7 @@ export interface DashboardTemplate {
   key: string;
   name: string;
   description: string;
-  /** Which kind of source this board is worth offering for. */
-  fits: Array<Surface | "any">;
+
   build: () => Board;
 }
 
@@ -199,35 +197,28 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
   {
     key: "overview",
     name: "Overview",
-    description: "Every surface side by side: traffic, installs, and where people came from.",
-    fits: ["any"],
+    description: "Every source side by side: traffic, installs, and where people came from.",
     build: overviewBoard,
   },
   {
     key: "web",
     name: "Website",
     description: "Traffic, pages, referrers, campaigns and vitals.",
-    fits: ["web"],
     build: webBoard,
   },
   {
     key: "app",
     name: "App health",
     description: "Installs, versions in use, how many open it each day, and what is failing.",
-    fits: ["desktop", "mobile"],
     build: appBoard,
   },
   {
     key: "blank",
     name: "Blank",
     description: "An empty canvas.",
-    fits: ["any"],
     build: blankBoard,
   },
 ];
-
-export const templatesFor = (surface: Surface): DashboardTemplate[] =>
-  DASHBOARD_TEMPLATES.filter((t) => t.fits.includes("any") || t.fits.includes(surface));
 
 export const templateByKey = (key: string): DashboardTemplate | undefined =>
   DASHBOARD_TEMPLATES.find((t) => t.key === key);
@@ -236,6 +227,6 @@ export const templateByKey = (key: string): DashboardTemplate | undefined =>
  * What a project gets before anyone has touched it.
  *
  * The overview, because a project that has just been created does not yet know
- * which of its surfaces will be the interesting one.
+ * which of its sources will be the interesting one.
  */
 export const defaultBoard = (): Board => overviewBoard();

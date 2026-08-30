@@ -22,9 +22,11 @@ export interface TestStack {
   ctx: Ctx;
   store: Store;
   projectId: string;
-  /** Source keys, one per surface. `surface` is read off these, not the body. */
+  /** Two source keys, and the ids the edge stamps from them. */
   webKey: string;
   appKey: string;
+  webSourceId: string;
+  appSourceId: string;
   setNow: (fn: () => number) => void;
   drop: () => Promise<void>;
 }
@@ -49,8 +51,8 @@ export async function createTestStack(): Promise<TestStack> {
   });
   const workspace = await createWorkspace(store.db, `Test WS ${suffix}`, user.id);
   const project = await createProject(store.db, workspace.id, `Test ${suffix}`);
-  const web = await createSource(store.db, project.id, "site", "web", null);
-  const app = await createSource(store.db, project.id, "app", "desktop", null);
+  const web = await createSource(store.db, project.id, "site", null);
+  const app = await createSource(store.db, project.id, "app", null);
 
   let nowFn: () => number = () => Date.now();
 
@@ -66,6 +68,8 @@ export async function createTestStack(): Promise<TestStack> {
     projectId: project.id,
     webKey: web.ingestKey,
     appKey: app.ingestKey,
+    webSourceId: web.id,
+    appSourceId: app.id,
     setNow: (fn) => {
       nowFn = fn;
     },

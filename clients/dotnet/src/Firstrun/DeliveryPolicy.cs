@@ -114,25 +114,27 @@ namespace Firstrun
     /// Turns the options into the two axes the sender actually runs on.
     /// </summary>
     /// <remarks>
-    /// A pure function of the options and the surface, so the interesting case (startup
+    /// A pure function of the options, so the interesting case (startup
     /// with a memory queue, which would send nothing at all) is decided in one place
     /// rather than discovered as silence in production.
     /// </remarks>
     internal static class DeliveryPolicy
     {
         /// <summary>
-        /// Applies the per-surface defaults and the one coercion, reporting anything it
-        /// changed. Never throws.
+        /// Applies the defaults and the one coercion, reporting anything it changed.
+        /// Never throws.
         /// </summary>
-        internal static ResolvedDeliveryPolicy Resolve(FirstrunOptions options, FirstrunSurface surface,
-                                                       Action<string> report)
+        /// <remarks>
+        /// This used to take the surface the source key named, and default desktop and
+        /// mobile to Manual: one burst at exit, nothing on the user's disk. A source has
+        /// no kind now, so there is nothing left to infer that from and the client no
+        /// longer guesses. Interval is the default for everything, because it is the one
+        /// that keeps sending when a process is killed before it can flush; an app that
+        /// wants the quiet shape sets Mode = Manual, which is what it always meant.
+        /// </remarks>
+        internal static ResolvedDeliveryPolicy Resolve(FirstrunOptions options, Action<string> report)
         {
-            // Desktop and mobile are quiet by default: one burst at exit, nothing on the
-            // user's disk. A server is long lived, so a short interval is right there.
-            // docs/delivery-policy.md, "Defaults".
-            bool quiet = surface == FirstrunSurface.Desktop || surface == FirstrunSurface.Mobile;
-            FirstrunDeliveryMode mode = options.Mode
-                                        ?? (quiet ? FirstrunDeliveryMode.Manual : FirstrunDeliveryMode.Interval);
+            FirstrunDeliveryMode mode = options.Mode ?? FirstrunDeliveryMode.Interval;
             FirstrunPersistence persistence = options.Persistence;
 
             if (mode == FirstrunDeliveryMode.Startup && persistence == FirstrunPersistence.Memory)

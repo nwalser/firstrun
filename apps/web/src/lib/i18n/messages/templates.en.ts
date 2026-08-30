@@ -18,7 +18,7 @@ export const templates = {
 
   "templates.overview": "Overview",
   "templates.overview_hint":
-    "Every surface side by side: traffic, installs, and where people came from.",
+    "Every source side by side: traffic, installs, and where people came from.",
   "templates.website": "Website",
   "templates.website_hint": "Traffic, pages, referrers, campaigns and vitals.",
   "templates.app_health": "App health",

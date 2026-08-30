@@ -18,7 +18,7 @@ export const workspace: WorkspaceMessages = {
   "workspace.overview": "Übersicht",
   "workspace.projects": "Projekte",
   "workspace.projects_hint":
-    "Ein Projekt pro Produkt. Jede Surface, auf der es ausgeliefert wird, meldet hierher.",
+    "Ein Projekt pro Produkt. Alles, worauf es ausgeliefert wird, meldet hierher.",
   "workspace.search_placeholder": "Projekte durchsuchen…",
   "workspace.search_label": "Projekte durchsuchen",
   "workspace.count_of": "{shown} von {total}",

@@ -17,7 +17,6 @@ export const topics: DocsTopic[] = [
     title: "Go",
     summary: "Server-side Go 1.21+, standard library only, one sender goroutine.",
     section: "Install guides",
-    appliesTo: "server",
     order: 74,
     icon: Server,
     render: (ctx) => (

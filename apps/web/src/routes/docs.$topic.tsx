@@ -63,12 +63,10 @@ function DocsTopicPage() {
 
               Both were saying something already said better elsewhere. The
               section is the group the current row sits in, in the contents,
-              two inches to the left and permanently on screen. The kind is
-              either irrelevant -- the reader is reading this page because they
-              want this page -- or it is a MISMATCH with the source they have
-              picked, and that case gets a sentence below rather than a badge
-              above, because a badge cannot say "and the key in these snippets
-              is the wrong one".
+              two inches to the left and permanently on screen. The badge said
+              which kind of source the page was written for, and there are no
+              kinds of source: whatever the reader picked, its key is the right
+              one to paste into this page's snippets.
             */}
             <div class="pb-2">
               <h1 class="text-display">{topicTitle(i18n.t, entry())}</h1>
@@ -78,39 +76,13 @@ function DocsTopicPage() {
             </div>
 
             {/*
-              The reader picked a source of the other kind. The page still
-              renders -- they may be reading ahead -- but its snippets carry the
-              wrong key, and that is worth one line rather than a silent
-              mismatch discovered after a deploy.
-            */}
-            <Show
-              when={
-                entry().appliesTo &&
-                documentation.source() &&
-                documentation.source()!.kind !== entry().appliesTo
-              }
-            >
-              {/*
-                One key rather than the three fragments this used to be built
-                from. The source name lost its bold with the split: German puts
-                the clauses in a different order, and a sentence assembled from
-                translated pieces cannot be reordered. The name is a proper noun
-                in the middle of the line and still reads as the subject.
-              */}
-              <Callout variant="warning" class="mb-6">
-                {i18n.t("docs.kind_mismatch", {
-                  page: entry().appliesTo ?? "",
-                  name: documentation.source()!.name,
-                  kind: documentation.source()!.kind,
-                })}
-              </Callout>
-            </Show>
+              There is no mismatch to warn about any more. A page used to declare
+              which kind of source it was written for, and this drew a warning
+              when the reader had picked another kind: their key would be pasted
+              into snippets meant for something else. A source has no kind now,
+              so the reader picked one destination and its key is the right key
+              on every page.
 
-            {/*
-              Built here rather than through `documentation.ctxFor`, which only knows how
-              to be asked for a web or a desktop page. `appliesTo` is the whole
-              `Surface` now, so a Node page asking for its placeholder gets a
-              `fr_server_` key instead of being quietly answered with a web one.
               Called inside the JSX so a change of source re-renders the page.
             */}
             {entry().render(
@@ -118,7 +90,6 @@ function DocsTopicPage() {
                 source: documentation.source(),
                 signedIn: documentation.signedIn,
                 publicOrigin: documentation.publicOrigin,
-                kind: entry().appliesTo,
               })
             )}
 

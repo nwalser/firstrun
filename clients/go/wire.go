@@ -27,8 +27,38 @@ import (
 // assigned by CONVENTION when it is written and by QUERY when it is read, never
 // by a closed set of types in the backend.
 
-// sourceKeyRE matches fr_<surface>_<16 lowercase alphanumerics>.
-var sourceKeyRE = regexp.MustCompile(`^fr_(web|desktop|mobile|server|other)_[0-9a-z]{16}$`)
+// sourceKeyRE matches fr_<16 hex>. The middle segment used to name the kind of
+// source the key belonged to; there are no kinds of source.
+var sourceKeyRE = regexp.MustCompile(`^fr_[0-9a-f]{16}package firstrun
+
+import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
+	"math"
+	"regexp"
+	"sync/atomic"
+	"time"
+)
+
+// The parts of the wire contract this client has to know, copied by hand from
+// packages/schema/src/log.ts, severity.ts, attributes.ts and conventions.ts.
+//
+// A published client outlives the server it was built against: pinning the
+// shape here means an old binary keeps sending a body the edge still
+// understands, rather than one that drifted with a version bump nobody
+// redeployed. If the contract moves, this file moves with it.
+//
+// # One shape for everything
+//
+// There is no event type, no error type and no metric type. There is a LOG
+// ENTRY, and that is all there is. An error is an entry with a high severity
+// and exception.* attributes. A measurement is an entry carrying
+// firstrun.metric and firstrun.value. A product event is an entry with a name
+// and whatever attributes the caller thought were worth keeping. Meaning is
+// assigned by CONVENTION when it is written and by QUERY when it is read, never
+// by a closed set of types in the backend.
+
+)
 
 // logNameRE is the only check any entry name gets. There is no allowlist:
 // ':' and '>' are excluded because the server reserves them as key delimiters,

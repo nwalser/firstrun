@@ -25,16 +25,13 @@ import { useI18n } from "../lib/i18n/index.js";
  * The front page of the documentation.
  *
  * The first thing a signed-out reader sees, so it leads with what firstrun is
- * for rather than with a list of links. The surfaces are drawn because the
- * argument is about their shape: one backend, one project, every surface
+ * for rather than with a list of links. The argument is about the shape of
+ * the thing: one backend, one project, everything you ship
  * reporting side by side instead of one tool per platform.
  */
 export const Route = createFileRoute("/docs/")({
   component: DocsIndex,
 });
-
-/** The five surfaces, in the order `SURFACES` declares them. */
-const SURFACES = ["web", "desktop", "mobile", "server", "other"];
 
 function DocsIndex() {
   const i18n = useI18n();
@@ -63,14 +60,6 @@ function DocsIndex() {
           <strong>{i18n.t("docs.index_lede_strong")}</strong>{" "}
           {i18n.t("docs.index_lede_after")}
         </p>
-
-        {/* The surfaces, as the shape of the argument rather than decoration.
-            `Badge` rather than a chip spelled out here: the page already draws
-            one eleven lines down, and two chips that differ by a pixel of
-            padding is how a set of labels stops reading as a set. */}
-        <div class="flex flex-wrap items-center gap-1.5">
-          <For each={SURFACES}>{(surface) => <Badge variant="outline">{surface}</Badge>}</For>
-        </div>
 
         <p>
           {i18n.t("docs.index_events_before")} <code>track("download_clicked")</code>{" "}
@@ -140,13 +129,8 @@ function DocsIndex() {
                             )}
                           </Show>
                           <span class="min-w-0 flex-1">
-                            <span class="flex flex-wrap items-center gap-2">
-                              <span class="text-prose font-medium text-foreground">
-                                {topicTitle(i18n.t, topic)}
-                              </span>
-                              <Show when={topic.appliesTo}>
-                                {(kind) => <Badge variant="outline">{kind()}</Badge>}
-                              </Show>
+                            <span class="text-prose font-medium text-foreground">
+                              {topicTitle(i18n.t, topic)}
                             </span>
                             <span class="mt-1 block text-body text-muted-foreground">
                               {topicSummary(i18n.t, topic)}

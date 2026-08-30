@@ -5,6 +5,7 @@ import {
   type SeverityBand,
 } from "@firstrun/schema";
 import { ATTR } from "@firstrun/schema/conventions";
+import { Link } from "@tanstack/solid-router";
 import ChevronDown from "lucide-solid/icons/chevron-down";
 import { For, Show, createMemo, type JSX } from "solid-js";
 import { cn } from "../lib/cn.js";
@@ -58,6 +59,8 @@ export function lateness(entry: FeedEntry): number | null {
  */
 export function EntryRow(props: {
   entry: FeedEntry;
+  /** The workspace the link is built inside. */
+  workspace: string;
   open: boolean;
   onToggle: () => void;
   /**
@@ -74,15 +77,40 @@ export function EntryRow(props: {
   const late = () => lateness(props.entry);
 
   return (
-    <li>
-      <button
-        type="button"
-        onClick={() => props.onToggle()}
-        aria-expanded={props.open}
-        class={cn(ROW_INTERACTION, "flex w-full items-center gap-3 px-4 py-2.5 text-left")}
+    // `relative`, because the link below is stretched across the whole row.
+    <li class="relative">
+      <div
+        class={cn(
+          ROW_INTERACTION,
+          "flex w-full items-center gap-3 px-4 py-2.5 text-left",
+          // The stretched link is the thing being hovered, so the row has to
+          // light up from a hover ON IT rather than on this box.
+          "has-[a:hover]:bg-accent has-[a:focus-visible]:bg-accent"
+        )}
       >
+        {/*
+          The whole row opens the entry, and the expander opens it in place.
+
+          A stretched link rather than a wrapper: the row also carries a button,
+          and an anchor may not contain one. So the anchor covers the row from
+          underneath and the button sits above it. The visible text stays out of
+          the anchor entirely, which is also what keeps a mouse selection of a
+          client id from turning into a navigation.
+
+          `at` is the entry's own timestamp, and it is what turns the lookup on
+          the other side into a primary-key hit rather than a scan. See
+          `db/feed.ts`.
+        */}
+        <Link
+          to="/w/$wslug/events/$eid"
+          params={{ wslug: props.workspace, eid: props.entry.entryId }}
+          search={{ at: props.entry.time, project: props.entry.projectSlug }}
+          class="absolute inset-0 z-0 outline-none"
+          aria-label={i18n.t("events.open_event", { name: props.entry.name })}
+        />
+
         {/* Client-stamped, which is what everything here sorts on. */}
-        <span class="flex w-[150px] shrink-0 items-baseline gap-2 font-mono text-mono">
+        <span class="pointer-events-none flex w-[150px] shrink-0 items-baseline gap-2 font-mono text-mono">
           <span class="text-foreground">
             {i18n.date(props.entry.time, {
               hour: "2-digit",
@@ -98,7 +126,7 @@ export function EntryRow(props: {
           exact step matters: `INFO2` and `INFO` sort differently and a library
           that emits the second one meant it.
         */}
-        <span class="w-[76px] shrink-0 font-mono text-mono">
+        <span class="pointer-events-none w-[76px] shrink-0 font-mono text-mono">
           <Show
             when={props.entry.severity}
             fallback={<span class="text-muted-foreground opacity-60">--</span>}
@@ -109,31 +137,49 @@ export function EntryRow(props: {
           </Show>
         </span>
 
-        <span class="min-w-0 flex-1 truncate text-body" title={props.entry.name}>
+        <span
+          class="pointer-events-none min-w-0 flex-1 truncate text-body"
+          title={props.entry.name}
+        >
           {props.entry.name}
         </span>
 
         <Show when={props.showProject !== false}>
-          <span class="hidden w-[22%] min-w-0 shrink-0 truncate text-caption text-muted-foreground @md-page/page:block">
+          <span class="pointer-events-none hidden w-[22%] min-w-0 shrink-0 truncate text-caption text-muted-foreground @md-page/page:block">
             {props.entry.projectName}
           </span>
         </Show>
 
         <Show when={late()}>
           {(delay) => (
-            <Badge variant="estimate" class="hidden shrink-0 @lg-page/page:inline-flex">
+            <Badge
+              variant="estimate"
+              class="pointer-events-none hidden shrink-0 @lg-page/page:inline-flex"
+            >
               {i18n.t("events.late_by", { delay: i18n.duration(delay()) })}
             </Badge>
           )}
         </Show>
 
-        <ChevronDown
+        {/*
+          Above the stretched link, so reading an entry in place stays one click
+          and does not navigate. This is the only interactive thing in the row
+          besides the link itself.
+        */}
+        <button
+          type="button"
+          onClick={() => props.onToggle()}
+          aria-expanded={props.open}
+          aria-label={i18n.t(props.open ? "events.hide_detail" : "events.show_detail")}
+          title={i18n.t(props.open ? "events.hide_detail" : "events.show_detail")}
           class={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            props.open && "rotate-180"
+            "relative z-10 grid size-control-xs shrink-0 place-items-center rounded-md",
+            "text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-ring"
           )}
-        />
-      </button>
+        >
+          <ChevronDown class={cn("size-4 transition-transform", props.open && "rotate-180")} />
+        </button>
+      </div>
 
       <Show when={props.open}>
         <EntryDetail entry={props.entry} />
@@ -142,17 +188,40 @@ export function EntryRow(props: {
   );
 }
 
-/** The whole entry: the two timestamps, the ids, and every attribute on it. */
+/**
+ * The whole entry, inside a row that has been opened.
+ *
+ * The two halves are exported separately as well, because the entry's own page
+ * lays the same facts out as cards. One definition of what an entry IS, two
+ * arrangements of it: a row that grew its own idea of an entry would drift from
+ * the page the moment either learned a new field.
+ */
 export function EntryDetail(props: { entry: FeedEntry }) {
   const i18n = useI18n();
 
-  const attributes = createMemo(() =>
-    Object.entries(props.entry.attributes).sort(([a], [b]) => a.localeCompare(b))
+  return (
+    <div class="border-t bg-muted/30 px-4 py-3">
+      <EntryFacts entry={props.entry} />
+      <div class="mt-3">
+        {/* The row states the heading; the entry's own page uses a card title
+            for it instead, which is why it is here rather than inside. */}
+        <div class="mb-1 text-caption font-medium text-foreground">
+          {i18n.t("events.attributes")}
+        </div>
+        <EntryAttributes entry={props.entry} />
+      </div>
+    </div>
   );
+}
+
+/** The two timestamps, the ids, and the late note when there is one. */
+export function EntryFacts(props: { entry: FeedEntry }) {
+  const i18n = useI18n();
+
   const late = () => lateness(props.entry);
 
   return (
-    <div class="border-t bg-muted/30 px-4 py-3">
+    <>
       <div class="grid gap-x-6 gap-y-1 @lg-page/page:grid-cols-2">
         <Fact label={i18n.t("events.happened")}>
           {i18n.dateTime(props.entry.time)}
@@ -187,11 +256,20 @@ export function EntryDetail(props: { entry: FeedEntry }) {
           {i18n.t("events.late_hint")}
         </p>
       </Show>
+    </>
+  );
+}
 
-      <div class="mt-3">
-        <div class="mb-1 text-caption font-medium text-foreground">
-          {i18n.t("events.attributes")}
-        </div>
+/** Every attribute the entry carries, sorted by key. */
+export function EntryAttributes(props: { entry: FeedEntry }) {
+  const i18n = useI18n();
+
+  const attributes = createMemo(() =>
+    Object.entries(props.entry.attributes).sort(([a], [b]) => a.localeCompare(b))
+  );
+
+  return (
+    <>
         <Show
           when={attributes().length > 0}
           fallback={
@@ -215,8 +293,7 @@ export function EntryDetail(props: { entry: FeedEntry }) {
             </For>
           </dl>
         </Show>
-      </div>
-    </div>
+    </>
   );
 }
 
