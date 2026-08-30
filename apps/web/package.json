@@ -10,18 +10,19 @@
   },
   "dependencies": {
     "@firstrun/db": "workspace:*",
-    "@firstrun/identity": "workspace:*",
     "@firstrun/ingest": "workspace:*",
     "@firstrun/schema": "workspace:*",
+    "@kobalte/core": "^0.13.13",
     "@tanstack/solid-router": "^1.170.30",
     "@tanstack/solid-start": "^1.168.47",
-    "solid-js": "^1.9.15",
-    "@kobalte/core": "^0.13.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^3.6.0",
+    "highlight.js": "^11.12.0",
     "lucide-solid": "^1.37.0",
-    "solid-sonner": "^0.3.2"
+    "solid-js": "^1.9.15",
+    "solid-sonner": "^0.3.2",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "vite": "^7.1.5",

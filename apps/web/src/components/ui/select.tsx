@@ -1,6 +1,7 @@
 import { Select as KSelect } from "@kobalte/core/select";
-import { For, Show, type JSX } from "solid-js";
+import { For, type JSX } from "solid-js";
 import { cn } from "../../lib/cn.js";
+import { useI18n } from "../../lib/i18n/index.js";
 
 /**
  * A styled select, on Kobalte's listbox primitive.
@@ -8,6 +9,15 @@ import { cn } from "../../lib/cn.js";
  * A native `<select>` cannot be styled to match the rest of this, and a
  * hand-rolled dropdown gets keyboard navigation, typeahead and focus return
  * wrong in ways nobody notices until someone uses a keyboard.
+ *
+ * The trigger is deliberately an input: same 36px height, same 14px/20px text,
+ * same raised fill, same 1px ring, same two-stop blue focus. A select that is a
+ * slightly different shape from the field above it is the fastest way to make a
+ * form look assembled from parts.
+ *
+ * The menu is a popover row list: 36px rows at 6px radius, on the popover
+ * surface, lifted by the menu shadow. That shadow already contains its own
+ * hairline, so the content has no border.
  */
 
 export interface SelectOption<T extends string> {
@@ -24,6 +34,7 @@ export function Select<T extends string>(props: {
   disabled?: boolean;
   "aria-label"?: string;
 }) {
+  const i18n = useI18n();
   const selected = () => props.options.find((o) => o.value === props.value) ?? null;
 
   return (
@@ -34,17 +45,18 @@ export function Select<T extends string>(props: {
       optionValue="value"
       optionTextValue="label"
       disabled={props.disabled}
-      placeholder={props.placeholder ?? "Select…"}
+      placeholder={props.placeholder ?? i18n.t("ui.select_placeholder")}
       itemComponent={(itemProps) => (
         <KSelect.Item
           item={itemProps.item}
           class={cn(
-            "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none",
+            "relative flex h-popover-row w-full cursor-pointer items-center gap-2 rounded-md",
+            "pr-8 pl-2 text-control-md text-popover-foreground outline-none select-none",
             "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground",
-            "data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+            "data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
           )}
         >
-          <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
+          <KSelect.ItemLabel class="truncate">{itemProps.item.rawValue.label}</KSelect.ItemLabel>
           <KSelect.ItemIndicator class="absolute right-2 flex size-3.5 items-center justify-center">
             <CheckIcon />
           </KSelect.ItemIndicator>
@@ -54,16 +66,20 @@ export function Select<T extends string>(props: {
       <KSelect.Trigger
         aria-label={props["aria-label"]}
         class={cn(
-          "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
-          "focus-visible:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-          "disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
+          "flex h-control-md w-full cursor-pointer items-center justify-between gap-2 rounded-md",
+          "bg-card px-3 shadow-xs text-control-md text-foreground",
+          "transition-[color,background-color,box-shadow] outline-none",
+          "focus-visible:shadow-focus",
+          "disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground",
           props.class
         )}
       >
         <KSelect.Value<SelectOption<T>> class="truncate">
           {(state) => state.selectedOption()?.label}
         </KSelect.Value>
-        <KSelect.Icon class="opacity-60">
+        {/* The chevron is a control affordance, not body text: strong enough to
+            find, quiet enough not to compete with the value beside it. */}
+        <KSelect.Icon class="text-muted-foreground shrink-0">
           <ChevronIcon />
         </KSelect.Icon>
       </KSelect.Trigger>
@@ -71,7 +87,9 @@ export function Select<T extends string>(props: {
       <KSelect.Portal>
         <KSelect.Content
           class={cn(
-            "bg-popover text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
+            "bg-popover text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-md",
+            // The menu shadow carries its own hairline, so no border here.
+            "shadow-xl",
             "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
             "data-[closed]:animate-out data-[closed]:fade-out-0"
           )}
@@ -83,7 +101,15 @@ export function Select<T extends string>(props: {
   );
 }
 
-/** A small segmented control, for choices short enough to show all at once. */
+/**
+ * A small segmented control, for choices short enough to show all at once.
+ *
+ * The selected face is the raised surface lifted out of a muted trough, which
+ * is the one place in this system where a fill rather than an edge marks state:
+ * a ring on the selected segment would collide with the trough's own ring a
+ * couple of pixels away. The segments are small controls, so 4px radius inside
+ * the trough's 6.
+ */
 export function SegmentedControl<T extends string | number>(props: {
   value: T;
   options: Array<{ value: T; label: string }>;
@@ -92,7 +118,7 @@ export function SegmentedControl<T extends string | number>(props: {
   class?: string;
 }): JSX.Element {
   return (
-    <div class={cn("bg-muted inline-flex items-center gap-0.5 rounded-md p-0.5", props.class)}>
+    <div class={cn("bg-muted inline-flex items-center gap-0.5 rounded-md p-0.5 shadow-xs", props.class)}>
       <For each={props.options}>
         {(option) => (
           <button
@@ -101,9 +127,12 @@ export function SegmentedControl<T extends string | number>(props: {
             onClick={() => props.onChange(option.value)}
             aria-pressed={props.value === option.value}
             class={cn(
-              "cursor-pointer rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50",
+              "h-control-xs cursor-pointer rounded-sm px-2.5 text-control-sm",
+              "transition-[color,background-color,box-shadow] outline-none",
+              "focus-visible:shadow-focus",
+              "disabled:pointer-events-none disabled:opacity-40",
               props.value === option.value
-                ? "bg-background text-foreground shadow-xs"
+                ? "bg-card text-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -130,5 +159,3 @@ function CheckIcon() {
     </svg>
   );
 }
-
-export { Show };

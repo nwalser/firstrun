@@ -8,12 +8,19 @@ import { cn } from "../../lib/cn.js";
  * The primitive earns its place by handling the load lifecycle: the fallback
  * shows while the image is loading and stays if it fails, so a broken avatar URL
  * is initials rather than a torn image icon.
+ *
+ * The hairline is a ring on the frame rather than a border, so a light avatar
+ * on a light surface still has an edge without the image being inset by a pixel
+ * inside it. `overflow-hidden` clips the image, not the shadow.
  */
 export function Avatar(props: ComponentProps<typeof Image> & { class?: string }) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
     <Image
-      class={cn("relative flex size-8 shrink-0 overflow-hidden rounded-full", local.class)}
+      class={cn(
+        "relative flex size-8 shrink-0 overflow-hidden rounded-full shadow-2xs",
+        local.class
+      )}
       {...rest}
     />
   );
@@ -29,7 +36,8 @@ export function AvatarFallback(props: ComponentProps<typeof Image.Fallback> & { 
   return (
     <Image.Fallback
       class={cn(
-        "flex size-full items-center justify-center rounded-full bg-muted text-xs font-medium",
+        "bg-muted text-foreground flex size-full items-center justify-center rounded-full",
+        "text-caption font-medium",
         local.class
       )}
       {...rest}

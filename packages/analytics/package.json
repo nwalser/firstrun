@@ -1,0 +1,63 @@
+{
+  "name": "@firstrun/analytics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./types/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./next": {
+      "types": "./types/next.d.ts",
+      "default": "./dist/next.js"
+    },
+    "./svelte": {
+      "types": "./types/svelte.d.ts",
+      "default": "./dist/svelte.js"
+    },
+    "./vue": {
+      "types": "./types/vue.d.ts",
+      "default": "./dist/vue.js"
+    },
+    "./astro": "./frameworks/astro/Analytics.astro",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "types",
+    "frameworks/astro",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun run build.ts"
+  },
+  "dependencies": {
+    "@firstrun/web-tag": "workspace:*"
+  },
+  "peerDependencies": {
+    "astro": ">=4",
+    "next": ">=13.4",
+    "react": ">=17",
+    "svelte": ">=4",
+    "vue": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "astro": { "optional": true },
+    "next": { "optional": true },
+    "react": { "optional": true },
+    "svelte": { "optional": true },
+    "vue": { "optional": true }
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}

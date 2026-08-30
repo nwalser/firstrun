@@ -1,31 +1,28 @@
-import {
-  applyMigrations,
-  createStore,
-  createSource,
-  createProject,
-  createWorkspace,
-  PostgresIdentityStore,
-  upsertGithubUser,
-  type Store,
-} from "@firstrun/db";
-import { IdentityResolver } from "@firstrun/identity";
+import { createStore, type Store } from "@firstrun/db/client";
+import { applyMigrations } from "@firstrun/db/migrate";
+import { createProject, createSource, createWorkspace, upsertGithubUser } from "@firstrun/db/repo";
 import { configFromEnv, type Ctx } from "../../src/index.js";
 
 /**
  * A real project in a real database, torn down afterwards.
  *
- * Every query in this system is project-scoped, so a project IS the
- * isolation boundary -- there is no need for a throwaway database, and using
- * the real one means the tests exercise the real indexes and the real planner.
- * Deleting the project cascades to everything it owns.
+ * Every query in this system is project-scoped, so a project IS the isolation
+ * boundary -- there is no need for a throwaway database, and using the real one
+ * means the tests exercise the real constraints and the real primary key.
+ * Deleting the workspace cascades to everything it owns.
  *
  * Needs `docker compose up -d`. That is already how you run anything here, so
  * these do not skip when it is missing: they fail and say why.
+ *
+ * Imported from `@firstrun/db/client` and `/repo` rather than the barrel for
+ * the same reason the handlers do it: intake does not depend on the analytics
+ * query layer, and its tests should not either.
  */
 export interface TestStack {
   ctx: Ctx;
   store: Store;
   projectId: string;
+  /** Source keys, one per surface. `surface` is read off these, not the body. */
   webKey: string;
   appKey: string;
   setNow: (fn: () => number) => void;
@@ -53,18 +50,14 @@ export async function createTestStack(): Promise<TestStack> {
   const workspace = await createWorkspace(store.db, `Test WS ${suffix}`, user.id);
   const project = await createProject(store.db, workspace.id, `Test ${suffix}`);
   const web = await createSource(store.db, project.id, "site", "web", null);
-  const app = await createSource(store.db, project.id, "app", "desktop", "Themia-Setup");
+  const app = await createSource(store.db, project.id, "app", "desktop", null);
 
   let nowFn: () => number = () => Date.now();
-  const now = () => nowFn();
-  const identityStore = new PostgresIdentityStore(store);
 
   const ctx: Ctx = {
-    config: { ...configFromEnv(), publicOrigin: "http://test.local", assetOrigin: null },
+    config: { ...configFromEnv(), publicOrigin: "http://test.local" },
     store,
-    identityStore,
-    resolver: new IdentityResolver(identityStore, now),
-    now,
+    now: () => nowFn(),
   };
 
   return {
@@ -84,17 +77,11 @@ export async function createTestStack(): Promise<TestStack> {
   };
 }
 
-/** The socket address the server would normally supply. */
-export const FROM_IP = "203.0.113.10";
-
-export const jsonRequest = (url: string, body: unknown, init: RequestInit = {}) =>
-  new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    ...init,
-  });
-
+/**
+ * How the browser tag posts: `text/plain` so the request is preflight-free.
+ * Nothing on the server branches on the content type, and this is here so the
+ * tests send what the tag actually sends.
+ */
 export const beacon = (url: string, body: unknown) =>
   new Request(url, {
     method: "POST",

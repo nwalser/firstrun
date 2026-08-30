@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      netstandard2.0 is here so .NET Framework 4.6.2+ desktop apps (WinForms, WPF)
+      can reference the package without a shim. net8.0 is here so modern apps get
+      SocketsHttpHandler's separate connect timeout and IAsyncDisposable.
+    -->
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Enum members and obvious constructors do not need prose to be understood. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <AssemblyName>Firstrun</AssemblyName>
+    <RootNamespace>Firstrun</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Firstrun</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Fire-and-forget analytics client for firstrun. Never blocks, never throws, never sits in your app's critical path.</Description>
+    <PackageTags>analytics;telemetry;firstrun</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Zero package dependencies on every target. See README, "Dependencies". -->
+    <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

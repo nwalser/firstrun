@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "sideEffects": false,
+  "main": "./src/core.ts",
+  "exports": {
+    ".": "./src/core.ts",
+    "./browser": "./src/browser.ts"
+  },
   "scripts": {
     "build": "bun run build.ts",
     "check-size": "bun run build.ts --check"

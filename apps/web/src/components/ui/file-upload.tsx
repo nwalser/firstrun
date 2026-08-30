@@ -1,7 +1,8 @@
 import { FileField } from "@kobalte/core/file-field";
 import { Show, createSignal, type JSX } from "solid-js";
-import { UploadIcon } from "lucide-solid";
+import Upload from "lucide-solid/icons/upload";
 import { cn } from "../../lib/cn.js";
+import { useI18n } from "../../lib/i18n/index.js";
 
 /**
  * A drop zone, on Kobalte's file-field.
@@ -21,9 +22,31 @@ export interface FileUploadProps {
   maxDimension?: number;
   disabled?: boolean;
   onFile: (dataUrl: string, mimeType: string) => void;
+  /**
+   * Told when a dropped file cannot be read.
+   *
+   * Optional, and the message is shown under the dropzone either way: reading a
+   * file is the one step here that fails for reasons the person can act on --
+   * a renamed `.png` that is really a PDF, a corrupt download -- and without
+   * this the rejection went nowhere and the drop just appeared to do nothing.
+   */
+  onError?: (message: string) => void;
   children?: JSX.Element;
   class?: string;
 }
+
+/**
+ * Why a dropped file could not be read, as a code rather than as a sentence.
+ *
+ * The two functions below run outside the component tree -- `downscaleImage` is
+ * exported and awaited from an event handler -- so they have no locale to
+ * translate against. They throw a code and the component turns it into the
+ * message the reader sees, which is the only place a locale exists.
+ */
+export const FILE_ERROR = {
+  notAnImage: "firstrun.file.not-an-image",
+  unreadable: "firstrun.file.unreadable",
+} as const;
 
 export async function downscaleImage(file: File, maxDimension: number): Promise<string> {
   // SVG is already resolution independent, and rasterising it would throw that
@@ -34,7 +57,7 @@ export async function downscaleImage(file: File, maxDimension: number): Promise<
   const image = new Image();
   await new Promise<void>((resolve, reject) => {
     image.onload = () => resolve();
-    image.onerror = () => reject(new Error("That file is not an image we can read."));
+    image.onerror = () => reject(new Error(FILE_ERROR.notAnImage));
     image.src = dataUrl;
   });
 
@@ -54,13 +77,15 @@ function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Could not read that file."));
+    reader.onerror = () => reject(new Error(FILE_ERROR.unreadable));
     reader.readAsDataURL(file);
   });
 }
 
 export function FileUpload(props: FileUploadProps) {
+  const i18n = useI18n();
   const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
 
   return (
     <FileField
@@ -71,9 +96,21 @@ export function FileUpload(props: FileUploadProps) {
         const file = files[0];
         if (!file) return;
         setBusy(true);
+        setError(null);
         try {
           const dataUrl = await downscaleImage(file, props.maxDimension ?? 256);
           props.onFile(dataUrl, file.type === "image/svg+xml" ? file.type : "image/png");
+        } catch (e) {
+          // Anything that is not the "this is not an image" code -- a read
+          // failure, a canvas that refused -- reads the same to the person
+          // holding the file, and that was the old fallback too.
+          const code = e instanceof Error ? e.message : FILE_ERROR.unreadable;
+          const message =
+            code === FILE_ERROR.notAnImage
+              ? i18n.t("ui.not_an_image")
+              : i18n.t("ui.file_unreadable");
+          setError(message);
+          props.onError?.(message);
         } finally {
           setBusy(false);
         }
@@ -81,25 +118,53 @@ export function FileUpload(props: FileUploadProps) {
     >
       <FileField.Dropzone
         class={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-center transition-colors",
-          "hover:border-ring hover:bg-accent/40 data-[dragging]:border-ring data-[dragging]:bg-accent/40",
+          "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md p-6 text-center",
+          // The one place in this set that keeps a real border: the edge has to
+          // be dashed, and a box-shadow ring cannot be. It is the same hairline
+          // token the rings use, so it matches them, and there is no shadow
+          // class on this element to double it with.
+          "border border-dashed border-border transition-[background-color,border-color]",
+          "hover:bg-accent data-[dragging]:border-ring data-[dragging]:bg-accent",
           props.class
         )}
       >
+        {/*
+          The branch is decided on the KEY, not on the children.
+
+          `when={props.children}` would read the prop to test it, and reading a
+          markup prop *builds its nodes* -- during hydration that claims the
+          server's nodes, in order, from wherever the test happens rather than
+          from where the content belongs. The default branch is the one the
+          server wrote here, so the claim lands on the wrong element and Solid
+          throws a hydration mismatch. Its own error path then fails to print
+          itself and what reaches the console is `template2 is not a function`,
+          with half the page rendered a second time. `in` asks whether the
+          caller passed the prop without invoking the getter, so the children
+          are read exactly once and only in the place that holds them.
+        */}
         <Show
-          when={props.children}
+          when={"children" in props}
           fallback={
             <>
-              <UploadIcon class="size-5 text-muted-foreground" />
-              <div class="text-sm">{busy() ? "Processing…" : "Drop an image, or click to choose"}</div>
-              <div class="text-xs text-muted-foreground">PNG, JPEG, WebP or SVG</div>
+              <Upload class="size-5 text-muted-foreground" />
+              <div class="text-body font-medium">
+                {busy() ? i18n.t("ui.processing") : i18n.t("ui.drop_image")}
+              </div>
+              <div class="text-caption text-muted-foreground">{i18n.t("ui.image_formats")}</div>
             </>
           }
         >
           {props.children}
         </Show>
-        <FileField.Trigger class="sr-only">Choose a file</FileField.Trigger>
+        <FileField.Trigger class="sr-only">{i18n.t("ui.choose_file")}</FileField.Trigger>
       </FileField.Dropzone>
+      <Show when={error()}>
+        {(message) => (
+          <p role="alert" class="text-caption text-negative mt-2">
+            {message()}
+          </p>
+        )}
+      </Show>
       <FileField.HiddenInput />
     </FileField>
   );

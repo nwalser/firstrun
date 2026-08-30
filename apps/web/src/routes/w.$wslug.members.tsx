@@ -1,17 +1,17 @@
 import { createFileRoute, notFound, redirect, useRouter } from "@tanstack/solid-router";
 import { For, Show, createSignal } from "solid-js";
 import {
-  Alert,
-  AlertDescription,
   Avatar,
   AvatarFallback,
   AvatarImage,
   Badge,
   Button,
-  Card,
-  CardContent,
+  ConfirmDelete,
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
   Input,
-  Label,
   Select,
   Table,
   TableBody,
@@ -20,7 +20,10 @@ import {
   TableHeader,
   TableRow,
   initials,
+  toast,
 } from "../components/ui/index.js";
+import { SettingsSection, SettingsShell } from "../components/settings-shell.js";
+import { useI18n, type TranslationKey } from "../lib/i18n/index.js";
 import {
   addMemberFn,
   getSession,
@@ -29,7 +32,6 @@ import {
   setMemberRoleFn,
   type MemberRole,
 } from "../lib/api.js";
-import { PageHeader } from "./__root.js";
 
 /**
  * Who can see this workspace, and who can change it.
@@ -38,9 +40,11 @@ import { PageHeader } from "./__root.js";
  * finer is a guess about how teams will use this, and a permission model is far
  * easier to widen later than to narrow.
  *
- * The last admin cannot be demoted or removed -- the server refuses, because a
+ * Two things this page used to only imply, and now states outright: access is
+ * granted per workspace and covers every project in it, and the last admin
+ * cannot be demoted or removed. The server enforces the second one -- a
  * workspace nobody can administer is the one unrecoverable state this model
- * allows.
+ * allows -- but a control that is dead without saying why is its own bug.
  */
 export const Route = createFileRoute("/w/$wslug/members")({
   loader: async ({ params }) => {
@@ -53,14 +57,40 @@ export const Route = createFileRoute("/w/$wslug/members")({
   component: Members,
 });
 
-const ROLE_OPTIONS: Array<{ value: MemberRole; label: string }> = [
-  { value: "admin", label: "Admin" },
-  { value: "read", label: "Read" },
-];
+/*
+  A role picks a key, never a computed string.
+
+  These three maps are literals so `t` keeps its closed union, and they live at
+  module scope only because nothing in them is translated here: the lookup
+  happens inside the component, where `t` is read and where switching language
+  re-renders. The options array itself is a function for exactly that reason.
+  As a module constant its labels would be frozen in whichever locale the module
+  was first evaluated in.
+*/
+const ROLE_LABEL = {
+  admin: "members.role_admin",
+  read: "members.role_read",
+} as const satisfies Record<MemberRole, TranslationKey>;
+
+const ROLE_HINT = {
+  admin: "members.role_admin_hint",
+  read: "members.role_read_hint",
+} as const satisfies Record<MemberRole, TranslationKey>;
+
+const ROLE_CHANGED = {
+  admin: "members.now_admin",
+  read: "members.now_reader",
+} as const satisfies Record<MemberRole, TranslationKey>;
 
 function Members() {
   const view = Route.useLoaderData();
   const router = useRouter();
+  const i18n = useI18n();
+
+  const roleOptions = (): Array<{ value: MemberRole; label: string }> => [
+    { value: "admin", label: i18n.t("members.role_admin") },
+    { value: "read", label: i18n.t("members.role_read") },
+  ];
 
   const [login, setLogin] = createSignal("");
   const [role, setRole] = createSignal<MemberRole>("read");
@@ -68,164 +98,227 @@ function Members() {
   const [error, setError] = createSignal<string | null>(null);
 
   const isAdmin = () => view().workspace.role === "admin";
+  const admins = () => view().members.filter((m) => m.role === "admin").length;
+  /** The one the server will refuse to touch, so the UI can explain instead. */
+  const isLastAdmin = (member: { role: MemberRole }) => member.role === "admin" && admins() === 1;
 
-  async function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+  const sections = () =>
+    isAdmin()
+      ? [
+          { id: "members", label: i18n.t("members.title") },
+          { id: "add", label: i18n.t("members.add") },
+        ]
+      : [{ id: "members", label: i18n.t("members.title") }];
+
+  async function run(action: () => Promise<{ ok: boolean; error?: string }>, done: string) {
     setBusy(true);
     setError(null);
     const result = await action();
     setBusy(false);
     if (!result.ok) {
-      setError(result.error ?? "That did not work.");
+      const message = result.error ?? i18n.t("members.failed");
+      setError(message);
+      toast.error(message);
       return;
     }
+    toast.success(done);
     await router.invalidate();
   }
 
-  const invite = (e: Event) => {
-    e.preventDefault();
-    if (!login().trim()) return;
+  const invite = (event: Event) => {
+    event.preventDefault();
+    const handle = login().trim();
+    if (!handle) return;
     return run(async () => {
       const result = await addMemberFn({
-        data: { workspace: view().workspace.slug, login: login(), role: role() },
+        data: { workspace: view().workspace.slug, login: handle, role: role() },
       });
       if (result.ok) setLogin("");
       return result;
-    });
+    }, i18n.t("members.added", { name: handle }));
   };
 
   return (
-    <main class="mx-auto max-w-4xl px-6 pb-24">
-      <PageHeader
-        title="People"
-        crumb={{ label: `← ${view().workspace.name}`, href: `/w/${view().workspace.slug}` }}
-        description="Access is per workspace. Everyone here can see every project in it."
-      />
+    <SettingsShell
+      // The same key the sidebar pane names this route with, so the heading and
+      // the row that leads here cannot say two different words.
+      title={i18n.t("shell.people")}
+      description={i18n.t("members.description")}
+      sections={sections()}
+    >
+      <SettingsSection
+        id="members"
+        title={i18n.t("members.title")}
+        description={i18n.t("members.hint")}
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{i18n.t("members.person")}</TableHead>
+              <TableHead>{i18n.t("members.role")}</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <For each={view().members}>
+              {(member) => {
+                const isSelf = () => member.userId === view().currentUserId;
+                return (
+                  <TableRow>
+                    <TableCell>
+                      {/* One line, not a stack: the row is a fixed 48px, and a
+                          cell that is sometimes one line and sometimes two is
+                          what makes a list of them look ragged. The full name
+                          follows the handle in the muted colour instead. */}
+                      <div class="flex items-center gap-2.5">
+                        {/* GitHub is not obliged to have an avatar for anyone,
+                            so the initials fallback is what keeps the column
+                            from having holes in it. */}
+                        <Avatar class="size-6 shrink-0">
+                          <AvatarImage src={member.avatarUrl ?? undefined} alt="" />
+                          <AvatarFallback>{initials(member.name ?? member.login)}</AvatarFallback>
+                        </Avatar>
+                        <span class="truncate">{member.login}</span>
+                        <Show when={member.name}>
+                          {(name) => <span class="truncate text-muted-foreground">{name()}</span>}
+                        </Show>
+                        <Show when={isSelf()}>
+                          <Badge variant="secondary">{i18n.t("members.you")}</Badge>
+                        </Show>
+                      </div>
+                    </TableCell>
 
-      <Show when={error()}>
-        {(message) => (
-          <Alert variant="destructive" class="mb-4">
-            <AlertDescription>{message()}</AlertDescription>
-          </Alert>
-        )}
-      </Show>
-
-      <Card>
-        <CardContent class="pt-5">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Person</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <For each={view().members}>
-                {(member) => {
-                  const isSelf = () => member.userId === view().currentUserId;
-                  return (
-                    <TableRow>
-                      <TableCell>
-                        <div class="flex items-center gap-2.5">
-                          <Avatar class="size-6">
-                            <AvatarImage src={member.avatarUrl ?? undefined} alt="" />
-                            <AvatarFallback>{initials(member.name ?? member.login)}</AvatarFallback>
-                          </Avatar>
-                          <div class="min-w-0">
-                            <div class="truncate text-sm">{member.login}</div>
-                            <Show when={member.name}>
-                              <div class="truncate text-xs text-muted-foreground">{member.name}</div>
-                            </Show>
-                          </div>
-                          <Show when={isSelf()}>
-                            <Badge variant="secondary">you</Badge>
-                          </Show>
-                        </div>
-                      </TableCell>
-
-                      <TableCell>
-                        <Show
-                          when={isAdmin()}
-                          fallback={<Badge variant="outline">{member.role}</Badge>}
-                        >
-                          <Select
-                            class="ml-auto h-8 w-28 text-xs"
-                            aria-label={`Role for ${member.login}`}
-                            value={member.role}
-                            disabled={busy()}
-                            options={ROLE_OPTIONS}
-                            onChange={(next) =>
-                              run(() =>
+                    <TableCell>
+                      <Show
+                        when={isAdmin() && !isLastAdmin(member)}
+                        fallback={
+                          <Badge variant="outline">{i18n.t(ROLE_LABEL[member.role])}</Badge>
+                        }
+                      >
+                        <Select
+                          // The small form height, and the control keeps the
+                          // 14px application chrome size it sets itself.
+                          class="h-control-sm w-28"
+                          aria-label={i18n.t("members.role_for", { name: member.login })}
+                          value={member.role}
+                          disabled={busy()}
+                          options={roleOptions()}
+                          onChange={(next) =>
+                            run(
+                              () =>
                                 setMemberRoleFn({
                                   data: {
                                     workspace: view().workspace.slug,
                                     userId: member.userId,
                                     role: next,
                                   },
-                                })
+                                }),
+                              i18n.t(ROLE_CHANGED[next], { name: member.login })
+                            )
+                          }
+                        />
+                      </Show>
+                    </TableCell>
+
+                    {/* The row's actions, at its right edge. Not a redundant
+                        override: the columns are left-set now, and only this
+                        one is deliberately not. */}
+                    <TableCell class="text-right">
+                      <Show when={isAdmin()}>
+                        <Show when={!isLastAdmin(member)}>
+                          <ConfirmDelete
+                            trigger={
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={busy()}
+                                class="hover:text-destructive"
+                              >
+                                {i18n.t("common.remove")}
+                              </Button>
+                            }
+                            title={i18n.t("members.remove_confirm", { name: member.login })}
+                            description={
+                              isSelf()
+                                ? i18n.t("members.remove_self_hint")
+                                : i18n.t("members.remove_other_hint")
+                            }
+                            actionLabel={i18n.t("common.remove")}
+                            onConfirm={() =>
+                              run(
+                                () =>
+                                  removeMemberFn({
+                                    data: {
+                                      workspace: view().workspace.slug,
+                                      userId: member.userId,
+                                    },
+                                  }),
+                                i18n.t("members.removed", { name: member.login })
                               )
                             }
                           />
                         </Show>
-                      </TableCell>
+                      </Show>
+                    </TableCell>
+                  </TableRow>
+                );
+              }}
+            </For>
+          </TableBody>
+        </Table>
 
-                      <TableCell>
-                        <Show when={isAdmin()}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={busy()}
-                            class="hover:text-destructive"
-                            onClick={() =>
-                              run(() =>
-                                removeMemberFn({
-                                  data: {
-                                    workspace: view().workspace.slug,
-                                    userId: member.userId,
-                                  },
-                                })
-                              )
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </Show>
-                      </TableCell>
-                    </TableRow>
-                  );
-                }}
-              </For>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+        {/*
+          Said once, under the list, rather than inside the row of whoever
+          happens to be the last admin. A sentence in a cell wraps to two or
+          three lines and takes the whole row's height with it, and a control
+          that is dead without saying why is its own bug: this says why, in the
+          one place it is true, and the server enforces it either way.
+        */}
+        <Show when={isAdmin() && admins() === 1}>
+          <p class="mt-3 text-copy-13 text-muted-foreground">{i18n.t("members.last_admin")}</p>
+        </Show>
+      </SettingsSection>
 
       <Show when={isAdmin()}>
-        <Card class="mt-4">
-          <CardContent class="pt-5">
-            <form class="flex flex-wrap items-end gap-3" onSubmit={invite}>
-              <div class="flex min-w-48 flex-1 flex-col gap-2">
-                <Label for="login">GitHub username</Label>
-                <Input
-                  id="login"
-                  placeholder="octocat"
-                  value={login()}
-                  onInput={(e) => setLogin(e.currentTarget.value)}
-                />
-              </div>
-              <div class="flex w-32 flex-col gap-2">
-                <Label>Role</Label>
-                <Select value={role()} onChange={setRole} options={ROLE_OPTIONS} />
-              </div>
-              <Button disabled={busy() || !login().trim()}>Add</Button>
-            </form>
-            <p class="mt-3 text-xs text-muted-foreground">
-              They have to sign in here once before they can be added — there is no invite email,
-              and adding a username nobody has claimed would silently do nothing.
-            </p>
-          </CardContent>
-        </Card>
+        <SettingsSection
+          id="add"
+          title={i18n.t("members.add")}
+          description={i18n.t("members.add_hint")}
+          footer={
+            <Button type="submit" form="add-member" disabled={busy() || !login().trim()}>
+              {busy() ? i18n.t("common.adding") : i18n.t("common.add")}
+            </Button>
+          }
+        >
+          <form id="add-member" class="flex flex-wrap items-start gap-3" onSubmit={invite}>
+            <Field class="min-w-48 flex-1">
+              <FieldLabel for="login">{i18n.t("members.username_label")}</FieldLabel>
+              <Input
+                id="login"
+                placeholder="octocat"
+                value={login()}
+                onInput={(e) => setLogin(e.currentTarget.value)}
+              />
+              <FieldDescription>{i18n.t("members.username_hint")}</FieldDescription>
+              <Show when={error()}>{(message) => <FieldError>{message()}</FieldError>}</Show>
+            </Field>
+
+            {/* Not a <Field>: Kobalte's Select renders its list through a
+                portal, so a label with a `for` would point at nothing. The
+                aria-label on the trigger is what a screen reader reads. */}
+            <div class="flex w-32 flex-col gap-2">
+              <FieldLabel>{i18n.t("members.role")}</FieldLabel>
+              <Select
+                aria-label={i18n.t("members.role")}
+                value={role()}
+                onChange={setRole}
+                options={roleOptions()}
+              />
+              <FieldDescription>{i18n.t(ROLE_HINT[role()])}</FieldDescription>
+            </div>
+          </form>
+        </SettingsSection>
       </Show>
-    </main>
+    </SettingsShell>
   );
 }

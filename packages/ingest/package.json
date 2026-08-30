@@ -7,7 +7,6 @@
   "exports": { ".": "./src/index.ts" },
   "dependencies": {
     "@firstrun/db": "workspace:*",
-    "@firstrun/identity": "workspace:*",
     "@firstrun/schema": "workspace:*"
   }
 }

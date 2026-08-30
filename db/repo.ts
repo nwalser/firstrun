@@ -1,21 +1,22 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gte, isNull, lt, lte, sql as raw } from "drizzle-orm";
-import { DashboardLayout, defaultLayout, mintSourceKey } from "@firstrun/schema";
+import { and, eq, gte, lt, ne, sql as raw } from "drizzle-orm";
+import { defaultBoard, mintSourceKey, parseBoard, type Board } from "@firstrun/schema";
+import { ATTR } from "@firstrun/schema/conventions";
 import type { Database } from "./client.js";
 import {
   dashboards,
-  downloadHints,
-  downloadTokens,
-  events,
+  logEntries,
   projects,
   sessions,
   sources,
   users,
   workspaceMembers,
   workspaces,
+  type Dashboard,
   type MemberRole,
   type Project,
   type Source,
+  type SourceKind,
   type User,
   type Workspace,
 } from "./schema.js";
@@ -223,6 +224,58 @@ export async function createWorkspace(
 }
 
 /**
+ * Renames a workspace and re-slugs it, returning the slug to redirect to.
+ *
+ * The URL moves. That is the deliberate choice: a slug that no longer resembles
+ * the name is a worse surprise than a stale bookmark, and there is exactly one
+ * of these per workspace so there is nothing to keep in sync.
+ */
+export async function renameWorkspace(
+  db: Database,
+  workspaceId: string,
+  name: string
+): Promise<string> {
+  return db.transaction(async (tx) => {
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(and(eq(workspaces.slug, candidate), ne(workspaces.id, workspaceId)))
+        .limit(1);
+      return hit.length > 0;
+    }, name);
+    await tx.update(workspaces).set({ name, slug }).where(eq(workspaces.id, workspaceId));
+    return slug;
+  });
+}
+
+/**
+ * Removes a workspace, its projects, their sources and dashboards, and every
+ * log entry underneath. There is no undo.
+ *
+ * The entries have to be deleted EXPLICITLY. `log_entries` carries no foreign
+ * key to `projects`, because a partitioned table's key puts the trigger on
+ * every partition and this is the largest table in the database. The cost of
+ * that decision is paid here and in `deleteProject`: nothing cascades, so a
+ * delete that forgets leaves entries nobody can see and nobody can remove,
+ * counted forever against the storage a customer is paying for.
+ *
+ * One transaction, so a failure between the two statements is not a workspace
+ * that is half gone.
+ */
+export async function deleteWorkspace(db: Database, workspaceId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.delete(logEntries).where(
+      raw`${logEntries.projectId} IN (
+            select ${projects.id} from ${projects}
+             where ${projects.workspaceId} = ${workspaceId}
+          )`
+    );
+    await tx.delete(workspaces).where(eq(workspaces.id, workspaceId));
+  });
+}
+
+/**
  * The workspace logo.
  *
  * Stored as bytes, served from `/api/logo/:slug`, and cache-busted with
@@ -241,8 +294,11 @@ export async function setWorkspaceLogo(
   if (bytes.byteLength > MAX_LOGO_BYTES) {
     return { error: `That image is too large (max ${Math.round(MAX_LOGO_BYTES / 1024)}KB).` };
   }
-  if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(mimeType)) {
-    return { error: "Logos must be a PNG, JPEG, WebP or SVG." };
+  // No SVG. An SVG is a document that can carry script, and this one would be
+  // served from our own origin -- so an uploaded logo would be same-origin
+  // JavaScript running against a signed-in session. Raster only.
+  if (!/^image\/(png|jpeg|webp)$/.test(mimeType)) {
+    return { error: "Logos must be a PNG, JPEG or WebP." };
   }
   await db
     .update(workspaces)
@@ -385,6 +441,72 @@ export interface ProjectWithRole extends Project {
   role: MemberRole;
   workspaceSlug: string;
   workspaceName: string;
+  workspaceLogoUpdatedAt: Date | null;
+}
+
+export interface ProjectStats extends Project {
+  sourceCount: number;
+  /** Newest entry `time` across the project, or null if nothing has arrived. */
+  lastEventAt: Date | null;
+}
+
+/**
+ * The projects of a workspace, with enough to draw a card for each.
+ *
+ * Two correlated subqueries rather than two joins: joining `sources` and
+ * `log_entries` in one statement multiplies the rows together, and the count of
+ * sources comes back multiplied by the number of entries. That is the classic
+ * way to make a workspace with one source and forty thousand entries report
+ * forty thousand sources.
+ *
+ * `lastEventAt` reads `time`, never `ingested_at` -- see CLAUDE.md rule 5. An
+ * app that was launched on Tuesday and uploaded its queue on Friday was last
+ * used on Tuesday, and "last activity" on a card that said Friday would be
+ * quietly wrong.
+ *
+ * `max(time)` over a partitioned table with no time predicate touches every
+ * partition, which is the price of the question: "when did anything last
+ * happen" cannot be answered from one month. It is one card on one page, and
+ * each partition answers it from the primary key rather than by scanning.
+ */
+export async function listProjectsWithStats(
+  db: Database,
+  workspaceId: string
+): Promise<ProjectStats[]> {
+  const rows = await db
+    .select({
+      project: projects,
+      // The outer reference is spelled `"projects"."id"` rather than
+      // interpolated. Drizzle renders `${projects.id}` inside a subquery as a
+      // BARE `"id"`, which the subquery then resolves in its own scope: against
+      // `sources` that is `sources.id`, so the correlation silently became
+      // `sources.project_id = sources.id` and every project reported zero
+      // sources. It is only a live bug where the inner table happens to have a
+      // column of the same name, which is exactly what makes it worth spelling
+      // out in both of these rather than in the one that broke.
+      sourceCount: raw<number>`(
+        select count(*)::int from ${sources}
+         where ${sources.projectId} = "projects"."id"
+      )`,
+      // Typed as the string Postgres actually sends. Drizzle applies a column's
+      // decoder to a column, not to an expression inside `sql`, so this comes
+      // back as text however the driver would have parsed the column itself --
+      // declaring it `Date` here compiles and then fails at runtime on the
+      // first `.toISOString()`.
+      lastEventAt: raw<string | null>`(
+        select max(${logEntries.time}) from ${logEntries}
+         where ${logEntries.projectId} = "projects"."id"
+      )`,
+    })
+    .from(projects)
+    .where(eq(projects.workspaceId, workspaceId))
+    .orderBy(projects.createdAt);
+
+  return rows.map((r) => ({
+    ...r.project,
+    sourceCount: Number(r.sourceCount ?? 0),
+    lastEventAt: r.lastEventAt ? new Date(r.lastEventAt) : null,
+  }));
 }
 
 export async function listProjects(db: Database, workspaceId: string): Promise<Project[]> {
@@ -419,13 +541,22 @@ export async function projectForUser(
     role: row.role,
     workspaceSlug: row.workspace.slug,
     workspaceName: row.workspace.name,
+    workspaceLogoUpdatedAt: row.workspace.logoUpdatedAt,
   };
 }
 
+/**
+ * A project is created with a board, never without one.
+ *
+ * `layout` is a template the person picked at creation time, defaulting to the
+ * overview -- an empty canvas asks a question somebody who has just installed
+ * the tag cannot yet answer.
+ */
 export async function createProject(
   db: Database,
   workspaceId: string,
-  name: string
+  name: string,
+  layout: Board = defaultBoard()
 ): Promise<Project> {
   return db.transaction(async (tx) => {
     const slug = await uniqueSlug(async (candidate) => {
@@ -441,19 +572,196 @@ export async function createProject(
     await tx.insert(dashboards).values({
       projectId: created.id,
       name: "Overview",
-      layout: defaultLayout(),
+      slug: "overview",
+      position: 0,
+      layout,
     });
     return created;
   });
 }
 
+/** Re-slugs within the workspace, and returns the slug to redirect to. */
+export async function renameProject(
+  db: Database,
+  workspaceId: string,
+  projectId: string,
+  name: string
+): Promise<string> {
+  return db.transaction(async (tx) => {
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.workspaceId, workspaceId),
+            eq(projects.slug, candidate),
+            ne(projects.id, projectId)
+          )
+        )
+        .limit(1);
+      return hit.length > 0;
+    }, name);
+    await tx
+      .update(projects)
+      .set({ name, slug })
+      .where(and(eq(projects.workspaceId, workspaceId), eq(projects.id, projectId)));
+    return slug;
+  });
+}
+
+/**
+ * Removes a project, its sources and dashboards, and every log entry under it.
+ *
+ * The entries are deleted explicitly for the reason given on `deleteWorkspace`:
+ * `log_entries` has no foreign key to `projects`, so nothing cascades into it.
+ */
 export async function deleteProject(db: Database, projectId: string): Promise<void> {
-  await db.delete(projects).where(eq(projects.id, projectId));
+  await db.transaction(async (tx) => {
+    await tx.delete(logEntries).where(eq(logEntries.projectId, projectId));
+    await tx.delete(projects).where(eq(projects.id, projectId));
+  });
+}
+
+/** How many distinct values a filter picker will offer before it stops being a menu. */
+const FACET_LIMIT = 50;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How far back a facet reads.
+ *
+ * A distinct scan with no time predicate reads every partition that has ever
+ * existed, and this is a picker: the app version somebody shipped fourteen
+ * months ago is not a filter anybody is about to apply. Ninety days prunes to
+ * four partitions and keeps the list current, which is also what makes it
+ * useful rather than merely complete.
+ */
+const FACET_DAYS = 90;
+
+export interface ProjectFacets {
+  os: string[];
+  channel: string[];
+  appVersion: string[];
+}
+
+/**
+ * The values the permanent-filter pickers offer.
+ *
+ * Read from the project's own entries rather than typed in: a filter for an OS
+ * string nobody has ever sent is a filter that silently empties the board. The
+ * cap is there because a picker with four thousand app versions in it is not a
+ * picker -- if a project has that many, the list stops being useful long before
+ * it stops being complete.
+ *
+ * These three are ATTRIBUTES now rather than columns, so this is a distinct
+ * scan over `attributes ->> key` and not over a btree. That is the trade rule 3
+ * makes, and it is paid here rather than on a board: a picker opens once, where
+ * a widget re-reads on every range change. Whichever of the three turns out to
+ * be hot enough to matter is a generated column and an index away, with nothing
+ * above this function needing to know.
+ */
+export async function projectFacets(db: Database, projectId: string): Promise<ProjectFacets> {
+  const since = new Date(Date.now() - FACET_DAYS * DAY_MS);
+
+  // The key binds as a parameter like every other value: drizzle's `sql`
+  // template interpolates values as placeholders, never as text.
+  const distinct = async (key: string): Promise<string[]> => {
+    const rows = await db.execute<{ value: string | null }>(raw`
+      select distinct ${logEntries.attributes} ->> ${key} as value
+        from ${logEntries}
+       where ${logEntries.projectId} = ${projectId}
+         and ${logEntries.time} >= ${since}
+         and ${logEntries.attributes} ->> ${key} is not null
+       order by value
+       limit ${FACET_LIMIT}
+    `);
+    return rows.rows
+      .map((r) => r.value)
+      .filter((v): v is string => typeof v === "string" && v !== "");
+  };
+
+  const [os, channel, appVersion] = await Promise.all([
+    distinct(ATTR.OS_TYPE),
+    distinct(ATTR.CHANNEL),
+    distinct(ATTR.SERVICE_VERSION),
+  ]);
+  return { os, channel, appVersion };
+}
+
+/**
+ * When each source last sent anything.
+ *
+ * On `time`, not `ingested_at`: a desktop app replaying a week-old queue was
+ * last *heard from* now but last *active* then, and the sources list answers the
+ * second question. See CLAUDE.md rule 5.
+ *
+ * The source id is an attribute the edge stamps, so this groups on JSON rather
+ * than on a column. Bounded by the same ninety days as the facets and for the
+ * same reason: a source silent for three months reads as "no activity" either
+ * way, and the unbounded form reads every partition to say so.
+ */
+export async function sourceLastSeen(
+  db: Database,
+  projectId: string
+): Promise<Map<string, Date>> {
+  const since = new Date(Date.now() - FACET_DAYS * DAY_MS);
+
+  const rows = await db.execute<{ source_id: string | null; last_seen: string | null }>(raw`
+    select ${logEntries.attributes} ->> ${ATTR.SOURCE_ID} as source_id,
+           max(${logEntries.time})                        as last_seen
+      from ${logEntries}
+     where ${logEntries.projectId} = ${projectId}
+       and ${logEntries.time} >= ${since}
+       and ${logEntries.attributes} ->> ${ATTR.SOURCE_ID} is not null
+     group by 1
+  `);
+
+  const out = new Map<string, Date>();
+  for (const r of rows.rows) {
+    // `max(time)` is an expression rather than a column, so drizzle hands back
+    // whatever `pg` parsed it as rather than applying the column's decoder.
+    if (r.source_id && r.last_seen) out.set(r.source_id, new Date(r.last_seen));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
 // Sources
 // ---------------------------------------------------------------------------
+
+export interface WorkspaceSource extends Source {
+  projectName: string;
+  projectSlug: string;
+}
+
+/**
+ * Every source in a workspace, with the project each belongs to.
+ *
+ * The wiki needs this: its install pages are written against one specific
+ * source, and the picker that chooses it spans the whole workspace rather than
+ * one project. Fetching it project by project would mean one round trip per
+ * project to fill a dropdown.
+ *
+ * Ordered by project then source so the picker groups without sorting again.
+ */
+export async function listWorkspaceSources(
+  db: Database,
+  workspaceId: string
+): Promise<WorkspaceSource[]> {
+  const rows = await db
+    .select({ source: sources, projectName: projects.name, projectSlug: projects.slug })
+    .from(sources)
+    .innerJoin(projects, eq(sources.projectId, projects.id))
+    .where(eq(projects.workspaceId, workspaceId))
+    .orderBy(projects.name, sources.createdAt);
+
+  return rows.map((r) => ({
+    ...r.source,
+    projectName: r.projectName,
+    projectSlug: r.projectSlug,
+  }));
+}
 
 export async function listSources(db: Database, projectId: string): Promise<Source[]> {
   return db
@@ -463,11 +771,15 @@ export async function listSources(db: Database, projectId: string): Promise<Sour
     .orderBy(sources.createdAt);
 }
 
+/**
+ * `kind` is the surface every event from this source will be stamped with, so
+ * it is chosen once, here. A client sends a key and never claims a surface.
+ */
 export async function createSource(
   db: Database,
   projectId: string,
   name: string,
-  kind: "web" | "desktop",
+  kind: SourceKind,
   assetName: string | null
 ): Promise<Source> {
   const rows = await db
@@ -498,140 +810,290 @@ export async function sourceByKey(db: Database, ingestKey: string): Promise<Sour
 export interface DashboardRecord {
   id: string;
   name: string;
-  layout: DashboardLayout;
+  /** How the board is addressed in a URL, unique within the project. */
+  slug: string;
+  /** Tab order. */
+  position: number;
+  layout: Board;
 }
 
 /**
- * A project always has a dashboard.
- *
- * Created lazily rather than failing, so a project made before the default
- * layout changed, or made by the seed, still opens.
+ * `parseBoard` rather than a bare parse: it migrates a board written before the
+ * query layer on the way through, and never throws. A dashboard that will not
+ * render because one stored widget lost an argument is a worse outcome than one
+ * that quietly starts over, and one unreadable card is dropped on its own
+ * rather than taking the arrangement with it.
  */
-export async function dashboardFor(db: Database, projectId: string): Promise<DashboardRecord> {
+const toRecord = (row: Dashboard): DashboardRecord => ({
+  id: row.id,
+  name: row.name,
+  slug: row.slug,
+  position: row.position,
+  layout: parseBoard(row.layout),
+});
+
+/**
+ * Copy a board, layout and all, onto the end of the strip.
+ *
+ * Done in one statement rather than create-then-save from the client: that
+ * round trip reads the source board, creates an empty one, then writes the
+ * layout into it, and a failure between the second and third steps leaves a
+ * blank board named "Overview copy" that nobody asked for.
+ */
+export async function duplicateDashboard(
+  db: Database,
+  projectId: string,
+  dashboardId: string
+): Promise<DashboardRecord | null> {
+  return db.transaction(async (tx) => {
+    const [source] = await tx
+      .select()
+      .from(dashboards)
+      .where(and(eq(dashboards.projectId, projectId), eq(dashboards.id, dashboardId)))
+      .limit(1);
+    if (!source) return null;
+
+    const name = `${source.name} copy`.slice(0, 60);
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: dashboards.id })
+        .from(dashboards)
+        .where(and(eq(dashboards.projectId, projectId), eq(dashboards.slug, candidate)))
+        .limit(1);
+      return hit.length > 0;
+    }, name);
+
+    const [tail] = await tx
+      .select({ next: raw<number>`coalesce(max(${dashboards.position}) + 1, 0)` })
+      .from(dashboards)
+      .where(eq(dashboards.projectId, projectId));
+
+    const created = (
+      await tx
+        .insert(dashboards)
+        .values({ projectId, name, slug, position: tail?.next ?? 0, layout: source.layout })
+        .returning()
+    )[0]!;
+    return toRecord(created);
+  });
+}
+
+/** The tab strip, in the order it is drawn. */
+export async function listDashboards(
+  db: Database,
+  projectId: string
+): Promise<DashboardRecord[]> {
   const rows = await db
     .select()
     .from(dashboards)
     .where(eq(dashboards.projectId, projectId))
-    .orderBy(dashboards.createdAt)
+    .orderBy(dashboards.position, dashboards.createdAt);
+  return rows.map(toRecord);
+}
+
+export async function dashboardBySlug(
+  db: Database,
+  projectId: string,
+  slug: string
+): Promise<DashboardRecord | null> {
+  const rows = await db
+    .select()
+    .from(dashboards)
+    .where(and(eq(dashboards.projectId, projectId), eq(dashboards.slug, slug)))
+    .limit(1);
+  return rows[0] ? toRecord(rows[0]) : null;
+}
+
+/** Scoped by project on purpose: an id from another project must not resolve. */
+export async function dashboardById(
+  db: Database,
+  projectId: string,
+  dashboardId: string
+): Promise<DashboardRecord | null> {
+  const rows = await db
+    .select()
+    .from(dashboards)
+    .where(and(eq(dashboards.projectId, projectId), eq(dashboards.id, dashboardId)))
+    .limit(1);
+  return rows[0] ? toRecord(rows[0]) : null;
+}
+
+/**
+ * A project always has at least one dashboard.
+ *
+ * Created lazily rather than failing, so a project made before the default
+ * layout changed, or made by the seed, still opens.
+ */
+export async function defaultDashboard(
+  db: Database,
+  projectId: string
+): Promise<DashboardRecord> {
+  const rows = await db
+    .select()
+    .from(dashboards)
+    .where(eq(dashboards.projectId, projectId))
+    .orderBy(dashboards.position, dashboards.createdAt)
     .limit(1);
 
   const existing = rows[0];
-  if (existing) {
-    const parsed = DashboardLayout.safeParse(existing.layout);
-    return {
-      id: existing.id,
-      name: existing.name,
-      // A layout written by an older version of the catalogue degrades to the
-      // default rather than crashing the only screen in the product.
-      layout: parsed.success ? parsed.data : defaultLayout(),
-    };
-  }
-
-  const created = (
-    await db.insert(dashboards).values({ projectId, name: "Overview", layout: defaultLayout() }).returning()
-  )[0]!;
-  return { id: created.id, name: created.name, layout: defaultLayout() };
+  if (existing) return toRecord(existing);
+  return createDashboard(db, projectId, "Overview", defaultBoard());
 }
 
-export async function saveLayout(
+/** Kept because "the project's board" is still what most callers mean. */
+export const dashboardFor = defaultDashboard;
+
+export async function createDashboard(
   db: Database,
   projectId: string,
-  layout: DashboardLayout
+  name: string,
+  layout: Board = defaultBoard()
+): Promise<DashboardRecord> {
+  return db.transaction(async (tx) => {
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: dashboards.id })
+        .from(dashboards)
+        .where(and(eq(dashboards.projectId, projectId), eq(dashboards.slug, candidate)))
+        .limit(1);
+      return hit.length > 0;
+    }, name);
+
+    // New boards go on the end of the strip, never in front of what is there.
+    const [tail] = await tx
+      .select({ next: raw<number>`coalesce(max(${dashboards.position}) + 1, 0)` })
+      .from(dashboards)
+      .where(eq(dashboards.projectId, projectId));
+
+    const created = (
+      await tx
+        .insert(dashboards)
+        .values({ projectId, name, slug, position: tail?.next ?? 0, layout })
+        .returning()
+    )[0]!;
+    return toRecord(created);
+  });
+}
+
+/**
+ * Renaming re-slugs, which moves the board's URL.
+ *
+ * Same trade as a workspace: a slug that no longer resembles the name is a
+ * worse surprise than a stale link, and the tab strip is regenerated on the
+ * next load anyway.
+ */
+export async function renameDashboard(
+  db: Database,
+  dashboardId: string,
+  name: string
+): Promise<DashboardRecord> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(dashboards)
+      .where(eq(dashboards.id, dashboardId))
+      .limit(1);
+    const existing = rows[0];
+    if (!existing) throw new Error("No such dashboard.");
+
+    const slug = await uniqueSlug(async (candidate) => {
+      const hit = await tx
+        .select({ id: dashboards.id })
+        .from(dashboards)
+        .where(
+          and(
+            eq(dashboards.projectId, existing.projectId),
+            eq(dashboards.slug, candidate),
+            // Excluding itself, or renaming a board to what it is already
+            // called would suffix its own slug every time.
+            ne(dashboards.id, dashboardId)
+          )
+        )
+        .limit(1);
+      return hit.length > 0;
+    }, name);
+
+    const updated = (
+      await tx
+        .update(dashboards)
+        .set({ name, slug, updatedAt: new Date() })
+        .where(eq(dashboards.id, dashboardId))
+        .returning()
+    )[0]!;
+    return toRecord(updated);
+  });
+}
+
+/**
+ * The last board on a project cannot be deleted.
+ *
+ * Same shape as `isLastAdmin`, and for the same reason: a project with no
+ * dashboard is a project whose only screen does not exist, and the UI offers no
+ * way back from there.
+ */
+export async function deleteDashboard(
+  db: Database,
+  projectId: string,
+  dashboardId: string
+): Promise<{ ok: true } | { error: string }> {
+  const all = await db
+    .select({ id: dashboards.id })
+    .from(dashboards)
+    .where(eq(dashboards.projectId, projectId));
+
+  if (!all.some((d) => d.id === dashboardId)) return { error: "No such dashboard." };
+  if (all.length <= 1) return { error: "A project needs at least one dashboard." };
+
+  await db
+    .delete(dashboards)
+    .where(and(eq(dashboards.projectId, projectId), eq(dashboards.id, dashboardId)));
+  return { ok: true };
+}
+
+/**
+ * Positions are rewritten from the order of `ids`.
+ *
+ * Every update is scoped by project as well as by id, so an id from somewhere
+ * else moves nothing rather than reordering a board the caller cannot see.
+ */
+export async function reorderDashboards(
+  db: Database,
+  projectId: string,
+  ids: string[]
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    for (const [position, id] of ids.entries()) {
+      await tx
+        .update(dashboards)
+        .set({ position })
+        .where(and(eq(dashboards.projectId, projectId), eq(dashboards.id, id)));
+    }
+  });
+}
+
+/** Keyed on the dashboard, not the project: a project has several of them. */
+export async function saveLayout(
+  db: Database,
+  dashboardId: string,
+  layout: Board
 ): Promise<void> {
   await db
     .update(dashboards)
     .set({ layout, updatedAt: new Date() })
-    .where(eq(dashboards.projectId, projectId));
-}
-
-// ---------------------------------------------------------------------------
-// Download tokens and hints
-// ---------------------------------------------------------------------------
-
-export interface NewToken {
-  token: string;
-  projectId: string;
-  sourceId: string | null;
-  webVisitorId: string | null;
-  asset: string;
-  expiresAt: Date;
-}
-
-export async function createDownloadToken(db: Database, t: NewToken): Promise<void> {
-  await db.insert(downloadTokens).values(t);
-}
-
-export async function downloadToken(db: Database, token: string) {
-  const rows = await db.select().from(downloadTokens).where(eq(downloadTokens.token, token)).limit(1);
-  return rows[0] ?? null;
+    .where(eq(dashboards.id, dashboardId));
 }
 
 /**
- * Marks a token claimed, and says whether this call is the one that did it.
+ * Used by the seed and by tests to start from a known state.
  *
- * A first run can fire twice -- the install hook wrote the token file AND the
- * Downloads scan found the installer. The second claim must be a no-op rather
- * than a second edge, so the update is conditional and the caller keys off the
- * row count.
+ * One statement, because there is exactly one table an entry ever touched.
+ * There used to be five.
+ *
+ * A DELETE rather than a partition drop, which does not contradict the
+ * retention rule: this removes ONE project from partitions other projects are
+ * still writing to. Retention removes a whole month from everybody, and that is
+ * the case `dropExpiredPartitions` exists for.
  */
-export async function claimDownloadToken(
-  db: Database,
-  token: string,
-  at: Date
-): Promise<{ claimed: boolean }> {
-  const rows = await db
-    .update(downloadTokens)
-    .set({ claimedAt: at })
-    .where(and(eq(downloadTokens.token, token), isNull(downloadTokens.claimedAt)))
-    .returning({ token: downloadTokens.token });
-  return { claimed: rows.length > 0 };
-}
-
-export async function expireDownloadTokens(db: Database, now: Date): Promise<void> {
-  await db.delete(downloadTokens).where(and(lt(downloadTokens.expiresAt, now), isNull(downloadTokens.claimedAt)));
-}
-
-export async function recordDownloadHint(
-  db: Database,
-  hint: { projectId: string; webVisitorId: string; ipHash: string; os: string | null }
-): Promise<void> {
-  await db.insert(downloadHints).values(hint);
-}
-
-export async function candidateHints(
-  db: Database,
-  projectId: string,
-  ipHash: string,
-  os: string | null,
-  since: Date,
-  until: Date
-) {
-  return db
-    .select()
-    .from(downloadHints)
-    .where(
-      and(
-        eq(downloadHints.projectId, projectId),
-        eq(downloadHints.ipHash, ipHash),
-        gte(downloadHints.createdAt, since),
-        lte(downloadHints.createdAt, until),
-        // A null OS on either side is "we do not know", which should widen the
-        // match rather than silently exclude it.
-        os ? raw`(${downloadHints.os} IS NULL OR ${downloadHints.os} = ${os})` : undefined
-      )
-    )
-    .orderBy(desc(downloadHints.createdAt));
-}
-
-export async function pruneDownloadHints(db: Database, olderThan: Date): Promise<void> {
-  await db.delete(downloadHints).where(lt(downloadHints.createdAt, olderThan));
-}
-
-/** Used by the seed and by tests to start from a known state. */
 export async function clearProjectData(db: Database, projectId: string): Promise<void> {
-  await db.delete(events).where(eq(events.projectId, projectId));
-  await db.execute(raw`DELETE FROM identity_edges WHERE project_id = ${projectId}::uuid`);
-  await db.execute(raw`DELETE FROM person_overrides WHERE project_id = ${projectId}::uuid`);
-  await db.delete(downloadTokens).where(eq(downloadTokens.projectId, projectId));
-  await db.delete(downloadHints).where(eq(downloadHints.projectId, projectId));
+  await db.delete(logEntries).where(eq(logEntries.projectId, projectId));
 }

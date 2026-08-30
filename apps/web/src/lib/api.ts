@@ -1,7 +1,12 @@
+import { DateRange, type Surface } from "@firstrun/schema";
 import { createServerFn } from "@tanstack/solid-start";
-import { DashboardLayout } from "@firstrun/schema";
-import type { Snapshot } from "@firstrun/db";
-import type { DashboardLayout as Layout } from "@firstrun/schema";
+import { Board, type Board as BoardValue } from "@firstrun/schema/board";
+import {
+  LogQuery,
+  type BoardSnapshot,
+  type Discovery,
+  type QueryResult,
+} from "@firstrun/schema/query";
 
 /**
  * Everything the UI asks the server for.
@@ -13,6 +18,11 @@ import type { DashboardLayout as Layout } from "@firstrun/schema";
  *
  * Every mutation re-checks the caller's role on the server. The UI hides what a
  * reader cannot do, but hiding a button is a courtesy, not a permission check.
+ *
+ * Every POST body that carries structure is PARSED in the validator rather than
+ * trusted. A board carries saved queries and a query is compiled into SQL, so
+ * the difference between parsing here and casting here is the difference
+ * between a query layer and an open database.
  */
 
 export type MemberRole = "admin" | "read";
@@ -29,6 +39,8 @@ export interface WorkspaceSummary {
   name: string;
   slug: string;
   role: MemberRole;
+  /** When the logo last changed, so its URL can be cache-busted. Null: no logo. */
+  logoUpdatedAt: string | null;
 }
 
 export interface SessionInfo {
@@ -44,6 +56,19 @@ export interface ProjectSummary {
   slug: string;
 }
 
+/**
+ * A project as the workspace index lists it.
+ *
+ * "Is this thing actually receiving anything" is the question that page opens
+ * to answer, and a project with sources and no entries is the interesting
+ * failure, so the two facts travel together. Nowhere else pays for them.
+ */
+export interface ProjectListItem extends ProjectSummary {
+  sourceCount: number;
+  /** On `time`, not `ingested_at`. Null when nothing has ever arrived. */
+  lastEventAt: string | null;
+}
+
 export interface MemberSummary {
   userId: string;
   login: string;
@@ -54,7 +79,7 @@ export interface MemberSummary {
 
 export interface WorkspaceView {
   workspace: WorkspaceSummary;
-  projects: ProjectSummary[];
+  projects: ProjectListItem[];
   members: MemberSummary[];
   currentUserId: string;
 }
@@ -62,28 +87,95 @@ export interface WorkspaceView {
 export interface SourceSummary {
   id: string;
   name: string;
-  kind: "web" | "desktop";
+  /** The surface recorded on the source row. Authoritative, never claimed. */
+  kind: Surface;
   assetName: string | null;
   ingestKey: string;
+  /** On `time`, not `ingested_at`: last active, not last heard from. */
+  lastSeenAt: string | null;
 }
 
+export interface DashboardSummary {
+  id: string;
+  name: string;
+  slug: string;
+  position: number;
+}
+
+/**
+ * Everything that stays put while you move around inside one project.
+ *
+ * No board and no numbers: this is the sidebar, the tab strip and the source
+ * list, and it is loaded by the project layout route. Putting a snapshot in it
+ * would make every settings page pay for SQL it never draws.
+ */
+export interface ProjectNav {
+  workspace: WorkspaceSummary;
+  project: ProjectSummary;
+  role: MemberRole;
+  dashboards: DashboardSummary[];
+  sources: SourceSummary[];
+}
+
+/**
+ * One board, and every answer on it.
+ *
+ * The whole board arrives in one call: its saved queries are known before any
+ * SQL runs, so they are deduplicated up front rather than one request per card.
+ */
 export interface ProjectView {
   workspace: WorkspaceSummary;
   project: ProjectSummary;
   role: MemberRole;
   sources: SourceSummary[];
-  layout: Layout;
-  snapshot: Snapshot;
+  dashboards: DashboardSummary[];
+  dashboard: DashboardSummary;
+  /** The board itself: an arrangement of saved queries. */
+  layout: BoardValue;
+  snapshot: BoardSnapshot;
+  /** What this project has actually written, so the pickers offer real options. */
+  discovery: Discovery;
   /** Absolute origin the tag and SDK should talk to. */
+  publicOrigin: string;
+}
+
+export interface WikiSource {
+  id: string;
+  name: string;
+  kind: Surface;
+  assetName: string | null;
+  ingestKey: string;
+  projectName: string;
+  projectSlug: string;
+  workspaceSlug: string;
+  workspaceName: string;
+}
+
+export interface WikiContext {
+  signedIn: boolean;
+  sources: WikiSource[];
   publicOrigin: string;
 }
 
 export type Result<T = Record<string, never>> = ({ ok: true } & T) | { ok: false; error: string };
 
-export const getSession = createServerFn({ method: "GET" }).handler(async (): Promise<SessionInfo> => {
-  const { loadSession } = await import("./api.server.js");
-  return loadSession();
-});
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+export const getSession = createServerFn({ method: "GET" }).handler(
+  async (): Promise<SessionInfo> => {
+    const { loadSession } = await import("./api.server.js");
+    return loadSession();
+  }
+);
+
+export const getWikiContext = createServerFn({ method: "GET" }).handler(
+  async (): Promise<WikiContext> => {
+    const { loadWikiContext } = await import("./api.server.js");
+    return loadWikiContext();
+  }
+);
 
 export const getWorkspace = createServerFn({ method: "GET" })
   .validator((slug: string) => slug)
@@ -92,26 +184,141 @@ export const getWorkspace = createServerFn({ method: "GET" })
     return loadWorkspace(data);
   });
 
-export const getProject = createServerFn({ method: "GET" })
+export const getProjectNav = createServerFn({ method: "GET" })
   .validator((input: { workspace: string; project: string }) => input)
-  .handler(async ({ data }): Promise<ProjectView | null> => {
-    const { loadProject } = await import("./api.server.js");
-    return loadProject(data.workspace, data.project);
+  .handler(async ({ data }): Promise<ProjectNav | null> => {
+    const { loadProjectNav } = await import("./api.server.js");
+    return loadProjectNav(data.workspace, data.project);
   });
 
-export const saveDashboard = createServerFn({ method: "POST" })
-  .validator((input: { workspace: string; project: string; layout: unknown }) => ({
+/**
+ * The overview's numbers, on their own.
+ *
+ * A snapshot rather than a view: everything else the page draws (the project,
+ * its sources, its boards) is already loaded by the project layout route, and
+ * the answers are keyed by `queryKey`, so the page looks each one up by
+ * deriving the same key from the same query rather than being handed a name.
+ */
+export const getProjectOverview = createServerFn({ method: "GET" })
+  .validator((input: { workspace: string; project: string }) => input)
+  .handler(async ({ data }): Promise<BoardSnapshot | null> => {
+    const { loadProjectOverview } = await import("./api.server.js");
+    return loadProjectOverview(data.workspace, data.project);
+  });
+
+export const getProject = createServerFn({ method: "GET" })
+  .validator((input: { workspace: string; project: string; dashboard?: string | null }) => input)
+  .handler(async ({ data }): Promise<ProjectView | null> => {
+    const { loadProject } = await import("./api.server.js");
+    return loadProject(data.workspace, data.project, data.dashboard ?? null);
+  });
+
+// ---------------------------------------------------------------------------
+// The query layer
+// ---------------------------------------------------------------------------
+
+/**
+ * One query, run on its own.
+ *
+ * The AST is parsed here, before it reaches the compiler. This arrives as a
+ * POST body from a form anybody signed in can open, so "the browser built it"
+ * is not a reason to trust its shape: the parse is what turns an arbitrary
+ * object into one of the queries this product can answer.
+ */
+export const runQueryFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: { workspace: string; project: string; query: unknown; range: unknown }) => ({
+      workspace: input.workspace,
+      project: input.project,
+      query: LogQuery.parse(input.query),
+      range: DateRange.parse(input.range),
+    })
+  )
+  .handler(
+    async ({ data }): Promise<{ ok: true; result: QueryResult } | { ok: false; error: string }> => {
+      const { runExplore } = await import("./api.server.js");
+      return runExplore(data);
+    }
+  );
+
+/**
+ * What this project has actually written, over one window.
+ *
+ * Bounded on the server: it samples the most recent entries rather than
+ * scanning the window, so opening the picker cannot become the most expensive
+ * thing on the page.
+ */
+export const getDiscoveryFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; range: unknown }) => ({
     workspace: input.workspace,
     project: input.project,
-    // Parsed here rather than trusted: this is a POST body, and the catalogue
-    // is the whole difference between an arrangeable dashboard and an
-    // arbitrary one.
-    layout: DashboardLayout.parse(input.layout),
+    range: DateRange.parse(input.range),
   }))
-  .handler(async ({ data }): Promise<Result> => {
-    const { persistDashboard } = await import("./api.server.js");
-    return persistDashboard(data.workspace, data.project, data.layout);
+  .handler(async ({ data }): Promise<Discovery | null> => {
+    const { loadDiscovery } = await import("./api.server.js");
+    return loadDiscovery(data);
   });
+
+// ---------------------------------------------------------------------------
+// Boards
+// ---------------------------------------------------------------------------
+
+export const saveDashboard = createServerFn({ method: "POST" })
+  .validator(
+    (input: { workspace: string; project: string; dashboardId: string; layout: unknown }) => ({
+      workspace: input.workspace,
+      project: input.project,
+      dashboardId: input.dashboardId,
+      layout: Board.parse(input.layout),
+    })
+  )
+  .handler(async ({ data }): Promise<Result> => {
+    const { persistBoard } = await import("./api.server.js");
+    return persistBoard(data.workspace, data.project, data.dashboardId, data.layout);
+  });
+
+export const createDashboardFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: { workspace: string; project: string; name: string; template?: string }) => input
+  )
+  .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
+    const { addDashboard } = await import("./api.server.js");
+    return addDashboard(data);
+  });
+
+export const renameDashboardFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: { workspace: string; project: string; dashboardId: string; name: string }) => input
+  )
+  .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
+    const { renameDashboard } = await import("./api.server.js");
+    return renameDashboard(data);
+  });
+
+export const duplicateDashboardFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; dashboardId: string }) => input)
+  .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
+    const { duplicateDashboard } = await import("./api.server.js");
+    return duplicateDashboard(data);
+  });
+
+export const deleteDashboardFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; dashboardId: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { removeDashboard } = await import("./api.server.js");
+    return removeDashboard(data);
+  });
+
+export const reorderDashboardsFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; ids: string[] }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { reorderDashboards } = await import("./api.server.js");
+    return reorderDashboards(data);
+  });
+
+// ---------------------------------------------------------------------------
+// Workspaces
+// ---------------------------------------------------------------------------
 
 export const createWorkspaceFn = createServerFn({ method: "POST" })
   .validator((name: string) => name.trim().slice(0, 60))
@@ -120,11 +327,57 @@ export const createWorkspaceFn = createServerFn({ method: "POST" })
     return addWorkspace(data);
   });
 
-export const createProjectFn = createServerFn({ method: "POST" })
+export const renameWorkspaceFn = createServerFn({ method: "POST" })
   .validator((input: { workspace: string; name: string }) => input)
   .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
+    const { renameWorkspace } = await import("./api.server.js");
+    return renameWorkspace(data.workspace, data.name);
+  });
+
+export const deleteWorkspaceFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; confirm: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { removeWorkspace } = await import("./api.server.js");
+    return removeWorkspace(data.workspace, data.confirm);
+  });
+
+export const setWorkspaceLogoFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; dataUrl: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { putWorkspaceLogo } = await import("./api.server.js");
+    return putWorkspaceLogo(data.workspace, data.dataUrl);
+  });
+
+export const clearWorkspaceLogoFn = createServerFn({ method: "POST" })
+  .validator((slug: string) => slug)
+  .handler(async ({ data }): Promise<Result> => {
+    const { dropWorkspaceLogo } = await import("./api.server.js");
+    return dropWorkspaceLogo(data);
+  });
+
+// ---------------------------------------------------------------------------
+// Projects and sources
+// ---------------------------------------------------------------------------
+
+export const createProjectFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; name: string; template?: string }) => input)
+  .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
     const { addProject } = await import("./api.server.js");
-    return addProject(data.workspace, data.name);
+    return addProject(data);
+  });
+
+export const renameProjectFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; name: string }) => input)
+  .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
+    const { renameProject } = await import("./api.server.js");
+    return renameProject(data);
+  });
+
+export const deleteProjectFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; project: string; confirm: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { removeProject } = await import("./api.server.js");
+    return removeProject(data);
   });
 
 export const createSourceFn = createServerFn({ method: "POST" })
@@ -133,11 +386,12 @@ export const createSourceFn = createServerFn({ method: "POST" })
       workspace: string;
       project: string;
       name: string;
-      kind: "web" | "desktop";
+      kind: Surface;
       assetName?: string;
+      template?: string;
     }) => input
   )
-  .handler(async ({ data }): Promise<Result> => {
+  .handler(async ({ data }): Promise<Result<{ sourceId: string; ingestKey: string }>> => {
     const { addSource } = await import("./api.server.js");
     return addSource(data);
   });
@@ -148,6 +402,10 @@ export const deleteSourceFn = createServerFn({ method: "POST" })
     const { removeSource } = await import("./api.server.js");
     return removeSource(data.workspace, data.project, data.sourceId);
   });
+
+// ---------------------------------------------------------------------------
+// People
+// ---------------------------------------------------------------------------
 
 export const addMemberFn = createServerFn({ method: "POST" })
   .validator((input: { workspace: string; login: string; role: MemberRole }) => input)

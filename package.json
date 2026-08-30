@@ -16,9 +16,12 @@
     "seed": "bun run db/seed.ts",
     "dev:login": "bun run db/dev-login.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "bun run typecheck:root && bun run typecheck:web",
     "build:web-tag": "bun run --cwd packages/web-tag build",
-    "check:size": "bun run --cwd packages/web-tag check-size"
+    "check:size": "bun run --cwd packages/web-tag check-size",
+    "typecheck:root": "tsc --noEmit -p tsconfig.json",
+    "typecheck:web": "tsc --noEmit -p apps/web/tsconfig.json",
+    "build:analytics": "bun run --cwd packages/analytics build"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

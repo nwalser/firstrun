@@ -1,5 +1,5 @@
-import { insertEvents } from "@firstrun/db";
-import type { EventEnvelope, StoredEvent } from "@firstrun/schema";
+import { insertLogEntries } from "@firstrun/db/log-entries";
+import type { LogEntry } from "@firstrun/schema/log";
 import type { Ctx } from "./context.js";
 
 export interface IngestResult {
@@ -7,53 +7,33 @@ export interface IngestResult {
   accepted: number;
   /** Rows the primary key already had. A replayed queue, not an error. */
   duplicates: number;
-  /** Events with no distinct to attribute them to. */
-  dropped: number;
 }
 
 /**
- * The one path every event takes: resolve, store, dedup.
+ * The one path every entry takes: store, and let the primary key dedup.
  *
- * Dedup used to be a lookup against a table of every event id ever seen. It is
- * now the events primary key refusing the row, which means it costs nothing,
- * cannot drift, and cannot be forgotten by a new caller.
+ * There is nothing else to do. Nothing branches on the name, nothing branches
+ * on the severity, nothing derives one entry from another, and nothing here
+ * knows that `exception` is different from `page_view`. Ingest validates shape
+ * and writes; assigning meaning is the query layer's job, at read time, where
+ * it can be changed without a migration.
  *
- * Resolution is memoised per batch. A desktop queue replaying 200 events after
- * a week offline carries the same install id 200 times, and asking the database
- * who that is 200 times would make the replay the slowest thing in the system.
+ * That is worth stating as a rule rather than an observation, because this is
+ * exactly where a special case gets added: "errors should also go to X" is one
+ * `if` away, and the moment it exists there are two pipelines and two places
+ * for a row to be lost.
+ *
+ * Dedup is the primary key refusing the row, which costs nothing, cannot drift,
+ * and cannot be forgotten by a new caller. A desktop queue replaying a week of
+ * entries after being offline sends the same entry ids again on purpose: that
+ * is the normal case, not an error case.
  */
-export async function ingestEnvelopes(
+export async function ingestEntries(
   ctx: Ctx,
-  envelopes: readonly EventEnvelope[]
+  entries: readonly LogEntry[]
 ): Promise<IngestResult> {
-  if (envelopes.length === 0) return { accepted: 0, duplicates: 0, dropped: 0 };
+  if (entries.length === 0) return { accepted: 0, duplicates: 0 };
 
-  const persons = new Map<string, string>();
-  const stored: StoredEvent[] = [];
-  let dropped = 0;
-
-  for (const e of envelopes) {
-    if (!e.web_visitor_id && !e.install_id && !e.account_id) {
-      // Consent was never given, or a malformed beacon. There is nothing to
-      // attribute it to, and an event with no person is not analytics.
-      dropped++;
-      continue;
-    }
-
-    const key = [e.project_id, e.web_visitor_id, e.install_id, e.account_id].join(" ");
-    let personId = persons.get(key);
-    if (!personId) {
-      personId = await ctx.resolver.observe({
-        project_id: e.project_id,
-        web_visitor_id: e.web_visitor_id,
-        install_id: e.install_id,
-        account_id: e.account_id,
-      });
-      persons.set(key, personId);
-    }
-    stored.push({ ...e, person_id: personId });
-  }
-
-  const accepted = await insertEvents(ctx.store, stored);
-  return { accepted, duplicates: stored.length - accepted, dropped };
+  const accepted = await insertLogEntries(ctx.store, entries);
+  return { accepted, duplicates: entries.length - accepted };
 }

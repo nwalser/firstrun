@@ -1,0 +1,72 @@
+---
+/**
+ * `@firstrun/analytics/astro`: the script tag, with the attributes filled in.
+ *
+ * Astro ships almost no client JavaScript by design, and importing a bundled
+ * analytics module into an island would be the one thing on the page that
+ * hydrates. So this component renders the `<script>` instead: the tag is the
+ * same code, it is cached across every page of the site, and it costs Astro's
+ * build nothing.
+ *
+ * `host` is the ingest origin the tag is served from -- the subdomain CNAMEd at
+ * firstrun. The tag defaults its API host to wherever it was loaded from, so
+ * first-party proxying needs no second setting.
+ */
+export interface Props {
+  /** The source key from the Sources page, `fr_web_…`. Public; authorises nothing. */
+  sourceKey: string;
+  /** Ingest origin, e.g. `https://t.themia.app`. */
+  host: string;
+  /** Page views on SPA navigations (Astro view transitions included). */
+  autoPage?: boolean;
+  /** `outbound_click` and `file_download`. */
+  autoOutbound?: boolean;
+  /** Core Web Vitals. */
+  autoVitals?: boolean;
+  /** `form_submit`, the form's id and name only. */
+  autoForms?: boolean;
+  /** `page_leave`, with visible time and scroll depth. */
+  trackLeave?: boolean;
+  /**
+   * Uncaught errors and unhandled rejections, as `exception` entries at ERROR.
+   * Defaults to false: it is a behaviour change, and its volume is not
+   * something the page controls.
+   */
+  autoErrors?: boolean;
+}
+
+const {
+  sourceKey,
+  host,
+  autoPage = true,
+  autoOutbound = true,
+  autoVitals = true,
+  autoForms = true,
+  trackLeave = true,
+  autoErrors = false,
+} = Astro.props;
+
+const src = host.replace(/\/$/, "") + "/t.js";
+// Astro drops an attribute whose value is undefined, and the tag reads a
+// missing attribute as "on". So only the switched-off ones are written.
+const off = (on: boolean) => (on ? undefined : "false");
+// Error capture is the mirror image: absent means off, so only the on case is
+// written. `optIn` in the tag reads it that way.
+const onlyIfOn = (on: boolean) => (on ? "true" : undefined);
+---
+
+<script is:inline>
+  window.fr = window.fr || function () { (fr.q = fr.q || []).push(arguments); };
+</script>
+<script
+  is:inline
+  async
+  src={src}
+  data-key={sourceKey}
+  data-auto-page={off(autoPage)}
+  data-auto-outbound={off(autoOutbound)}
+  data-auto-vitals={off(autoVitals)}
+  data-auto-forms={off(autoForms)}
+  data-track-leave={off(trackLeave)}
+  data-auto-errors={onlyIfOn(autoErrors)}
+></script>

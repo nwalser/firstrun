@@ -1,16 +1,24 @@
 #!/usr/bin/env bun
-import { readFile } from "node:fs/promises";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { createStore, databaseUrl, type Store } from "./client.js";
-import { migrationsDir, viewsFile } from "./paths.js";
+import { createStore, databaseUrl } from "./client.js";
+import { ensurePartitions } from "./partitions.js";
+import { migrationsDir } from "./paths.js";
 
 /**
- * Applies the Drizzle migrations, then the analytics views.
+ * Applies the Drizzle migrations, then makes sure `log_entries` has partitions
+ * around today.
  *
  * Called by `bun run db:migrate` and again on server boot: a clean clone should
  * be one `docker compose up` and one `bun run dev` away from working, not one
  * of those plus a command you have to know about. Drizzle's ledger makes
- * re-running a no-op.
+ * re-running a no-op, and so does the partition helper.
+ *
+ * The partition step is not part of the migration file on purpose. A migration
+ * runs ONCE; partitions have to exist every month forever. A deployment that has
+ * been up since March needs next month's partition without anyone deploying, and
+ * a database restored from a year-old dump needs this month's. Both are the same
+ * call, and it runs on every boot because a write that arrives for a partition
+ * nobody created is the failure this must not have.
  */
 
 export async function waitForPostgres(url: string = databaseUrl(), timeoutMs = 60_000): Promise<void> {
@@ -33,28 +41,12 @@ export async function waitForPostgres(url: string = databaseUrl(), timeoutMs = 6
   }
 }
 
-/**
- * Views that the analytics queries read.
- *
- * Read with node:fs rather than Bun.file: this same module is evaluated inside
- * Vite's SSR module runner during development, where the Bun globals are not
- * present even though the process is Bun.
- *
- * Kept out of the Drizzle schema because Drizzle models tables, and a view
- * whose body is the interesting part would end up as an opaque string in a
- * migration either way. Idempotent, so it is applied on every boot and always
- * matches the file rather than whatever shape it had when it was first created.
- */
-export async function applyViews(store: Store): Promise<void> {
-  await store.query(await readFile(viewsFile(), "utf8"));
-}
-
 export async function applyMigrations(url: string = databaseUrl()): Promise<void> {
   await waitForPostgres(url);
   const store = createStore(url);
   try {
     await migrate(store.db, { migrationsFolder: migrationsDir() });
-    await applyViews(store);
+    await ensurePartitions(store);
   } finally {
     await store.close();
   }

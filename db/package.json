@@ -8,6 +8,11 @@
     ".": "./index.ts",
     "./schema": "./schema.ts",
     "./client": "./client.ts",
+    "./log-entries": "./log-entries.ts",
+    "./query": "./query.ts",
+    "./partitions": "./partitions.ts",
+    "./migrate": "./migrate.ts",
+    "./repo": "./repo.ts",
     "./queries": "./queries.ts"
   },
   "scripts": {
@@ -15,7 +20,6 @@
     "push": "drizzle-kit push"
   },
   "dependencies": {
-    "@firstrun/identity": "workspace:*",
     "@firstrun/schema": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1"

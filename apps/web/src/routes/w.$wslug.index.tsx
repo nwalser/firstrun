@@ -1,162 +1,751 @@
-import { Link, createFileRoute, notFound, redirect, useRouter } from "@tanstack/solid-router";
-import { For, Show, createSignal } from "solid-js";
+import { Link, createFileRoute } from "@tanstack/solid-router";
+import Check from "lucide-solid/icons/check";
+import ChevronRight from "lucide-solid/icons/chevron-right";
+import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
+import LayoutDashboard from "lucide-solid/icons/layout-dashboard";
+import LayoutGrid from "lucide-solid/icons/layout-grid";
+import List from "lucide-solid/icons/list";
+import ListFilter from "lucide-solid/icons/list-filter";
+import Search from "lucide-solid/icons/search";
+import X from "lucide-solid/icons/x";
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { PageHeader } from "../components/page-header.js";
 import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   Badge,
   Button,
   Card,
-  CardContent,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyMedia,
+  EmptyTitle,
   Input,
-  Label,
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
+  Kbd,
+  buttonVariants,
+  initials,
 } from "../components/ui/index.js";
-import { createProjectFn, getSession, getWorkspace } from "../lib/api.js";
-import { PageHeader } from "./__root.js";
+import { cn } from "../lib/cn.js";
+import type { MemberSummary, ProjectListItem } from "../lib/api.js";
+import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
+import { Route as WorkspaceRoute } from "./w.$wslug.js";
 
 /**
- * The projects in a workspace.
+ * The workspace overview: every project, and what the workspace is doing.
  *
- * A project is one product AND one namespace of people. The copy says so where
- * someone is about to create one, because "a project per platform" is the
- * mistake that quietly breaks the entire product: a visitor on the site and an
- * install of the app have to land in the same project to become one person.
+ * Shaped after the reference's list page and its team overview
+ * (`docs/vercel-structure.md` sections 1.7, 5 and 8.2), which is a different
+ * page from the one this used to be in four ways worth naming.
+ *
+ * 1. **A heading block, then a toolbar.** The 32px title row carries the
+ *    workspace name and the 32px row under it carries the filters. Then one
+ *    36px toolbar row: search, sort, a view toggle and one primary action. A
+ *    workspace with twenty projects needs to find one, and a grid of cards with
+ *    no search is a page you scroll.
+ * 2. **One divided surface, not a field of tiles.** The list is a single ringed
+ *    container with hairlines between its rows, so it reads as one object. The
+ *    grid is the alternative the toggle offers, not the default.
+ * 3. **A rail.** The main column is the projects; the 320/404px column beside
+ *    it carries what the workspace is doing and who is in it. On a project page
+ *    that column would be noise. Here it is the only place those facts have.
+ * 4. **No role pill.** The reference states scope once, on the sidebar's
+ *    workspace switcher row, rather than restating it on every page.
+ *
+ * The breakpoints are CONTAINER queries on the shell's page pane, never
+ * viewport ones: the sidebar collapsing has to reflow this as if the window had
+ * changed size, and the pane is roughly a third narrower than the window.
+ *
+ * The page pads vertically only. The shell's page track already supplies the
+ * 24px side margin as grid columns, and padding here would sit inside that.
  */
 export const Route = createFileRoute("/w/$wslug/")({
-  loader: async ({ params }) => {
-    const session = await getSession();
-    if (!session.user) throw redirect({ to: "/login" });
-    const view = await getWorkspace({ data: params.wslug });
-    if (!view) throw notFound();
-    return view;
-  },
   component: WorkspaceProjects,
 });
 
-function WorkspaceProjects() {
-  const view = Route.useLoaderData();
-  const router = useRouter();
+type View = "grid" | "list";
+type Sort = "activity" | "name";
 
-  const [open, setOpen] = createSignal(false);
-  const [name, setName] = createSignal("");
-  const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+/**
+ * The key each sort names, rather than the word.
+ *
+ * A record of literals, so `t` still sees a key from its closed union and a
+ * typo is a compile error. The label is read inside the component, which is
+ * what makes switching language re-render the toolbar.
+ */
+const SORT_KEYS = {
+  activity: "workspace.sort_activity",
+  name: "workspace.sort_name",
+} as const satisfies Record<Sort, SimpleKey>;
 
-  const isAdmin = () => view().workspace.role === "admin";
+/** How long a project can say nothing before "receiving" stops being true. */
+const QUIET_AFTER_MS = 24 * 60 * 60 * 1000;
 
-  async function create(e: Event) {
-    e.preventDefault();
-    if (!name().trim()) return;
-    setBusy(true);
-    setError(null);
-    const result = await createProjectFn({
-      data: { workspace: view().workspace.slug, name: name() },
-    });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    setOpen(false);
-    setName("");
-    await router.invalidate();
+type FacetKey = "activity" | "sources";
+
+interface Facet {
+  key: FacetKey;
+  value: string;
+}
+
+/**
+ * What the filter row can narrow the list by.
+ *
+ * Both facets are read off the two facts a row already shows, so a chip never
+ * filters on something the reader cannot then see in the row it kept. A project
+ * with sources and nothing received is the interesting failure, and "Sources:
+ * Connected" plus "Activity: Nothing yet" is how you ask for exactly that set.
+ */
+const FACETS: Array<{
+  key: FacetKey;
+  labelKey: SimpleKey;
+  options: Array<{ value: string; labelKey: SimpleKey; match: (p: ProjectListItem) => boolean }>;
+}> = [
+  {
+    key: "activity",
+    labelKey: "workspace.facet_activity",
+    options: [
+      {
+        value: "receiving",
+        labelKey: "workspace.facet_receiving",
+        match: (p) =>
+          p.lastEventAt !== null &&
+          Date.now() - new Date(p.lastEventAt).getTime() <= QUIET_AFTER_MS,
+      },
+      {
+        value: "quiet",
+        labelKey: "workspace.facet_quiet",
+        match: (p) =>
+          p.lastEventAt !== null &&
+          Date.now() - new Date(p.lastEventAt).getTime() > QUIET_AFTER_MS,
+      },
+      {
+        value: "silent",
+        labelKey: "workspace.facet_silent",
+        match: (p) => p.lastEventAt === null,
+      },
+    ],
+  },
+  {
+    key: "sources",
+    labelKey: "workspace.facet_sources",
+    options: [
+      { value: "some", labelKey: "workspace.facet_connected", match: (p) => p.sourceCount > 0 },
+      { value: "none", labelKey: "common.none", match: (p) => p.sourceCount === 0 },
+    ],
+  },
+];
+
+/**
+ * The two keys a chip prints, or null for a facet nobody defines any more.
+ *
+ * Keys rather than words, because this runs at module scope: a word resolved
+ * here would be frozen in whichever locale was active when the module was first
+ * evaluated. The component translates them where it draws them.
+ */
+function facetLabels(facet: Facet): { facet: SimpleKey; value: SimpleKey } | null {
+  const group = FACETS.find((f) => f.key === facet.key);
+  const option = group?.options.find((o) => o.value === facet.value);
+  return group && option ? { facet: group.labelKey, value: option.labelKey } : null;
+}
+
+/** An unknown facet matches everything: a stale chip narrows nothing silently. */
+function facetMatches(facet: Facet, project: ProjectListItem): boolean {
+  const option = FACETS.find((f) => f.key === facet.key)?.options.find(
+    (o) => o.value === facet.value
+  );
+  return option ? option.match(project) : true;
+}
+
+/**
+ * How the reader last looked at this list, remembered across navigation.
+ *
+ * A view toggle that resets every time you come back is worse than no toggle:
+ * you have to notice it reset before you trust what you are reading.
+ *
+ * Read in `onMount` and never during render, which is what keeps the server's
+ * HTML and the client's first render identical. Touching `localStorage` during
+ * render would also throw outright wherever site data is blocked, and a throw
+ * during render takes the page down over a preference.
+ */
+const VIEW_KEY = "firstrun.workspace.view";
+const SORT_KEY = "firstrun.workspace.sort";
+
+function readStored<T extends string>(key: string, allowed: readonly T[]): T | null {
+  try {
+    const value = localStorage.getItem(key);
+    return value && (allowed as readonly string[]).includes(value) ? (value as T) : null;
+  } catch {
+    return null;
   }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Nothing to do: the page renders the same, it just forgets.
+  }
+}
+
+function WorkspaceProjects() {
+  const i18n = useI18n();
+  const data = WorkspaceRoute.useLoaderData();
+
+  const workspace = () => data().view.workspace;
+  const members = () => data().view.members;
+  const isAdmin = () => workspace().role === "admin";
+
+  const [query, setQuery] = createSignal("");
+  const [facets, setFacets] = createSignal<Facet[]>([]);
+  const [view, setViewSignal] = createSignal<View>("list");
+  const [sort, setSortSignal] = createSignal<Sort>("activity");
+
+  onMount(() => {
+    const storedView = readStored<View>(VIEW_KEY, ["grid", "list"]);
+    if (storedView) setViewSignal(storedView);
+    const storedSort = readStored<Sort>(SORT_KEY, ["activity", "name"]);
+    if (storedSort) setSortSignal(storedSort);
+  });
+
+  const setView = (next: View) => {
+    setViewSignal(next);
+    writeStored(VIEW_KEY, next);
+  };
+  const setSort = (next: Sort) => {
+    setSortSignal(next);
+    writeStored(SORT_KEY, next);
+  };
+
+  const isFacetActive = (key: FacetKey, value: string) =>
+    facets().some((f) => f.key === key && f.value === value);
+
+  /** One value per facet: another value replaces it, the same value clears it. */
+  const toggleFacet = (key: FacetKey, value: string) =>
+    setFacets((current) => {
+      const active = current.some((f) => f.key === key && f.value === value);
+      const rest = current.filter((f) => f.key !== key);
+      return active ? rest : [...rest, { key, value }];
+    });
+
+  const removeFacet = (key: FacetKey) =>
+    setFacets((current) => current.filter((f) => f.key !== key));
+
+  let searchField: HTMLInputElement | undefined;
+
+  // `/` focuses the search, which is the shortcut the placeholder advertises.
+  // Guarded on the event target so typing a slash into any other field, or into
+  // a card someone is renaming, still types a slash.
+  onMount(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      event.preventDefault();
+      searchField?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  /** Newest activity first, nulls last, so "nothing yet" never leads the page. */
+  const byActivity = (a: ProjectListItem, b: ProjectListItem) => {
+    if (a.lastEventAt === b.lastEventAt) return a.name.localeCompare(b.name);
+    if (!a.lastEventAt) return 1;
+    if (!b.lastEventAt) return -1;
+    return a.lastEventAt < b.lastEventAt ? 1 : -1;
+  };
+
+  const sorted = createMemo(() =>
+    [...data().view.projects].sort(
+      sort() === "name" ? (a, b) => a.name.localeCompare(b.name) : byActivity
+    )
+  );
+
+  const shown = createMemo(() => {
+    const needle = query().trim().toLowerCase();
+    const active = facets();
+    return sorted().filter((project) => {
+      const hit =
+        !needle ||
+        project.name.toLowerCase().includes(needle) ||
+        project.slug.includes(needle);
+      return hit && active.every((facet) => facetMatches(facet, project));
+    });
+  });
+
+  /** Whether anything is narrowing the list, which the empty case has to say. */
+  const narrowed = () => query().trim().length > 0 || facets().length > 0;
+
+  /** The rail's own order, which is recency whatever the list is sorted by. */
+  const recent = createMemo(() => [...data().view.projects].sort(byActivity).slice(0, 6));
+
+  const hasProjects = () => data().view.projects.length > 0;
 
   return (
-    <main class="mx-auto max-w-6xl px-6 pb-24">
+    // The 16px above the title comes from the heading block's own top padding,
+    // which is why there is none here: stating it twice would put the reference
+    // 16px inner wrapper at 32.
+    <main class="flex flex-col pb-4">
       <PageHeader
-        title={view().workspace.name}
-        badge={view().workspace.role}
-        description="Each project is one product, with its own people and its own dashboard."
-        actions={
+        title={workspace().name}
+        description={i18n.t("workspace.projects_hint")}
+        filters={
           <>
-            <Button as={Link} to="/w/$wslug/members" params={{ wslug: view().workspace.slug }} variant="outline" size="sm">
-              People
-              <Badge variant="secondary">{view().members.length}</Badge>
-            </Button>
-            <Show when={isAdmin()}>
-              <Button size="sm" onClick={() => setOpen(true)}>
-                New project
-              </Button>
-            </Show>
+            <DropdownMenu>
+              <DropdownMenuTrigger as={Button} variant="outline" size="sm">
+                <ListFilter class="size-3.5" />
+                {i18n.t("workspace.add_filter")}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <For each={FACETS}>
+                  {(group) => (
+                    <>
+                      <DropdownMenuLabel>{i18n.t(group.labelKey)}</DropdownMenuLabel>
+                      <For each={group.options}>
+                        {(option) => (
+                          <DropdownMenuItem onSelect={() => toggleFacet(group.key, option.value)}>
+                            <Check
+                              class={cn(
+                                "size-4",
+                                isFacetActive(group.key, option.value)
+                                  ? "opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                            {i18n.t(option.labelKey)}
+                          </DropdownMenuItem>
+                        )}
+                      </For>
+                    </>
+                  )}
+                </For>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* One chip per active facet, and clicking it takes that facet off. */}
+            <For each={facets()}>
+              {(facet) => (
+                <Show when={facetLabels(facet)}>
+                  {(labels) => (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeFacet(facet.key)}
+                      aria-label={i18n.t("workspace.remove_filter", {
+                        facet: i18n.t(labels().facet),
+                      })}
+                    >
+                      <span class="text-muted-foreground">{i18n.t(labels().facet)}:</span>
+                      {i18n.t(labels().value)}
+                      <X class="size-3.5 text-muted-foreground" />
+                    </Button>
+                  )}
+                </Show>
+              )}
+            </For>
           </>
         }
       />
 
       <Show
-        when={view().projects.length > 0}
+        when={hasProjects()}
         fallback={
-          <div class="rounded-xl border border-dashed p-12 text-center">
-            <p class="text-sm text-muted-foreground">No projects in this workspace yet.</p>
+          <Empty>
+            <EmptyMedia>
+              <LayoutDashboard />
+            </EmptyMedia>
+            <EmptyTitle>{i18n.t("workspace.no_projects")}</EmptyTitle>
+            <EmptyDescription>{i18n.t("workspace.no_projects_hint")}</EmptyDescription>
             <Show when={isAdmin()}>
-              <Button class="mt-4" size="sm" onClick={() => setOpen(true)}>
-                Create the first one
-              </Button>
+              <EmptyContent>
+                <Link
+                  to="/w/$wslug/projects/new"
+                  params={{ wslug: workspace().slug }}
+                  class={buttonVariants()}
+                >
+                  {i18n.t("workspace.create_first")}
+                </Link>
+              </EmptyContent>
             </Show>
-          </div>
+          </Empty>
         }
       >
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <For each={view().projects}>
-            {(project) => (
-              <Link to="/w/$wslug/$pslug" params={{ wslug: view().workspace.slug, pslug: project.slug }}>
-                <Card class="h-full transition-colors hover:border-ring">
-                  <CardContent class="pt-5">
-                    <div class="font-medium">{project.name}</div>
-                    <div class="mt-1 font-mono text-xs text-muted-foreground">/{project.slug}</div>
-                  </CardContent>
-                </Card>
+        <div class="flex flex-col gap-6">
+          {/* The 36px toolbar row: search, sort, view, one primary action. */}
+          <div class="flex flex-row items-center gap-2">
+            <div class="relative min-w-0 flex-1">
+              <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={searchField}
+                type="search"
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
+                placeholder={i18n.t("workspace.search_placeholder")}
+                aria-label={i18n.t("workspace.search_label")}
+                class="pr-10 pl-9"
+              />
+              <Kbd class="absolute top-1/2 right-2 -translate-y-1/2">/</Kbd>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                as={Button}
+                variant="outline"
+                size="toolbar-icon"
+                aria-label={i18n.t("workspace.sort_by", { field: i18n.t(SORT_KEYS[sort()]) })}
+                title={i18n.t("workspace.sort_by", { field: i18n.t(SORT_KEYS[sort()]) })}
+              >
+                <ChevronsUpDown class="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <For each={["activity", "name"] as Sort[]}>
+                  {(option) => (
+                    <DropdownMenuItem onSelect={() => setSort(option)}>
+                      <Check
+                        class={cn("size-4", sort() === option ? "opacity-100" : "opacity-0")}
+                      />
+                      {i18n.t(SORT_KEYS[option])}
+                    </DropdownMenuItem>
+                  )}
+                </For>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/*
+              72x36 overall: 4px of padding around two 28x32 cells. Two buttons
+              in one ringed box rather than two separate ones, because they are
+              one setting with two states.
+            */}
+            <div class="flex h-control-md shrink-0 items-center rounded-md bg-card p-1 shadow-xs">
+              <ViewButton
+                active={view() === "list"}
+                label={i18n.t("workspace.view_list")}
+                onClick={() => setView("list")}
+              >
+                <List class="size-4" />
+              </ViewButton>
+              <ViewButton
+                active={view() === "grid"}
+                label={i18n.t("workspace.view_grid")}
+                onClick={() => setView("grid")}
+              >
+                <LayoutGrid class="size-4" />
+              </ViewButton>
+            </div>
+
+            <Show when={isAdmin()}>
+              <Link
+                to="/w/$wslug/projects/new"
+                params={{ wslug: workspace().slug }}
+                class={cn(buttonVariants({ size: "toolbar" }), "shrink-0")}
+              >
+                {i18n.t("workspace.add_new")}
               </Link>
-            )}
-          </For>
-        </div>
-      </Show>
+            </Show>
+          </div>
 
-      <Sheet open={open()} onOpenChange={setOpen}>
-        <SheetContent>
-          <form onSubmit={create} class="flex h-full flex-col">
-            <SheetHeader>
-              <SheetTitle>New project</SheetTitle>
-              <SheetDescription>One product, one set of people.</SheetDescription>
-            </SheetHeader>
+          {/* Body: the projects, and the rail beside them once there is room. */}
+          <div class="flex w-full flex-col gap-4 @3xl/page:flex-row @3xl/page:gap-6">
+            <div class="min-w-0 flex-1">
+              <SectionLabel
+                label={i18n.t("workspace.projects")}
+                trailing={
+                  <Show when={narrowed()} fallback={<>{i18n.num(data().view.projects.length)}</>}>
+                    {i18n.t("workspace.count_of", {
+                      shown: shown().length,
+                      total: data().view.projects.length,
+                    })}
+                  </Show>
+                }
+              />
 
-            <SheetBody>
-              <div class="flex flex-col gap-2">
-                <Label for="project-name">Name</Label>
-                <Input
-                  id="project-name"
-                  placeholder="Themia"
-                  value={name()}
-                  onInput={(e) => setName(e.currentTarget.value)}
-                />
+              <Show
+                when={shown().length > 0}
+                fallback={
+                  <Card class="items-center justify-center px-4 py-10 text-center">
+                    <span class="text-body text-muted-foreground">
+                      {i18n.t("workspace.no_matches")}
+                    </span>
+                  </Card>
+                }
+              >
+                <Show
+                  when={view() === "grid"}
+                  fallback={
+                    /*
+                      One ringed surface holding every row, divided by hairlines:
+                      the reference's card-style list, and the reason the list
+                      reads as one object while the grid reads as many.
+                    */
+                    <Card class="overflow-hidden">
+                      <ul class="divide-y">
+                        <For each={shown()}>
+                          {(project) => (
+                            <ProjectRow workspace={workspace().slug} project={project} />
+                          )}
+                        </For>
+                      </ul>
+                    </Card>
+                  }
+                >
+                  <div class="grid grid-cols-1 gap-4 @xl/page:grid-cols-2 @4xl/page:grid-cols-3">
+                    <For each={shown()}>
+                      {(project) => (
+                        <ProjectTile workspace={workspace().slug} project={project} />
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
+            </div>
+
+            <div class="flex shrink-0 flex-col gap-4 @3xl/page:w-[320px] @5xl/page:w-[404px]">
+              <div>
+                <SectionLabel label={i18n.t("workspace.activity")} />
+                <Card>
+                  <ul class="divide-y">
+                    <For each={recent()}>
+                      {(project) => (
+                        <li>
+                          <Link
+                            to="/w/$wslug/$pslug"
+                            params={{ wslug: workspace().slug, pslug: project.slug }}
+                            class="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent"
+                          >
+                            <ProjectLogo name={project.name} />
+                            <span class="min-w-0 flex-1 truncate text-body">{project.name}</span>
+                            <span class="shrink-0 text-caption text-muted-foreground">
+                              <Show
+                                when={project.lastEventAt}
+                                fallback={i18n.t("workspace.nothing_yet")}
+                              >
+                                {(at) => i18n.relative(at())}
+                              </Show>
+                            </span>
+                          </Link>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Card>
               </div>
 
-              <p class="mt-4 text-xs text-muted-foreground">
-                Add your marketing site and your app as two <strong>sources</strong> inside this one
-                project. They share one namespace of people, which is what lets a visit be joined to
-                an install. A separate project per platform breaks that join.
-              </p>
-
-              <Show when={error()}>
-                {(message) => <p class="mt-3 text-sm text-destructive">{message()}</p>}
-              </Show>
-            </SheetBody>
-
-            <SheetFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button disabled={busy() || !name().trim()}>
-                {busy() ? "Creating…" : "Create project"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
+              <div>
+                <SectionLabel
+                  label={i18n.t("workspace.people")}
+                  trailing={
+                    <>
+                      {i18n.num(members().length)}
+                      <Link
+                        to="/w/$wslug/members"
+                        params={{ wslug: workspace().slug }}
+                        class="ml-3 text-caption text-muted-foreground hover:text-foreground"
+                      >
+                        {i18n.t("workspace.manage")}
+                      </Link>
+                    </>
+                  }
+                />
+                <Card>
+                  <ul class="divide-y">
+                    <For each={members().slice(0, 6)}>
+                      {(member) => <MemberRow member={member} />}
+                    </For>
+                  </ul>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
     </main>
+  );
+}
+
+/**
+ * The label above a list.
+ *
+ * 32px, 14/500, and outside the ringed surface rather than inside it as a card
+ * header: the reference puts the name of a list above the object, so the object
+ * itself is nothing but rows.
+ */
+function SectionLabel(props: { label: string; trailing?: JSX.Element }) {
+  return (
+    <div class="mb-3 flex h-8 items-center justify-between gap-2 px-1.5">
+      <span class="text-body font-medium text-foreground">{props.label}</span>
+      <Show when={props.trailing}>
+        <span class="text-caption text-muted-foreground">{props.trailing}</span>
+      </Show>
+    </div>
+  );
+}
+
+/** One cell of the 72x36 view toggle: 28 tall inside the box's 4px padding. */
+function ViewButton(props: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  children: JSX.Element;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      title={props.label}
+      aria-pressed={props.active}
+      onClick={() => props.onClick()}
+      class={cn(
+        "focus-ring flex h-7 w-8 cursor-pointer items-center justify-center rounded-sm",
+        "outline-none transition-colors",
+        props.active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:text-foreground"
+      )}
+    >
+      {props.children}
+    </button>
+  );
+}
+
+/** A project's stand-in for an avatar: its initials, in the card radius. */
+function ProjectLogo(props: { name: string; class?: string }) {
+  return (
+    <span
+      class={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-md shadow-2xs",
+        "bg-muted text-caption font-semibold text-foreground",
+        props.class
+      )}
+    >
+      {initials(props.name)}
+    </span>
+  );
+}
+
+/**
+ * What a project row says, wherever it is drawn.
+ *
+ * Sources and last activity, because "is this thing actually receiving
+ * anything" is the question somebody opens this page to answer. A project with
+ * sources and no entries is the interesting failure (the tag is installed and
+ * not reporting), so the two facts sit next to each other rather than one being
+ * folded into the other.
+ */
+function ProjectFacts(props: { project: ProjectListItem }) {
+  const i18n = useI18n();
+  return (
+    <>
+      {/* The count goes through the plural family rather than an `=== 1` check.
+          `Intl.PluralRules` picks the form, and the count is run through the
+          active locale on the way into the sentence. */}
+      <div class="truncate text-caption text-muted-foreground">
+        {i18n.t("workspace.sources", { count: props.project.sourceCount })}
+      </div>
+      <div class="truncate text-caption text-muted-foreground">
+        <Show
+          when={props.project.sourceCount > 0}
+          fallback={<span>{i18n.t("workspace.no_source_yet")}</span>}
+        >
+          <Show
+            when={props.project.lastEventAt}
+            fallback={<span class="text-warning">{i18n.t("workspace.nothing_received")}</span>}
+          >
+            {(at) => <>{i18n.t("workspace.last_entry", { when: i18n.relative(at()) })}</>}
+          </Show>
+        </Show>
+      </div>
+    </>
+  );
+}
+
+/**
+ * A row of the list view: the reference's 75px project row.
+ *
+ * The chevron is placed at the row's top right rather than centred in it,
+ * which is where the reference puts a row's actions: it stays put as the middle
+ * block grows a second line, instead of drifting down with it.
+ */
+function ProjectRow(props: { workspace: string; project: ProjectListItem }) {
+  return (
+    <li>
+      <Link
+        to="/w/$wslug/$pslug"
+        params={{ wslug: props.workspace, pslug: props.project.slug }}
+        class="relative flex items-center gap-3 p-4 transition-colors hover:bg-accent"
+      >
+        <div class="flex min-w-0 items-center gap-4 @xl/page:w-[calc(25%+48px)]">
+          <ProjectLogo name={props.project.name} class="size-10" />
+          <div class="min-w-0">
+            <div class="truncate text-body font-medium">{props.project.name}</div>
+            <div class="truncate font-mono text-mono text-muted-foreground">
+              /{props.project.slug}
+            </div>
+          </div>
+        </div>
+
+        <div class="hidden min-w-0 flex-1 flex-col gap-0.5 pr-12 @xl/page:flex">
+          <ProjectFacts project={props.project} />
+        </div>
+
+        <ChevronRight class="absolute top-[21px] right-4 size-4 text-muted-foreground" />
+      </Link>
+    </li>
+  );
+}
+
+/** A card of the grid view. The same facts, stacked. */
+function ProjectTile(props: { workspace: string; project: ProjectListItem }) {
+  return (
+    <Link
+      to="/w/$wslug/$pslug"
+      params={{ wslug: props.workspace, pslug: props.project.slug }}
+      class={cn(
+        "group flex flex-col gap-4 rounded-md bg-card p-4 shadow-sm",
+        "transition-colors hover:bg-accent"
+      )}
+    >
+      <div class="flex items-start gap-3">
+        <ProjectLogo name={props.project.name} />
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-body font-medium">{props.project.name}</div>
+          <div class="truncate font-mono text-mono text-muted-foreground">
+            /{props.project.slug}
+          </div>
+        </div>
+        <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+      </div>
+      <div class="flex flex-col gap-0.5">
+        <ProjectFacts project={props.project} />
+      </div>
+    </Link>
+  );
+}
+
+function MemberRow(props: { member: MemberSummary }) {
+  const i18n = useI18n();
+  return (
+    <li class="flex items-center gap-3 px-4 py-2.5">
+      <Avatar>
+        <Show when={props.member.avatarUrl}>
+          {(url) => <AvatarImage src={url()} alt="" />}
+        </Show>
+        <AvatarFallback>{initials(props.member.name ?? props.member.login)}</AvatarFallback>
+      </Avatar>
+      <div class="min-w-0 flex-1">
+        <div class="truncate text-body">{props.member.name ?? props.member.login}</div>
+        <div class="truncate text-caption text-muted-foreground">@{props.member.login}</div>
+      </div>
+      <Badge variant={props.member.role === "admin" ? "secondary" : "outline"}>
+        {i18n.t(props.member.role === "admin" ? "workspace.role_admin" : "workspace.role_read")}
+      </Badge>
+    </li>
   );
 }

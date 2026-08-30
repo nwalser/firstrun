@@ -1,84 +1,417 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./fonts.css";
 
 /*
- * shadcn's token set, on Tailwind v4.
+ * The design system: a port of Vercel's Geist onto Tailwind v4.
  *
- * Two tokens are ours rather than shadcn's, and they are the ones that carry
- * meaning in this product: `exact` and `estimate`. A number we can prove and a
- * number we guessed must never look alike, so they are semantic tokens rather
- * than a colour someone picked at the call site. See CLAUDE.md rule 1.
+ * Every number below is copied from `docs/geist-reference.md`, which was read
+ * out of the live Geist system rather than recalled. Where instinct and that
+ * file disagree, the file wins. Do not round these values, smooth them, or
+ * improve them.
+ *
+ * Five things make the look, and everything else follows:
+ *
+ *   1. TWO SURFACES, ALMOST TOUCHING. The dark page is pure black and a card
+ *      sits 4% above it. The fills barely differ; the 1px ring is what
+ *      actually separates them.
+ *   2. THE RING IS A BOX-SHADOW, NOT A BORDER. `0 0 0 1px` at the default
+ *      hairline, so separation never takes part in layout and a hairline can
+ *      appear and disappear without moving anything by a pixel.
+ *   3. NEGATIVE TRACKING ON ANYTHING LARGE. h1 -0.06em, h2 -0.04em, a 16px
+ *      lead -0.02em, body normal. This is the single most recognisable
+ *      property of the look and the usual thing a port misses.
+ *   4. FOCUS IS BLUE AND TWO-STOP. 2px of the page colour, then 2px of the
+ *      focus blue. Not the foreground, not monochrome.
+ *   5. APPLICATION CHROME IS 14px / 20px. 16px is marketing prose.
+ *
+ * ---------------------------------------------------------------------------
+ * THE NAMING TRAP
+ *
+ * `background-100` is the RAISED surface (card, popover) and `background-200`
+ * is the PAGE behind it. That is the opposite of what the names suggest, and
+ * it is why `--card` maps to 100 and `--background` to 200.
+ *
+ * ---------------------------------------------------------------------------
+ * THE GREY SCALE IS NOT MONOTONIC
+ *
+ * Dark `gray-800` (49%) is DARKER than dark `gray-700` (56%), and 700 and 800
+ * are the same value in both themes. The light alpha ramp does the same thing:
+ * `gray-alpha-200` and `gray-alpha-400` are both `#00000014` while 300 sits at
+ * `#0000001a` between them. It reads as a mistake. It is measured, it is not
+ * ours to correct, and a future session that "fixes" it into a smooth ramp has
+ * broken the port.
+ *
+ * ---------------------------------------------------------------------------
+ * PRIVATE PALETTE, PUBLIC TOKENS
+ *
+ * The Geist scales below are a private palette. Call sites use the semantic
+ * tokens, never `--gray-500` directly, and the scales are deliberately kept
+ * out of the theme block: Tailwind already owns a grey colour namespace and
+ * shadowing it would silently repaint anything reaching for a stock grey.
+ *
+ * ---------------------------------------------------------------------------
+ * CONTRAST
+ *
+ * Ratios quoted are WCAG 2.1, computed against the surface the thing is drawn
+ * on, after any alpha composite. Text is held at 4.5:1 and a focus ring at
+ * 3:1. The default hairline is NOT held to a ratio: Geist's is 1.19:1 on a
+ * light card and 1.44:1 on a dark one, and that is the measured value.
+ *
+ * Headline numbers, light / dark:
+ *   foreground on background      17.18 / 17.94
+ *   foreground on card            17.93 / 16.91
+ *   muted-foreground on card       8.45 /  7.66
+ *   primary-foreground on primary 17.93 / 16.91
+ *   focus ring on background       5.09 /  8.40
  */
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
+  /* --- Geist surfaces, light ----------------------------------------------
+     100 is the raised surface, 200 is the page. See the naming trap above. */
+  --background-100: hsla(0, 0%, 100%, 1); /* #ffffff  card, popover */
+  --background-200: hsla(0, 0%, 98%, 1); /* #fafafa  the page */
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* --- Geist gray, light -------------------------------------------------- */
+  --gray-100: hsla(0, 0%, 95%, 1); /* #f2f2f2 */
+  --gray-200: hsla(0, 0%, 92%, 1); /* #ebebeb */
+  --gray-300: hsla(0, 0%, 90%, 1); /* #e6e6e6 */
+  --gray-400: hsla(0, 0%, 92%, 1); /* #ebebeb */
+  --gray-500: hsla(0, 0%, 79%, 1); /* #c9c9c9 */
+  --gray-600: hsla(0, 0%, 66%, 1); /* #a8a8a8 */
+  --gray-700: hsla(0, 0%, 56%, 1); /* #8f8f8f  same in both themes */
+  --gray-800: hsla(0, 0%, 49%, 1); /* #7d7d7d  same in both themes */
+  --gray-900: hsla(0, 0%, 30%, 1); /* #4d4d4d  secondary text */
+  --gray-1000: hsla(0, 0%, 9%, 1); /* #171717  primary text */
 
-  --chart-1: oklch(0.646 0.222 264.376);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  /* --- Geist gray alpha, light -------------------------------------------
+     Borders and hairlines, so a rule composites over whatever it sits on. */
+  --gray-alpha-100: #0000000d;
+  --gray-alpha-200: #00000014;
+  --gray-alpha-300: #0000001a;
+  --gray-alpha-400: #00000014; /* THE default hairline */
+  --gray-alpha-500: #00000036;
+  --gray-alpha-600: #00000057;
+  --gray-alpha-700: #00000070;
+  --gray-alpha-800: #00000082;
+  --gray-alpha-900: #000000b3;
+  --gray-alpha-1000: #000000e8;
 
-  /* Proven, and guessed. Never the same colour. */
-  --exact: oklch(0.205 0 0);
-  --estimate: oklch(0.75 0.15 75);
-  --positive: oklch(0.6 0.13 160);
+  /* --- Geist accents, light ----------------------------------------------
+     Only the steps a UI reaches for. 800 is a fill, 900 is the readable step
+     for the same hue as text. */
+  --blue-700: hsla(212, 100%, 48%, 1); /* #0072f5  action */
+  --blue-900: hsla(211, 100%, 42%, 1); /* #0068d6  focus */
+  --red-800: hsla(358, 70%, 52%, 1); /* #da2f35  destructive fill */
+  --red-900: hsla(358, 66%, 48%, 1); /* #cb2a2f */
+  --amber-800: hsla(35, 100%, 52%, 1); /* #ff990a */
+  /* The reference stops the amber run at 800, and 800 on white is 2.14:1: a
+     fill and an icon colour, never a word. This is the one derived value in
+     the file. It continues the amber run to the 900 step at the lightness the
+     other light 900s use, so a warning can be read. 5.27:1 on a card. */
+  --amber-900: hsla(35, 100%, 31%, 1); /* #9e5c00  derived, see above */
+  --green-800: hsla(132, 43%, 39%, 1); /* #398e4a */
+  --green-900: hsla(133, 50%, 32%, 1); /* #297a3a */
+
+  /* --- surfaces -----------------------------------------------------------
+     The page and the card are 2% apart. That gap is not what separates them:
+     the ring is. Anything that wants to read as an object gets the ring. */
+  --background: var(--background-200);
+  --foreground: var(--gray-1000);
+  --card: var(--background-100);
+  --card-foreground: var(--gray-1000);
+  --popover: var(--background-100);
+  --popover-foreground: var(--gray-1000);
+
+  /* --- primary -----------------------------------------------------------
+     Not a colour: the text extreme, with the raised surface as its
+     foreground. Near-black on light, near-white on dark. 17.93:1. */
+  --primary: var(--gray-1000);
+  --primary-foreground: var(--background-100);
+
+  /* gray-200: one step more present than `muted`, because a secondary button
+     has to read as a control rather than as a tint. 15.04:1 for its text. */
+  --secondary: var(--gray-200);
+  --secondary-foreground: var(--gray-1000);
+
+  /* gray-100: the subtlest opaque fill in the scale. Skeletons, table headers
+     and the code block, which draws it at a fraction so it stays a whisper. */
+  --muted: var(--gray-100);
+  /* gray-900. gray-800 is the step a secondary-text token wants by name, but
+     it is 4.12:1 on a white card and this token carries every card title,
+     axis label and table header in the product. 900 is 8.45:1. */
+  --muted-foreground: var(--gray-900);
+
+  /* gray-alpha-200: the hover and selected fill. Alpha rather than opaque
+     because this lands on the page, on a card and on a popover, and an opaque
+     tint that reads correctly on one of those reads wrong on the other two. */
+  --accent: var(--gray-alpha-200);
+  --accent-foreground: var(--gray-1000);
+
+  /* red-800, which is the step the reference labels "(destructive)" in BOTH
+     themes. An earlier pass put light on red-900 and argued that 800 was
+     3.91:1 under white text; remeasured, 800 is #da2f35 and white on it is
+     4.73:1, so the argument was false and the divergence bought nothing.
+     Destructive TEXT is not this token: that is `--negative`, at red-900. */
+  --destructive: var(--red-800);
+  --destructive-foreground: hsla(0, 0%, 100%, 1);
+
+  /* gray-alpha-400, the default hairline. Drawn as a border here for the call
+     sites that still use one; the ring tokens below are the real article. */
+  --border: var(--gray-alpha-400);
+  /* Also gray-alpha-400. Geist's form controls sit on the same hairline as
+     everything else at rest and let the focus ring carry the affordance.
+     gray-alpha-500 is the measured hover step if a control wants one. */
+  --input: var(--gray-alpha-400);
+  /* blue-900. BLUE, and the focus colour, not the foreground. 5.09:1 on the
+     page. The two-stop ring is `--geist-focus-ring` further down. */
+  --ring: var(--blue-900);
+
+  /* Four measured accent hues plus the neutral, at least 37 degrees apart, all
+     clearing 3:1 on a card so a series mark and its label both read. The
+     neutral is gray-800, which is the same value in both themes. */
+  --chart-1: var(--blue-700); /* 4.44:1 */
+  --chart-2: var(--green-900); /* 5.33:1 */
+  --chart-3: var(--amber-900); /* 5.27:1 */
+  --chart-4: var(--red-900); /* 5.37:1 */
+  --chart-5: var(--gray-800); /* 4.12:1 */
+
+  /* Unused. The distinction they encoded is gone from the product; they stay
+     defined because a call site may still linger. */
+  --exact: var(--gray-1000);
+  --estimate: var(--amber-900);
+
+  /* --- brand -------------------------------------------------------------
+     The one colour in this file that is not Geist: the lime of the mark on
+     firstrun.app, so a browser tab, the sidebar and the marketing site are all
+     showing the same object.
+
+     Defined once, outside both themes, ON PURPOSE. It is a LOGO colour, not a
+     UI colour: a mark that changes hue when someone flips the theme is a
+     different mark. Nothing else in the product is allowed to reach for it --
+     a primary button is `--primary`, an accent is `--chart-1`, and the moment
+     this becomes a second accent the Geist palette has two centres.
+
+     It is a FILL and never a word. #bbf451 is 15.20:1 on a dark card and
+     1.30:1 on a light one, so brand-coloured text is unreadable in light.
+     Anything drawn ON the fill uses `--brand-foreground`, at 12.81:1. */
+  --brand: oklch(0.897 0.196 126.7); /* #bbf451 */
+  --brand-foreground: oklch(0.23 0.06 130); /* #132201 */
+
+  /* Product state, all three read as words on a card, so all three are held at
+     4.5:1 rather than treated as decoration. */
+  --positive: var(--green-900); /* 5.33:1 */
+  --warning: var(--amber-900); /* 5.27:1 */
+  --negative: var(--red-900); /* 5.37:1 */
+
+  /* --- code ---------------------------------------------------------------
+     One grey and four accent hues, all at the 900 step, and everything else in
+     a snippet stays at `foreground`. Measured against the block's actual fill,
+     which is `muted` at 40% over a card: #fafafa here. */
+  --code-comment: var(--gray-900); /* 8.10:1 */
+  --code-keyword: var(--blue-900); /* 5.09:1 */
+  --code-string: var(--green-900); /* 5.11:1 */
+  --code-name: var(--amber-900); /* 5.05:1 */
+  --code-number: var(--red-900); /* 5.14:1 */
+
+  /* The sidebar is the page, separated by a hairline rather than by a fill.
+     That is how the Vercel dashboard does it, and it leaves the content cards
+     as the only raised surfaces on screen. */
+  --sidebar: var(--background-200);
+  --sidebar-foreground: var(--gray-1000);
+  --sidebar-primary: var(--gray-1000);
+  --sidebar-primary-foreground: var(--background-100);
+  --sidebar-accent: var(--gray-200); /* the measured active row fill */
+  --sidebar-accent-foreground: var(--gray-1000);
+  --sidebar-border: var(--gray-alpha-400);
+  --sidebar-ring: var(--blue-900);
+
+  /* --- shape -------------------------------------------------------------
+     `--geist-radius` is 6px. Kept as a raw property for any call site
+     computing off it; the scale the utilities read is in the theme block. */
+  --radius: 0.375rem;
+
+  /* --- density -----------------------------------------------------------
+     Geist has three form heights, 32 / 36 / 40. `--control-xs` is outside that
+     set and is kept for the chips and badges that already use it. */
+  --control-xs: 1.75rem; /* 28px  chips, badges: not a Geist form height */
+  --control-sm: 2rem; /* 32px  --geist-form-small-height */
+  --control-md: 2.25rem; /* 36px  --geist-form-height, and a popover row */
+  --control-lg: 2.5rem; /* 40px  --geist-form-large-height */
+  --popover-row: 2.25rem; /* 36px  --ds-popover-row-height */
+
+  /* --- the page tracks ---------------------------------------------------
+     Three measured content widths and one margin. Every page is a three
+     column grid of `margin | track | margin`, so the content is centred on
+     the PANE and the margin never becomes padding on the content itself:
+     padding would move with the content when a page grows a full-bleed row,
+     and a grid column does not. */
+  --page-margin: 24px; /* --geist-page-margin */
+  --page-width-standard: 1620px; /* --dashboard-layout-width-standard */
+  --page-width-compact: 914px; /* --dashboard-layout-width-compact, settings */
+  --page-width: 1200px; /* --geist-page-width, everything outside the shell */
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.185 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* --- Geist surfaces, dark ----------------------------------------------
+     The page is PURE BLACK and the card is 4% above it. Do not lift either. */
+  --background-100: hsla(0, 0%, 4%, 1); /* #0a0a0a  card, popover */
+  --background-200: hsla(0, 0%, 0%, 1); /* #000000  the page */
 
-  --chart-1: oklch(0.65 0.19 265);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  /* --- Geist gray, dark ---------------------------------------------------
+     800 is darker than 700, and 700/800 match the light theme exactly. This
+     is measured. Leave it alone. */
+  --gray-100: hsla(0, 0%, 10%, 1); /* #1a1a1a */
+  --gray-200: hsla(0, 0%, 12%, 1); /* #1f1f1f */
+  --gray-300: hsla(0, 0%, 16%, 1); /* #292929 */
+  --gray-400: hsla(0, 0%, 18%, 1); /* #2e2e2e */
+  --gray-500: hsla(0, 0%, 27%, 1); /* #454545 */
+  --gray-600: hsla(0, 0%, 53%, 1); /* #878787 */
+  --gray-700: hsla(0, 0%, 56%, 1); /* #8f8f8f  same in both themes */
+  --gray-800: hsla(0, 0%, 49%, 1); /* #7d7d7d  same, and darker than 700 */
+  --gray-900: hsla(0, 0%, 63%, 1); /* #a1a1a1  secondary text */
+  --gray-1000: hsla(0, 0%, 93%, 1); /* #ededed  primary text */
 
-  --exact: oklch(0.985 0 0);
-  --estimate: oklch(0.8 0.15 78);
-  --positive: oklch(0.72 0.15 162);
+  /* --- Geist gray alpha, dark --------------------------------------------- */
+  --gray-alpha-100: #ffffff0f;
+  --gray-alpha-200: #ffffff17;
+  --gray-alpha-300: #ffffff21;
+  --gray-alpha-400: #ffffff24; /* THE default hairline */
+  --gray-alpha-500: #ffffff3d;
+  --gray-alpha-600: #ffffff82;
+  --gray-alpha-700: #ffffff8a;
+  --gray-alpha-800: #ffffff78;
+  --gray-alpha-900: #ffffff9c;
+  --gray-alpha-1000: #ffffffeb;
+
+  /* --- Geist accents, dark ------------------------------------------------ */
+  --blue-700: hsla(212, 100%, 48%, 1); /* #0072f5  action */
+  --blue-900: hsla(210, 100%, 66%, 1); /* #52a8ff  focus */
+  --red-800: hsla(358, 69%, 52%, 1); /* #d93036  destructive fill */
+  --red-900: hsla(358, 100%, 69%, 1); /* #ff6166 */
+  --amber-800: hsla(35, 100%, 52%, 1); /* #ff990a */
+  /* Dark needs no derived step: 800 is already 9.25:1 on a card. Defined so
+     both themes answer to the same name. */
+  --amber-900: hsla(35, 100%, 52%, 1); /* #ff990a */
+  --green-800: hsla(132, 43%, 39%, 1); /* #398e4a */
+  --green-900: hsla(131, 43%, 57%, 1); /* #62c073 */
+
+  --background: var(--background-200);
+  --foreground: var(--gray-1000);
+  --card: var(--background-100);
+  --card-foreground: var(--gray-1000);
+  --popover: var(--background-100);
+  --popover-foreground: var(--gray-1000);
+
+  --primary: var(--gray-1000);
+  --primary-foreground: var(--background-100);
+
+  --secondary: var(--gray-200); /* 14.08:1 for its text */
+  --secondary-foreground: var(--gray-1000);
+
+  --muted: var(--gray-100);
+  --muted-foreground: var(--gray-900); /* 7.66:1 on card */
+
+  --accent: var(--gray-alpha-200);
+  --accent-foreground: var(--gray-1000);
+
+  /* red-800, the same step as light: the reference labels 800 "(destructive)"
+     in both themes. White on it is 4.74:1. Destructive TEXT on a dark card
+     wants `--negative` (red-900, 6.74:1), because this fill is 4.17:1 as
+     words on a card and that is under the bar. */
+  --destructive: var(--red-800);
+  --destructive-foreground: hsla(0, 0%, 100%, 1);
+
+  --border: var(--gray-alpha-400);
+  --input: var(--gray-alpha-400);
+  --ring: var(--blue-900); /* 8.40:1 on the page */
+
+  --chart-1: var(--blue-900); /* 7.92:1 */
+  --chart-2: var(--green-900); /* 8.77:1 */
+  --chart-3: var(--amber-800); /* 9.25:1 */
+  --chart-4: var(--red-900); /* 6.74:1 */
+  --chart-5: var(--gray-800); /* 4.81:1 */
+
+  --exact: var(--gray-1000);
+  --estimate: var(--amber-800);
+
+  --positive: var(--green-900); /* 8.77:1 */
+  --warning: var(--amber-800); /* 9.25:1 */
+  --negative: var(--red-900); /* 6.74:1 */
+
+  /* Measured against the block's fill, `muted` at 40% over a card: #101010. */
+  --code-comment: var(--gray-900); /* 7.36:1 */
+  --code-keyword: var(--blue-900); /* 7.61:1 */
+  --code-string: var(--green-900); /* 8.43:1 */
+  --code-name: var(--amber-800); /* 8.89:1 */
+  --code-number: var(--red-900); /* 6.48:1 */
+
+  --sidebar: var(--background-200);
+  --sidebar-foreground: var(--gray-1000);
+  --sidebar-primary: var(--gray-1000);
+  --sidebar-primary-foreground: var(--background-100);
+  --sidebar-accent: var(--gray-200); /* the measured active row fill */
+  --sidebar-accent-foreground: var(--gray-1000);
+  --sidebar-border: var(--gray-alpha-400);
+  --sidebar-ring: var(--blue-900);
 }
 
+/*
+  Rings, shadows and focus.
+
+  Vercel separates surfaces with a 1px RING drawn as a box-shadow, never with a
+  border, so the hairline never takes part in layout: it can appear, disappear
+  and change colour without moving anything by a pixel. Shadows are drawn ON
+  TOP of that ring, many-layered and at very low alpha.
+
+  THE CONTRACT: these are box-shadow values and each one already contains its
+  ring. An element using one MUST NOT also carry a `border`, or the layout
+  shifts by a pixel and the two hairlines double up. Reach for `border` only
+  where the ring cannot go: a table row divider, a split panel edge.
+
+  Written as one rule matching BOTH themes on purpose. A custom property that
+  references another custom property is substituted at computed-value time, so
+  a definition sitting only on `:root` would bake in the light hairline and
+  keep it inside the dark subtree. Declared against both selectors, each
+  element resolves the hairline that is actually in effect on it.
+*/
+:root,
+.dark {
+  --geist-shadow-border-base: 0 0 0 1px var(--gray-alpha-400);
+  --geist-shadow-border-small: 0 0 0 1px var(--gray-alpha-400), 0 1px 2px #00000029;
+  --geist-shadow-border-medium:
+    0 0 0 1px var(--gray-alpha-400), 0 2px 2px #00000052, 0 8px 8px -8px #00000029;
+  --geist-shadow-border-large:
+    0 0 0 1px var(--gray-alpha-400), 0 2px 2px #0000000a, 0 8px 16px -4px #0000000a;
+  --geist-shadow-menu:
+    0 0 0 1px var(--gray-alpha-400), 0 1px 1px #00000005, 0 4px 8px -4px #0000000a,
+    0 16px 24px -8px #0000000f;
+  --geist-shadow-modal:
+    0 0 0 1px var(--gray-alpha-400), 0 1px 1px #00000005, 0 8px 16px -4px #0000000a,
+    0 24px 32px -8px #0000000f;
+  --geist-shadow-tooltip:
+    0 0 0 1px var(--gray-alpha-400), 0 1px 1px #00000005, 0 4px 8px #0000000a;
+
+  /* The lift on its own, for something that already has its own edge. */
+  --geist-shadow-small: 0 1px 2px #00000029;
+  --geist-shadow-medium: 0 2px 2px #00000052, 0 8px 8px -8px #00000029;
+
+  /* Two stops: 2px of the page colour, then 2px of blue. The gap is what makes
+     the ring read on a control that is sitting on a filled surface. */
+  --geist-focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+  --geist-focus-ring-outline: 2px solid var(--ring);
+}
+
+/*
+  The semantic colours, the density scale and the elevation scale.
+
+  `inline` is load-bearing. It makes each utility resolve the underlying
+  property at use time, which is what lets the dark class swap the whole
+  palette, and for the shadows it is also what keeps the hairline inside them
+  live rather than snapshotted at the light value.
+*/
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -108,37 +441,477 @@
 
   --color-exact: var(--exact);
   --color-estimate: var(--estimate);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
   --color-positive: var(--positive);
+  --color-warning: var(--warning);
+  --color-negative: var(--negative);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-code-comment: var(--code-comment);
+  --color-code-keyword: var(--code-keyword);
+  --color-code-string: var(--code-string);
+  --color-code-name: var(--code-name);
+  --color-code-number: var(--code-number);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Height rhythm. Named spacing values, so they reach every size utility that
+     reads the spacing scale rather than only height. */
+  --spacing-control-xs: var(--control-xs);
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control-md: var(--control-md);
+  --spacing-control-lg: var(--control-lg);
+  --spacing-popover-row: var(--popover-row);
+
+  /* --- elevation ---------------------------------------------------------
+     Every value here already contains its 1px ring. Do not pair one with a
+     border. The Tailwind-shaped names climb the Geist ladder; the Geist names
+     are also exposed so a call site can say what it means. */
+  --shadow-2xs: var(--geist-shadow-border-base);
+  --shadow-xs: var(--geist-shadow-border-base);
+  --shadow-sm: var(--geist-shadow-border-small);
+  --shadow-md: var(--geist-shadow-border-medium);
+  --shadow-lg: var(--geist-shadow-border-large);
+  --shadow-xl: var(--geist-shadow-menu);
+  --shadow-2xl: var(--geist-shadow-modal);
+
+  --shadow-ring: var(--geist-shadow-border-base);
+  --shadow-menu: var(--geist-shadow-menu);
+  --shadow-modal: var(--geist-shadow-modal);
+  --shadow-tooltip: var(--geist-shadow-tooltip);
+  --shadow-focus: var(--geist-focus-ring);
+  /* The lift with no ring, for something that already has an edge. */
+  --shadow-lift-sm: var(--geist-shadow-small);
+  --shadow-lift-md: var(--geist-shadow-medium);
+}
+
+/*
+  Type, tracking and shape.
+
+  `static` rather than plain: Tailwind only emits a theme variable it can see a
+  use for, and a scale three other agents are about to build against must exist
+  in the stylesheet before the first call site does. This block is the
+  contract, so it ships whole.
+*/
+@theme static {
+  /* --- fonts -------------------------------------------------------------
+     The Geist stacks, with the self-hosted faces from `fonts.css` first. */
+  --font-sans:
+    "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --font-mono:
+    "Geist Mono", Menlo, Monaco, "Lucida Console", "Liberation Mono", "DejaVu Sans Mono",
+    "Bitstream Vera Sans Mono", "Courier New", monospace;
+
+  /* This app is full of tables of numbers, so the mono face is pinned to
+     tabular figures and a slashed zero, and its code ligatures are off: an id
+     or a hash must render as the characters it is made of. */
+  --font-mono--font-feature-settings: "tnum" 1, "zero" 1, "calt" 0, "liga" 0;
+
+  /* --- the tracking ladder -----------------------------------------------
+     Three measured anchors: 40px is -0.06em, 24px is -0.04em, a 16px lead is
+     -0.02em, and 14px body is normal. Tracking tightens as the size climbs
+     and stops at body. This is what makes a large Geist heading look like
+     Geist instead of like a big body. */
+  --tracking-tighter: -0.06em; /* 40px and up */
+  --tracking-tight: -0.04em; /* 24px headings */
+  --tracking-snug: -0.02em; /* a 16px lead */
+  --tracking-normal: 0em; /* 14px UI, and all body copy */
+  --tracking-wide: 0.02em;
+  --tracking-wider: 0.05em; /* the 11px uppercase micro-label */
+  --tracking-widest: 0.1em;
+
+  /* --- the size scale ----------------------------------------------------
+     xs .75/1, sm .875/1.25, base 1/1.5, lg 1.125/1.75, xl 1.25/1.75, all in
+     rem, exactly as measured. Stated rather than inherited from Tailwind so
+     the scale is visible in one place and cannot drift, and carrying the
+     tracking ladder so a call site already reaching for `text-2xl` gets Geist
+     tracking without asking. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  /* 18px sits between the measured 16px lead and the measured 24px h2, so
+     this step is interpolated. It reads -0.02em rather than the -0.025em a
+     stock scale ships, because -0.025em is not on the Geist ladder at all. */
+  --text-lg--letter-spacing: -0.02em;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-xl--letter-spacing: -0.03em;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-2xl--letter-spacing: -0.04em;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-3xl--letter-spacing: -0.05em;
+
+  /* --- the semantic steps ------------------------------------------------
+     `display` is the measured h1: 40/48/600 at -0.06em. Everything below it
+     walks the ladder down to body, which is the 14/20 application chrome. */
+  --text-display: 2.5rem; /* 40px */
+  --text-display--line-height: 3rem; /* 48px */
+  --text-display--letter-spacing: -0.06em;
+  --text-display--font-weight: 600;
+
+  --text-h1: 2rem; /* 32px */
+  --text-h1--line-height: 2.5rem; /* 40px */
+  --text-h1--letter-spacing: -0.05em;
+  --text-h1--font-weight: 600;
+
+  --text-h2: 1.5rem; /* 24px, the measured h2 */
+  --text-h2--line-height: 2rem; /* 32px */
+  --text-h2--letter-spacing: -0.04em;
+  --text-h2--font-weight: 600;
+
+  /* 20/600/26/-0.4px, measured. `geist-reference.md` never caught this step --
+     it recorded h1 and h2 -- and `vercel-structure.md` did: it is their
+     `text-heading-20`, the size an empty state's title and a docs h3 sit at. */
+  --text-h3: 1.25rem; /* 20px */
+  --text-h3--line-height: 1.625rem; /* 26px */
+  --text-h3--letter-spacing: -0.02em; /* -0.4px */
+  --text-h3--font-weight: 600;
+
+  /* The measured lead paragraph: 16px, and the last step that gets tracking.
+     Marketing prose sits here; application chrome does not. */
+  --text-lead: 1rem; /* 16px */
+  --text-lead--line-height: 1.5rem; /* 24px */
+  --text-lead--letter-spacing: -0.02em;
+  --text-lead--font-weight: 600;
+
+  /* Prose. Same size as the lead, normal weight, NO tracking: a paragraph is
+     not a heading and tightening it is what makes a ported page look wrong.
+
+     The leading is 1.7, not the 1.5 the rest of the scale walks. That is the
+     measured docs value, and it is a documentation setting rather than an
+     application one: a paragraph read once, start to finish, wants more air
+     between its lines than a label read at a glance. Every other step on this
+     ladder keeps its tighter application leading. */
+  --text-prose: 1rem; /* 16px */
+  --text-prose--line-height: 1.7rem; /* 27.2px */
+
+  /* 14px / 20px. The application body size, and the size every control is
+     drawn around. Tracking is normal here and everywhere below. */
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.25rem;
+
+  /* 13px, the step between body and caption. The reference uses it for a
+     popover row's subtitle and for secondary copy in a list row, and without
+     it every such call site reached for an arbitrary `text-[11px]` and landed
+     two steps down instead of one. Two names, because the reference measures
+     two line heights at the same size: 16 for a label, 18 for a sentence. */
+  --text-label-13: 0.8125rem;
+  --text-label-13--line-height: 1rem;
+  --text-copy-13: 0.8125rem;
+  --text-copy-13--line-height: 1.125rem;
+
+  /* Geist has one step below body. Both names resolve to it; they are kept
+     apart because call sites mean different things by them. */
+  --text-small: 0.75rem;
+  --text-small--line-height: 1rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+
+  /* Mono at two sizes: one that sits inline with 14px UI text without towering
+     over it, one for a block of code. */
+  --text-mono: 0.75rem;
+  --text-mono--line-height: 1rem;
+  --text-code: 0.875rem;
+  --text-code--line-height: 1.25rem;
+
+  /* --- control type ------------------------------------------------------
+     The font size and line height that go with each form height. */
+  --text-control-sm: 0.875rem;
+  --text-control-sm--line-height: 0.875rem;
+  --text-control-md: 0.875rem;
+  --text-control-md--line-height: 1.25rem;
+  --text-control-lg: 1rem;
+  --text-control-lg--line-height: 1.5rem;
+
+  /* --- shape -------------------------------------------------------------
+     6px is `--geist-radius`: surfaces, inputs and popover rows. 4px is what a
+     real Geist button measures. 8px is the marketing radius and is the most
+     any application chrome should reach for. */
+  --radius-xs: 0.125rem; /* 2px   inline chips, tags */
+  --radius-sm: 0.25rem; /* 4px   buttons, checkboxes, small chips */
+  --radius-md: 0.375rem; /* 6px   cards, popovers, inputs, menu rows */
+  --radius-lg: 0.5rem; /* 8px   marketing panels */
+  --radius-xl: 0.75rem; /* 12px  a full-bleed sheet, rarely */
+  --radius-2xl: 1rem; /* 16px  the outermost container, rarely */
+
+  /* 4px base, `--geist-space`, which the 4/8/12/16/24/32/40 rhythm walks. */
+  --spacing: 0.25rem;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+    /* The focus colour, undiluted. Geist's outline form is 2px of solid blue,
+       and halving its alpha is what made the old ring read as grey. */
+    outline-color: var(--ring);
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans text-body;
     /* Numbers are the point of this product; they should not jitter as they
        change, and columns should line up without hand-set widths. */
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* The mono face carries keys, ids, hashes and numeric cells, so it gets the
+     same figure treatment wherever it appears without a utility on it. */
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
+    font-feature-settings: var(--font-mono--font-feature-settings);
+  }
+
+  /*
+    Inline code, and ONLY inline code.
+
+    The exclusion is the whole point: highlight.js wraps every token in a
+    `<code>` inside a `<pre>`, so an unscoped rule paints a chip fill and a
+    radius behind every keyword in a snippet and the block turns into a bag of
+    lozenges. Scoping it to a `code` that has no `pre` ancestor leaves the
+    block alone. Do not relax it.
+  */
+  code:not(pre code) {
+    background-color: var(--muted);
+    box-shadow: var(--geist-shadow-border-base);
+    border-radius: var(--radius-sm);
+    padding: 0.125rem 0.25rem;
+    font-size: 0.875em;
   }
 }
 
 @layer utilities {
+  /*
+    The ring, as a class, for the many places that want the hairline without a
+    border. Written as real CSS rather than left to an arbitrary utility:
+    arbitrary variants have silently emitted nothing in this repo before, and
+    the separation of every surface in the app should not depend on that.
+
+    An element with one of these must not also carry a border.
+  */
+  .ring-hairline {
+    box-shadow: var(--geist-shadow-border-base);
+  }
+
+  .ring-hairline-sm {
+    box-shadow: var(--geist-shadow-border-small);
+  }
+
+  .ring-hairline-md {
+    box-shadow: var(--geist-shadow-border-medium);
+  }
+
+  .ring-hairline-lg {
+    box-shadow: var(--geist-shadow-border-large);
+  }
+
+  /* The two-stop blue focus ring: 2px of the page colour, then 2px of blue.
+     Replaces the outline rather than sitting next to it. */
+  .focus-ring:focus-visible {
+    outline: none;
+    box-shadow: var(--geist-focus-ring);
+  }
+
+  /* The outline form, for something that cannot spend its box-shadow. */
+  .focus-outline:focus-visible {
+    outline: var(--geist-focus-ring-outline);
+    outline-offset: 2px;
+  }
+
+  /*
+    The page track.
+
+    `margin | content | margin` with the margin as a grid column rather than
+    padding, which is what lets a page put one row at the full pane width
+    without unwinding the padding of everything above it. Written as real CSS
+    for the same reason the sidebar widths are: this is the frame every page
+    hangs on, and arbitrary variants have silently emitted nothing here before.
+
+    The child is placed for you, so a page is `.page-track > main` and nothing
+    at the call site has to remember `col-start-2`.
+  */
+  .page-track {
+    display: grid;
+    grid-template-columns:
+      minmax(var(--page-margin), 1fr)
+      minmax(0, var(--page-track-width, var(--page-width)))
+      minmax(var(--page-margin), 1fr);
+  }
+
+  .page-track > * {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  .page-track-standard {
+    --page-track-width: var(--page-width-standard);
+  }
+
+  .page-track-compact {
+    --page-track-width: var(--page-width-compact);
+  }
+
+  /*
+    The breadcrumb's icon group, while the page's own heading is on screen.
+
+    Hidden rather than removed, so nothing reflows when the heading scrolls past
+    and the group appears: the topbar's centre cell keeps its measured centre
+    either way. `page-header.tsx` owns the attribute.
+  */
+  html[data-route-title-visible] .route-title-icons {
+    display: none;
+  }
+
   /* A card being dragged. Lifted, slightly transparent, and above the grid. */
   .dragging {
-    @apply z-50 opacity-90 shadow-2xl;
+    @apply z-50 opacity-90;
+    box-shadow: var(--geist-shadow-modal);
     cursor: grabbing;
   }
 
   /* Where the dragged card would land. */
   .drop-target {
-    @apply ring-2 ring-ring/70 ring-offset-2 ring-offset-background;
+    @apply ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+/*
+  The sidebar's two widths.
+
+  Written as real CSS rather than utility classes because the utility form was
+  where this went wrong for a long time: the collapse was expressed as a
+  named-group arbitrary variant keyed off the shell, and the sidebar kept its
+  expanded width while `data-state` flipped correctly on every toggle. Two
+  attribute selectors have no variant to compile and no group to resolve, so
+  there is nothing left to go wrong in.
+
+  Expressed as a flex basis, not a width, because the element IS a flex item --
+  its parent is the shell's flex row. `flex: 0 0 <size>` states the main size in
+  the terms flex layout actually reads, instead of setting `width` and relying
+  on `flex-basis: auto` to defer to it.
+*/
+[data-slot="sidebar"] {
+  flex: 0 0 287px;
+  transition: flex-basis 200ms linear;
+}
+
+[data-slot="sidebar"][data-state="collapsed"] {
+  flex-basis: 52px;
+}
+
+/*
+  Syntax colour.
+
+  highlight.js emits spans with its own class names; this maps them onto the
+  design system. No stock theme is imported, on purpose: GitHub Light or Dracula
+  dropped onto the Geist palette reads as a foreign object stuck to the page,
+  which is half of what "the code blocks look bad" meant.
+
+  ## Four tints, and everything else stays foreground
+
+  The categories are the ones that answer a question the reader is actually
+  asking while skimming a snippet:
+
+    comment   what is prose and can be skipped
+    keyword   where the language's structure is
+    string    which parts are literal values, including the key to paste
+    name      what things are called: functions, types, tags
+    number    the other literal, kept apart from string because a port, a
+              timeout and a version are what a reader scans an example for
+
+  Punctuation, operators, variables and parameters are deliberately not in that
+  list. They are most of the characters on screen, and tinting them is how a
+  block turns into a Christmas tree: nine or ten colours where four would do,
+  and then none of them means anything.
+
+  All five are the 900 step of a measured Geist hue, recomputed against the new
+  block fill in both themes: `muted` at 40%, which lands on #fafafa in light
+  and #101010 in dark. The dimmest is 5.05:1.
+
+  Written as real CSS against the raw `--code-*` properties rather than the
+  `--color-code-*` theme names. The theme block is `inline`, so Tailwind emits
+  those names only where a utility uses one, and a rule here referencing a
+  pruned variable would silently paint nothing. Same reason `--radius` is kept
+  as a raw property alongside its scale.
+
+  Class names below are highlight.js's own vocabulary, not ours. Its compound
+  classes render as separate class attributes -- a function name is
+  `hljs-title function_` -- so matching the base class is enough.
+*/
+.hljs {
+  /* House indent, and the browser default of 8 is not it. This changes how a
+     tab is drawn; it does not touch the snippet, which arrives byte for byte
+     as it was authored and is copied that way. */
+  tab-size: 2;
+
+  .hljs-comment,
+  .hljs-quote,
+  .hljs-doctag {
+    color: var(--code-comment);
+    font-style: italic;
+  }
+
+  /* `name` is an XML tag name and `section` a TOML table header: both are the
+     structure of their format the way a keyword is the structure of a language. */
+  .hljs-keyword,
+  .hljs-built_in,
+  .hljs-name,
+  .hljs-section,
+  .hljs-selector-tag,
+  .hljs-meta,
+  .hljs-template-tag {
+    color: var(--code-keyword);
+  }
+
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-char,
+  .hljs-symbol,
+  .hljs-addition {
+    color: var(--code-string);
+  }
+
+  /* A string inside a meta run -- a C# preprocessor path, a Python decorator
+     argument -- is still a string, and nesting means the meta rule above would
+     otherwise win on order. */
+  .hljs-meta .hljs-string {
+    color: var(--code-string);
+  }
+
+  .hljs-number,
+  .hljs-literal {
+    color: var(--code-number);
+  }
+
+  /* Attribute names sit here rather than with tags, so an HTML snippet reads as
+     two things (the tag, and what is being set on it) rather than one colour. */
+  .hljs-title,
+  .hljs-type,
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-property,
+  .hljs-selector-attr,
+  .hljs-selector-class,
+  .hljs-selector-id,
+  .hljs-template-variable {
+    color: var(--code-name);
   }
 }

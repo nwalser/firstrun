@@ -2,7 +2,7 @@
 name = "firstrun-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "Desktop SDK: claims the download token on first run and ships events from a disk-backed queue."
+description = "Analytics for a Tauri desktop app: an anonymous per-install id and a bounded entry queue, in memory by default."
 publish = false
 license = "LicenseRef-Proprietary"
 

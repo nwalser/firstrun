@@ -1,32 +1,29 @@
+import { sourceByKey } from "@firstrun/db/repo";
 import {
-  claimDownloadToken,
-  createDownloadToken,
-  downloadToken,
-  recordDownloadHint,
-  sourceByKey,
-} from "@firstrun/db";
-import {
-  AppBatch,
-  CompactBatch,
-  EVENT,
-  EventEnvelope,
-  TOKEN_TTL_MS,
-  installerFilename,
-  isToken,
-  mintToken,
-  normalizeApp,
-  normalizeWeb,
-} from "@firstrun/schema";
+  LogBatch,
+  WireEntry,
+  normalizeBatch,
+  type NormalizeContext,
+} from "@firstrun/schema/log";
 import type { Ctx } from "./context.js";
-import { estimateFirstRun, hashIp } from "./estimate.js";
-import { ingestEnvelopes } from "./pipeline.js";
+import { ingestEntries } from "./pipeline.js";
 
 /**
  * The public data plane, as plain Request -> Response.
  *
- * No framework. These are mounted by the web app's server routes today and
- * could be mounted by anything tomorrow: the decision to run one service on
- * Railway should be a routing decision, not something baked into the handlers.
+ * Two endpoints and no more: somewhere to put log entries, and somewhere to ask
+ * whether the process is up. firstrun does not proxy, redirect, or stand in
+ * front of anything a customer ships, so there is nothing else for it to serve.
+ *
+ * One endpoint for ALL telemetry, not one per kind. An exception, a page view
+ * and a latency sample arrive in the same array, in the same shape, and nothing
+ * below reads the name or the severity to decide what to do with one. There is
+ * no `/v1/errors`, and adding one would be adding a second pipeline for rows
+ * that belong in the same table.
+ *
+ * No framework. These are mounted by the web app's server entry today and could
+ * be mounted by anything tomorrow: running one service on Railway should be a
+ * routing decision, not something baked into the handlers.
  */
 
 const CORS = {
@@ -47,278 +44,122 @@ export function preflight(): Response {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-/** The address to hash for estimated matching. The proxy header wins. */
-export function clientIp(req: Request, socketIp?: string): string | null {
-  const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || socketIp || null;
-}
+// ---------------------------------------------------------------------------
+// GET /v1/health
+// ---------------------------------------------------------------------------
 
-/** Coarse on purpose. It is a matching key, not a device report. */
-export function osFromUserAgent(ua: string | null): string | null {
-  if (!ua) return null;
-  if (/Windows/i.test(ua)) return "windows";
-  if (/Mac OS X|Macintosh/i.test(ua)) return "macos";
-  if (/Linux|X11/i.test(ua)) return "linux";
-  return null;
-}
-
-function str(v: unknown): string | null {
-  return typeof v === "string" && v.length > 0 ? v : null;
+/**
+ * Deliberately does not touch the database.
+ *
+ * This answers "is this process serving requests", which is the only question a
+ * load balancer is asking. Probing Postgres here turns one slow query into a
+ * rolling restart of a service whose job is to accept a POST and return.
+ */
+export function handleHealth(): Response {
+  return json({ ok: true });
 }
 
 // ---------------------------------------------------------------------------
 // POST /v1/e
 // ---------------------------------------------------------------------------
 
+export interface IngestResponse {
+  accepted: number;
+  duplicates: number;
+  /** Entries in the batch that did not parse. See `keepParsable`. */
+  dropped: number;
+}
+
 /**
- * Everything a client sends, in either shape.
+ * Keeps the entries that parse and counts the ones that do not.
  *
- * One endpoint rather than two because the tag's URL is what customers put
- * behind a CNAME, and a second path is a second thing to get wrong in their
- * proxy config.
+ * A malformed entry never fails the batch around it. The client cannot fix the
+ * bytes it has already queued: reject the batch and a well-written SDK retries
+ * the same body forever, while a badly written one drops its whole queue to get
+ * unstuck. Both lose more than dropping the single entry that is wrong, and
+ * neither tells anybody anything, because nothing is listening on the other end
+ * (every client here is fire-and-forget by design).
+ *
+ * "Malformed" is only ever about SHAPE: a name that is not a name, a severity
+ * off the ladder, an attribute map past its bounds. An entry is never dropped
+ * for its name, its severity, or for using keys nobody has heard of. There is
+ * no allowlist at this layer or any other.
  */
-export async function handleEvents(req: Request, ctx: Ctx): Promise<Response> {
+function keepParsable(raw: unknown): { kept: unknown[]; dropped: number } {
+  const all = Array.isArray(raw) ? raw : [];
+  const kept = all.filter((e) => WireEntry.safeParse(e).success);
+  return { kept, dropped: all.length - kept.length };
+}
+
+/**
+ * A batch of log entries, from any surface.
+ *
+ * One endpoint rather than one per kind of telemetry, and one body shape rather
+ * than a compact browser dialect beside a verbose SDK one. The URL is what
+ * customers put behind a CNAME, and every extra path is another thing to get
+ * wrong in a proxy config.
+ *
+ * The surface an entry belongs to comes from the stored source row, so a body
+ * cannot claim to be a surface it is not.
+ */
+export async function handleEntries(req: Request, ctx: Ctx): Promise<Response> {
+  // Checked before the body is read, so an oversized one is never held. The
+  // header can lie, hence the second check: a JS string is never longer than
+  // its UTF-8 encoding, so comparing its length is a sound cap on bytes.
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > ctx.config.maxBodyBytes) return json({ error: "body too large" }, 413);
+
   const raw = await req.text();
+  if (raw.length > ctx.config.maxBodyBytes) return json({ error: "body too large" }, 413);
+
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
     return json({ error: "body must be json" }, 400);
   }
-
-  if (body && typeof body === "object" && "person_id" in body) {
-    return json({ error: "person_id is derived server-side" }, 400);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "body must be an object" }, 400);
   }
 
-  const ingestTime = ctx.now();
+  const b = body as Record<string, unknown>;
+  if (typeof b.k !== "string") return json({ error: "unrecognised body" }, 400);
 
-  const web = CompactBatch.safeParse(body);
-  const app = web.success ? null : AppBatch.safeParse(body);
-  const key = web.success ? web.data.k : app?.success ? app.data.source_key : null;
-  if (!key) {
-    return json({ error: "unrecognised body" }, 400);
-  }
-
-  const source = await sourceByKey(ctx.store.db, key);
+  // The key identifies and never authorises: it ships in a script tag and in
+  // binaries anyone can unpack. All it buys is the project it belongs to.
+  const source = await sourceByKey(ctx.store.db, b.k);
   if (!source) return json({ error: "unknown source key" }, 404);
 
-  const context = {
+  const { kept, dropped } = keepParsable(b.e);
+
+  // Nothing survived, but the batch was still received and there is nothing the
+  // client should do differently, so this is an outcome and not an error.
+  if (kept.length === 0) {
+    return json({ accepted: 0, duplicates: 0, dropped } satisfies IngestResponse, 202);
+  }
+
+  // The header, unlike one entry, is not droppable: with no distinct id there
+  // is nothing to attribute any of these entries to.
+  //
+  // The resource is the exception. It is a whole map of attributes describing
+  // the client, and one bad key in it would otherwise cost every entry in the
+  // batch its existence for the sake of a field that is decoration on each of
+  // them. So a batch that fails only because of `r` is retried without it: the
+  // entries land, missing the app version they would have carried.
+  let batch = LogBatch.safeParse({ ...b, e: kept });
+  if (!batch.success && b.r !== undefined) {
+    batch = LogBatch.safeParse({ ...b, r: undefined, e: kept });
+  }
+  if (!batch.success) return json({ error: "malformed batch" }, 400);
+
+  const context: NormalizeContext = {
     projectId: source.projectId,
     sourceId: source.id,
-    ingestTime,
+    // The stored source row, never the key and never the body.
+    surface: source.kind,
+    ingestedAt: ctx.now(),
   };
 
-  const envelopes = web.success
-    ? normalizeWeb(web.data, context)
-    : normalizeApp(app!.data!, context);
-
-  const result = await ingestEnvelopes(ctx, envelopes);
-  return json(result, 202);
-}
-
-// ---------------------------------------------------------------------------
-// GET /v1/download
-// ---------------------------------------------------------------------------
-
-/**
- * Step 1 of the join: mint on download.
- *
- * The redirect is the whole mechanism. The browser saves a file whose name
- * carries the token, and that filename is the only thing that survives the jump
- * from the website into the installed app.
- */
-export async function handleDownload(req: Request, ctx: Ctx, socketIp?: string): Promise<Response> {
-  const url = new URL(req.url);
-  const key = url.searchParams.get("key");
-  const vid = url.searchParams.get("vid");
-  const version = url.searchParams.get("version") ?? "latest";
-  if (!key) return json({ error: "key is required" }, 400);
-
-  const source = await sourceByKey(ctx.store.db, key);
-  if (!source) return json({ error: "unknown source key" }, 404);
-
-  const asset = url.searchParams.get("asset") ?? source.assetName ?? "Setup";
-  const now = ctx.now();
-  const token = mintToken();
-
-  await createDownloadToken(ctx.store.db, {
-    token,
-    projectId: source.projectId,
-    sourceId: source.id,
-    webVisitorId: vid,
-    asset,
-    expiresAt: new Date(now + TOKEN_TTL_MS),
-  });
-
-  const os = osFromUserAgent(req.headers.get("user-agent"));
-  const ip = clientIp(req, socketIp);
-
-  // Material for the estimated path, in case this download becomes an install
-  // that never sees its own filename. Never used for an exact join.
-  if (vid && ip) {
-    await recordDownloadHint(ctx.store.db, {
-      projectId: source.projectId,
-      webVisitorId: vid,
-      ipHash: hashIp(ctx.config.ipHashSalt, source.projectId, ip),
-      os,
-    });
-  }
-
-  // Step 2 of the funnel is server-side: a click on a download button that
-  // never reaches us is not a download.
-  if (vid) {
-    await ingestEnvelopes(ctx, [
-      EventEnvelope.parse({
-        project_id: source.projectId,
-        source_id: source.id,
-        event_id: crypto.randomUUID(),
-        event_name: EVENT.DOWNLOAD_STARTED,
-        event_time: now,
-        ingest_time: now,
-        surface: "web",
-        web_visitor_id: vid,
-        os,
-        url: req.headers.get("referer"),
-        props: { asset, version, token },
-      }),
-    ]);
-  }
-
-  const filename = installerFilename(asset, version, token);
-  return new Response(null, {
-    status: 302,
-    headers: { Location: `${ctx.config.publicOrigin}/dl/${token}/${filename}`, ...CORS },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// GET /dl/:token/:filename
-// ---------------------------------------------------------------------------
-
-/**
- * Streams the real installer under a filename carrying the token.
- *
- * The token is not validated here. A shared link should still download
- * something; the worst case is a token claimed by the wrong machine, which is a
- * wrong join, not a broken download.
- */
-export async function handleAsset(ctx: Ctx, token: string, filename: string): Promise<Response> {
-  // `Themia-Setup-1.4.2-9GQ4T7BX.exe` -> `Themia-Setup-1.4.2.exe`
-  const underlying = filename.replace(new RegExp(`-${token}(\\.[^.]+)$`, "i"), "$1");
-
-  if (ctx.config.assetOrigin) {
-    const upstream = await fetch(`${ctx.config.assetOrigin}/${underlying}`).catch(() => null);
-    if (upstream?.ok && upstream.body) {
-      return new Response(upstream.body, {
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "Content-Disposition": `attachment; filename="${filename}"`,
-        },
-      });
-    }
-  }
-
-  // No asset origin configured: this is a development machine. Serve something
-  // with the right name so the whole flow can be walked end to end without
-  // anyone having to build an installer first.
-  return new Response(`placeholder installer for ${underlying}\ntoken=${token}\n`, {
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "X-Firstrun-Placeholder": "1",
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// POST /v1/claim
-// ---------------------------------------------------------------------------
-
-/**
- * Step 2 of the join: claim on first run.
- *
- * `token` is nullable on purpose. The app calls this exactly once whether or not
- * it found a token, so first run has one code path and the estimated fallback
- * lives on the server, where the download hints are.
- */
-export async function handleClaim(req: Request, ctx: Ctx, socketIp?: string): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body) return json({ error: "body must be json" }, 400);
-
-  const installId = str(body.install_id);
-  if (!installId) return json({ error: "install_id is required" }, 400);
-
-  const sourceKey = str(body.source_key);
-  if (!sourceKey) return json({ error: "source_key is required" }, 400);
-
-  const source = await sourceByKey(ctx.store.db, sourceKey);
-  if (!source) return json({ error: "unknown source key" }, 404);
-
-  const projectId = source.projectId;
-  const token = typeof body.token === "string" && isToken(body.token) ? body.token : null;
-  const tokenRow = token ? await downloadToken(ctx.store.db, token) : null;
-
-  const now = ctx.now();
-  const eventTime = typeof body.event_time === "number" ? body.event_time : now;
-
-  let join: {
-    method: "token" | "estimate" | "none";
-    confidence: number;
-    web_visitor_id: string | null;
-    reason?: string;
-  } = { method: "none", confidence: 0, web_visitor_id: null };
-
-  const tokenUsable =
-    tokenRow &&
-    tokenRow.projectId === projectId &&
-    tokenRow.expiresAt.getTime() >= now &&
-    tokenRow.webVisitorId;
-
-  if (tokenUsable) {
-    // Claiming twice is normal: the install hook wrote the token file AND the
-    // Downloads scan found the installer. link() is idempotent, so the second
-    // claim costs an edge write and changes nothing.
-    await claimDownloadToken(ctx.store.db, token!, new Date(now));
-    await ctx.resolver.link(
-      projectId,
-      { type: "install", id: installId },
-      { type: "web_visitor", id: tokenRow!.webVisitorId! },
-      "token"
-    );
-    join = { method: "token", confidence: 1, web_visitor_id: tokenRow!.webVisitorId };
-  } else {
-    const est = await estimateFirstRun(ctx, {
-      projectId,
-      installId,
-      os: str(body.os),
-      ip: clientIp(req, socketIp),
-      at: now,
-    });
-    join = est.matched
-      ? { method: "estimate", confidence: est.confidence, web_visitor_id: est.web_visitor_id }
-      : { method: "none", confidence: 0, web_visitor_id: null, reason: est.reason };
-  }
-
-  await ingestEnvelopes(ctx, [
-    EventEnvelope.parse({
-      project_id: projectId,
-      source_id: source.id,
-      event_id: typeof body.event_id === "string" ? body.event_id : crypto.randomUUID(),
-      event_name: EVENT.APP_FIRST_RUN,
-      event_time: eventTime,
-      ingest_time: now,
-      surface: "app",
-      install_id: installId,
-      account_id: str(body.account_id),
-      app_version: str(body.app_version),
-      channel: str(body.channel),
-      os: str(body.os),
-      arch: str(body.arch),
-      locale: str(body.locale),
-      props: { join_method: join.method },
-    }),
-  ]);
-
-  const personId = await ctx.resolver.resolve(projectId, { type: "install", id: installId });
-  return json({ person_id: personId, join });
+  const result = await ingestEntries(ctx, normalizeBatch(batch.data, context));
+  return json({ ...result, dropped } satisfies IngestResponse, 202);
 }

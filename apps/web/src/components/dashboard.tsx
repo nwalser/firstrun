@@ -1,17 +1,60 @@
+import type { Comparison, DateRange, Rect, Surface } from "@firstrun/schema";
+import { findFreeSlot } from "@firstrun/schema";
 import { useRouter } from "@tanstack/solid-router";
+import BringToFront from "lucide-solid/icons/bring-to-front";
+import Copy from "lucide-solid/icons/copy";
+import Eye from "lucide-solid/icons/eye";
+import Funnel from "lucide-solid/icons/funnel";
+import LayoutGrid from "lucide-solid/icons/layout-grid";
+import Move from "lucide-solid/icons/move";
+import Plus from "lucide-solid/icons/plus";
+import SlidersHorizontal from "lucide-solid/icons/sliders-horizontal";
+import Trash2 from "lucide-solid/icons/trash-2";
+import X from "lucide-solid/icons/x";
 import {
-  METRIC_KEYS,
-  METRIC_LABELS,
-  TIMESERIES_METRICS,
-  WIDGET_CATALOGUE,
-  type DashboardLayout,
-  type Widget,
-} from "@firstrun/schema";
-import type { Snapshot } from "@firstrun/db";
-import { For, Show, batch, createEffect, createSignal, onCleanup } from "solid-js";
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+} from "solid-js";
 import { saveDashboard } from "../lib/api.js";
 import { cn } from "../lib/cn.js";
-import { GripIcon, createSortable } from "./sortable.js";
+import {
+  Canvas,
+  CanvasItem,
+  ResizeHandles,
+  canvasHeight,
+  cardRect,
+  cardTier,
+  createCanvas,
+  type CanvasController,
+} from "./canvas.js";
+import { FilterEditor } from "./explore/builder.js";
+import { ExplorePanel } from "./explore/panel.js";
+import {
+  PRESETS,
+  presetHint,
+  presetLabel,
+  presetsFor,
+  type Preset,
+} from "./explore/presets.js";
+import type { Board, BoardWidget, QueryWidget } from "@firstrun/schema/board";
+import {
+  emptyDiscovery,
+  emptyFilter,
+  type BoardSnapshot,
+  type Discovery,
+  type Filter,
+  type LogQuery,
+  type Visualisation,
+} from "@firstrun/schema/query";
+import { useI18n } from "../lib/i18n/index.js";
+import { queryLabels } from "./query-labels.js";
+import { TimeRangePicker } from "./time-range.js";
 import {
   Badge,
   Button,
@@ -19,10 +62,13 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyMedia,
+  EmptyTitle,
   Input,
   Label,
-  SegmentedControl,
-  Select,
   Sheet,
   SheetBody,
   SheetContent,
@@ -31,57 +77,96 @@ import {
   SheetHeader,
   SheetTitle,
   Switch,
+  Textarea,
 } from "./ui/index.js";
 import { WidgetBody, defaultTitle } from "./widgets.js";
 
 /**
- * The dashboard, and the editor for it.
+ * The board, and the editor for it.
  *
- * Editing is in place: the cards keep rendering real data while you drag them,
- * so the thing you are arranging is the thing you will be looking at. Nothing
- * turns into a grey placeholder and no configuration appears inline -- a card
- * that grows a form is no longer showing you what it will look like.
+ * A card is a saved query and a way of drawing its answer, so this file has no
+ * catalogue of card kinds in it: the palette offers STARTING POINTS, every one
+ * of them a query somebody could have built, and the settings drawer opens the
+ * builder on whichever card is selected. There is nothing a preset can reach
+ * that the drawer cannot, which is the whole point: a question the product can
+ * answer and the customer cannot ask is the failure mode now.
  *
- * Per-widget settings live in a drawer instead, which also gives them room to
- * be explained rather than crammed into a row.
+ * Editing is in place and the board is a canvas, not a flow. Cards are dragged
+ * from anywhere on them, resized in both directions, snapped to the grid, and
+ * they keep rendering real numbers the whole time, so the thing being arranged
+ * is the thing you will be looking at. Nothing turns into a grey placeholder
+ * and no configuration appears inline: a card that grows a form has stopped
+ * showing you what it will look like.
  *
- * "Configurable" means arrangeable: which of a fixed set of cards appear, in
- * what order, at what width, over what window. It does not mean you can define
- * a new question -- every card comes from `WIDGET_CATALOGUE`. A generic explore
- * view is the failure mode for this product, and that catalogue is the line.
+ * What a widget stores and what a drag snaps is its CELL. Cells are meant to
+ * touch, and the card is drawn one gutter inside its own, so a board arranged
+ * edge to edge has even air between every border. Geometry belongs to
+ * `canvas.tsx` and nothing here computes a pixel of it.
  */
 
-const RANGES = [
-  { value: 7, label: "7d" },
-  { value: 14, label: "14d" },
-  { value: 30, label: "30d" },
-  { value: 90, label: "90d" },
-];
-
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+/** Long enough to swallow a drag, short enough that nobody navigates away first. */
+const DRAG_SAVE_DEBOUNCE_MS = 250;
+const TYPING_DEBOUNCE_MS = 500;
+
+/**
+ * How wide the content pane must be before the palette can sit BESIDE the board.
+ *
+ * The board's own layout answers the pane through container queries, which is
+ * the reference's mechanism and the reason opening a panel reflows the content
+ * as if the window had shrunk. Which surface the palette IS cannot be answered
+ * that way: below this the palette becomes a sheet, a sheet is portalled out of
+ * the pane, and no container query can reach it there. So the same step is
+ * stated twice, once as a container variant on the body row and once here, and
+ * the two are meant to agree.
+ */
+const PALETTE_PANE_PX = 1024;
 
 export interface DashboardProps {
   workspaceSlug: string;
   projectSlug: string;
-  layout: DashboardLayout;
-  snapshot: Snapshot;
-  sources: Array<{ id: string; name: string; kind: string }>;
+  dashboardId: string;
+  layout: Board;
+  snapshot: BoardSnapshot;
+  sources: Array<{ id: string; name: string; kind: Surface }>;
+  /** What this project has actually written, so every picker offers real keys. */
+  discovery: Discovery;
   canEdit: boolean;
+}
+
+interface PersistOptions {
+  /** True only when the change alters what the numbers MEAN. */
+  refetch?: boolean;
+  debounceMs?: number;
 }
 
 export function Dashboard(props: DashboardProps) {
   const router = useRouter();
+  const i18n = useI18n();
+  const labels = queryLabels(i18n);
 
-  const [layout, setLayout] = createSignal<DashboardLayout>(props.layout);
+  /**
+   * What the palette is, and how to arrange what lands on the board.
+   *
+   * The arrange-mode keys are said here rather than above the toolbar because
+   * this is the one place they are relevant: a hint about dragging cards,
+   * printed above a board nobody is dragging, is a permanent line of chrome
+   * answering a question nobody asked.
+   */
+  const paletteHint = () => i18n.t("dashboard.palette_hint");
+
+  const [board, setBoard] = createSignal<Board>(props.layout);
   const [editing, setEditing] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [filtering, setFiltering] = createSignal(false);
   const [configuring, setConfiguring] = createSignal<string | null>(null);
   const [state, setState] = createSignal<SaveState>("idle");
   const [error, setError] = createSignal<string | null>(null);
 
   // The loader is the source of truth. When it refetches -- after a range
   // change, or another tab saving -- take its answer over the local copy.
-  createEffect(() => setLayout(props.layout));
+  createEffect(() => setBoard(props.layout));
 
   let debounce: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(debounce));
@@ -89,19 +174,25 @@ export function Dashboard(props: DashboardProps) {
   /**
    * Every edit persists immediately.
    *
-   * With drag-to-reorder there is no natural moment to press Save, and a layout
+   * With drag-to-arrange there is no natural moment to press Save, and a board
    * that looks right but was never written is worse than a brief "Saving…".
-   * `refetch` is only true when the change alters what the numbers mean.
+   * Continuous gestures debounce; `refetch` is only for changes that alter what
+   * the numbers mean, because moving a card does not need new SQL.
    */
-  async function persist(next: DashboardLayout, opts: { refetch?: boolean; debounceMs?: number } = {}) {
-    setLayout(next);
+  async function persist(next: Board, opts: PersistOptions = {}) {
+    setBoard(next);
     clearTimeout(debounce);
 
     const run = async () => {
       setState("saving");
       setError(null);
       const result = await saveDashboard({
-        data: { workspace: props.workspaceSlug, project: props.projectSlug, layout: next },
+        data: {
+          workspace: props.workspaceSlug,
+          project: props.projectSlug,
+          dashboardId: props.dashboardId,
+          layout: next,
+        },
       });
       if (!result.ok) {
         setState("error");
@@ -113,31 +204,34 @@ export function Dashboard(props: DashboardProps) {
       setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 1600);
     };
 
-    if (opts.debounceMs) debounce = setTimeout(run, opts.debounceMs);
+    if (opts.debounceMs) debounce = setTimeout(() => void run(), opts.debounceMs);
     else await run();
   }
 
-  const widgets = () => layout().widgets;
+  const widgets = () => board().widgets;
+  /** Stable across a drag, unlike the widget objects themselves. See the `<For>`. */
+  const ids = createMemo(() => widgets().map((w) => w.id));
+  const canArrange = () => props.canEdit && editing();
 
-  const setWidgets = (next: Widget[], opts?: { debounceMs?: number }) =>
-    persist({ ...layout(), widgets: next }, opts);
+  const setWidgets = (next: BoardWidget[], opts?: PersistOptions) =>
+    persist({ ...board(), widgets: next }, opts);
 
-  const sortable = createSortable({
-    enabled: editing,
-    onMove: (from, to) => {
-      const next = [...widgets()];
-      const [item] = next.splice(from, 1);
-      next.splice(to, 0, item!);
-      // Local only while the pointer is down; committed on release.
-      setLayout({ ...layout(), widgets: next });
-    },
-    onCommit: () => void setWidgets(widgets()),
+  const withRect = (id: string, rect: Rect): BoardWidget[] =>
+    widgets().map((w) => (w.id === id ? { ...w, ...rect } : w));
+
+  const canvas = createCanvas({
+    items: () => widgets().map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h })),
+    enabled: canArrange,
+    // Local only while the pointer is down: this fires on every move.
+    onPreview: (id, rect) => setBoard({ ...board(), widgets: withRect(id, rect) }),
+    onCommit: (id, rect) =>
+      void setWidgets(withRect(id, rect), { debounceMs: DRAG_SAVE_DEBOUNCE_MS }),
   });
 
-  const patch = (id: string, changes: Partial<Widget>, debounceMs?: number) =>
+  const patch = (id: string, changes: Partial<BoardWidget>, opts?: PersistOptions) =>
     setWidgets(
-      widgets().map((w) => (w.id === id ? ({ ...w, ...changes } as Widget) : w)),
-      debounceMs ? { debounceMs } : undefined
+      widgets().map((w) => (w.id === id ? ({ ...w, ...changes } as BoardWidget) : w)),
+      opts
     );
 
   const remove = (id: string) => {
@@ -145,220 +239,416 @@ export function Dashboard(props: DashboardProps) {
     return setWidgets(widgets().filter((w) => w.id !== id));
   };
 
-  const resize = (id: string) =>
-    setWidgets(
-      widgets().map((w) =>
-        w.id === id ? ({ ...w, width: w.width === 3 ? 1 : ((w.width + 1) as 1 | 2 | 3) } as Widget) : w
-      )
-    );
+  const newId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
-  function add(entry: (typeof WIDGET_CATALOGUE)[number]) {
-    const id = `${entry.type}-${Math.random().toString(36).slice(2, 8)}`;
-    batch(() => {
-      void setWidgets([...widgets(), entry.create(id)]);
-      setPaletteOpen(false);
-    });
+  /**
+   * Every rect on this board, as cells.
+   *
+   * Which is what `findFreeSlot`, `canvasHeight` and the canvas gestures all
+   * want: a free slot found against cells puts the new card touching its
+   * neighbours, and touching looks like twenty pixels of air rather than two
+   * borders meeting.
+   */
+  const occupied = (): Rect[] => widgets().map((w) => ({ x: w.x, y: w.y, w: w.w, h: w.h }));
+
+  /**
+   * A preset lands on the board and opens its own builder.
+   *
+   * The rail stays open behind it: boards are built a handful of cards at a
+   * time, and a palette that closes itself after each one is a palette you
+   * reopen. The drawer opens because a preset is a starting point, and the next
+   * thing anybody does with one is change what it counts.
+   */
+  function add(preset: Preset) {
+    const at = findFreeSlot(occupied(), preset.size);
+    const widget = {
+      ...preset.build(),
+      id: newId(preset.key),
+      ...at,
+      ...preset.size,
+    } as BoardWidget;
+    void setWidgets([...widgets(), widget], { refetch: true });
+    // On a narrow pane the palette is a sheet OVER the board rather than a rail
+    // beside it, and the settings drawer is about to open on top of it.
+    if (!paletteIsRail()) setPaletteOpen(false);
+    setConfiguring(widget.id);
   }
+
+  function duplicate(widget: BoardWidget) {
+    const at = findFreeSlot(occupied(), { w: widget.w, h: widget.h });
+    // The same query, so it keys identically and the snapshot already has its
+    // answer. A copy costs a render, not a round trip.
+    void setWidgets([...widgets(), { ...widget, id: newId(widget.kind), ...at }]);
+  }
+
+  /** Render order is stacking order, so "bring to front" is a move to the end. */
+  const bringToFront = (id: string) =>
+    setWidgets([...widgets().filter((w) => w.id !== id), ...widgets().filter((w) => w.id === id)]);
 
   const current = () => widgets().find((w) => w.id === configuring()) ?? null;
 
+  const surfaces = (): Surface[] => props.sources.map((s) => s.kind);
+  const palette = () => (props.sources.length === 0 ? PRESETS : presetsFor(surfaces()));
+
+  const filterCount = () => countConditions(board().filter);
+
+  /**
+   * How much room the pane is actually giving the board.
+   *
+   * Measured off the body row, which spans the pane's content track, so this is
+   * the pane's width and not the window's: a collapsed sidebar or a panel opening
+   * beside the content moves this number, which is the whole point.
+   */
+  const [paneWidth, setPaneWidth] = createSignal(0);
+  let bodyRow: HTMLDivElement | undefined;
+
+  onMount(() => {
+    if (!bodyRow || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect) setPaneWidth(Math.round(rect.width));
+    });
+    observer.observe(bodyRow);
+    onCleanup(() => observer.disconnect());
+  });
+
+  const paletteIsRail = () => paneWidth() >= PALETTE_PANE_PX;
+
   return (
     <>
-      <div class="flex flex-wrap items-center justify-between gap-3 pb-5">
-        <div class="flex flex-wrap items-center gap-2">
-          <SegmentedControl
-            value={layout().rangeDays}
-            options={RANGES}
-            onChange={(days) => persist({ ...layout(), rangeDays: days }, { refetch: true })}
+      {/*
+        The dashboard page variant: a 24px-gap column of a 36px toolbar row and
+        then the body, and no h1. The page already says which board this is, in
+        the sidebar and in the topbar's breadcrumb, and a third statement of it
+        here would push the numbers a heading's worth further down every board.
+      */}
+      <div class="flex flex-col gap-6">
+        {/*
+          One row, one height, and it does not wrap. Everything in it is on the
+          36px control step at radius 6, which is what the reference states for
+          a toolbar: a standalone button rounds less, a button in this row does
+          not.
+        */}
+        <div class="flex h-control-md items-center gap-2">
+          <TimeRangePicker
+            range={board().range}
+            comparison={board().comparison}
+            onChange={(next: { range: DateRange; comparison: Comparison }) =>
+              persist({ ...board(), ...next }, { refetch: true })
+            }
           />
+          {/*
+            The board's permanent filter, not the viewer's. It survives a
+            reload, a shared link and the next person to open it, which is the
+            difference between a board called "Marketing site" and one you have
+            to re-filter every visit.
+          */}
+          <Button
+            variant={filterCount() > 0 ? "secondary" : "outline"}
+            size="toolbar"
+            onClick={() => setFiltering(true)}
+          >
+            <Funnel size={14} />
+            {filterCount() === 0
+              ? i18n.t("dashboard.filter_none")
+              : i18n.t("dashboard.filters", { count: filterCount() })}
+          </Button>
 
-          <Show when={props.sources.length > 1}>
-            <Select
-              class="h-8 w-44 text-xs"
-              aria-label="Filter by source"
-              value={layout().sourceId ?? "all"}
-              onChange={(value) =>
-                persist({ ...layout(), sourceId: value === "all" ? null : value }, { refetch: true })
+          {/*
+            Both resolved windows, in the cell the reference's search input
+            occupies. A delta against an unnamed baseline is a number nobody can
+            check, so this has to be on screen -- and it is a caption on the
+            toolbar rather than a block of its own, which is what it had become.
+          */}
+          {/* One key with both windows in it rather than a sentence built from
+              two: the separator and the word between them are part of the
+              sentence, and German does not put them where English does. */}
+          <p class="min-w-0 flex-1 truncate text-copy-13 text-muted-foreground">
+            <Show
+              when={props.snapshot.compare}
+              fallback={i18n.dateRange(props.snapshot.from, props.snapshot.to)}
+            >
+              {(compare) =>
+                i18n.t("dashboard.window_and_baseline", {
+                  range: i18n.dateRange(props.snapshot.from, props.snapshot.to),
+                  baseline: i18n.dateRange(compare().from, compare().to),
+                })
               }
-              options={[
-                { value: "all", label: "All sources" },
-                ...props.sources.map((s) => ({ value: s.id, label: s.name })),
-              ]}
-            />
-          </Show>
-        </div>
+            </Show>
+          </p>
 
-        <div class="flex items-center gap-2">
           <Show when={state() !== "idle"}>
             <span
               class={cn(
-                "text-xs",
-                state() === "error" ? "text-destructive" : "text-muted-foreground"
+                "shrink-0 text-label-13",
+                state() === "error" ? "text-negative" : "text-muted-foreground"
               )}
             >
-              {state() === "saving" ? "Saving…" : state() === "saved" ? "Saved" : error()}
+              {state() === "saving"
+                ? i18n.t("common.saving")
+                : state() === "saved"
+                  ? i18n.t("dashboard.saved")
+                  : error()}
             </span>
           </Show>
 
           <Show when={props.canEdit}>
-            <Show
-              when={editing()}
-              fallback={
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                  Edit layout
-                </Button>
-              }
-            >
-              <Button variant="outline" size="sm" onClick={() => setPaletteOpen(true)}>
-                Add widget
-              </Button>
-              <Button size="sm" onClick={() => setEditing(false)}>
-                Done
+            <ModeToggle
+              arranging={editing()}
+              onChange={(arranging) => {
+                setEditing(arranging);
+                if (!arranging) setPaletteOpen(false);
+              }}
+            />
+            {/* Only while arranging: adding a card to a board you are only
+                looking at is the one action that implies the other mode. */}
+            <Show when={editing()}>
+              <Button
+                variant={paletteOpen() ? "secondary" : "outline"}
+                size="toolbar"
+                aria-expanded={paletteOpen()}
+                onClick={() => setPaletteOpen((open) => !open)}
+              >
+                <Plus size={14} />
+                {i18n.t("dashboard.add_card")}
               </Button>
             </Show>
           </Show>
         </div>
-      </div>
 
-      <Show when={editing()}>
-        <p class="pb-3 text-xs text-muted-foreground">
-          Drag a card by its handle to reorder. Changes save as you make them.
-        </p>
-      </Show>
+        {/*
+          The board, and the palette beside it rather than over it. The canvas
+          keeps its own logical width and scrolls; opening the rail slides it
+          over instead of hiding it, so you can see where the card you are about
+          to add will have to fit.
 
-      <div ref={sortable.setContainer} class="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <For each={widgets()}>
-          {(widget, index) => (
-            <Card
-              data-sortable-item
-              class={cn(
-                widget.width === 3
-                  ? "md:col-span-3"
-                  : widget.width === 2
-                    ? "md:col-span-2"
-                    : "md:col-span-1",
-                editing() && "border-dashed",
-                sortable.dragIndex() === index() && "dragging"
-              )}
-            >
-              <CardHeader>
-                <div class="flex min-w-0 items-center gap-2">
-                  <Show when={editing()}>
-                    <span
-                      class="-ml-1 cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing"
-                      title="Drag to reorder"
-                      {...sortable.handleProps(index())}
-                    >
-                      <GripIcon />
-                    </span>
-                  </Show>
-                  <CardTitle class="truncate">{widget.title ?? defaultTitle(widget)}</CardTitle>
-                </div>
-
-                <Show when={editing()}>
-                  <div class="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="Change width"
-                      onClick={() => resize(widget.id)}
-                    >
-                      <span class="text-[10px] font-semibold">{widget.width}∕3</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="Settings"
-                      onClick={() => setConfiguring(widget.id)}
-                    >
-                      <GearIcon />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="Remove"
-                      class="hover:text-destructive"
-                      onClick={() => remove(widget.id)}
-                    >
-                      <CrossIcon />
-                    </Button>
-                  </div>
-                </Show>
-              </CardHeader>
-
-              <CardContent>
-                <WidgetBody widget={widget} snapshot={props.snapshot} />
-              </CardContent>
-            </Card>
+          A column that becomes a row once the PANE can afford both, which is
+          the reference's rule: the layout answers the pane, so collapsing the
+          sidebar reflows this exactly as making the window wider would.
+        */}
+        <div
+          ref={bodyRow}
+          class={cn(
+            "flex w-full flex-col gap-4",
+            // A row only once the pane can hold both. `items-start` belongs to
+            // the row: as a column it would take the canvas off full width and
+            // size it to the 1280px board it is meant to be scrolling.
+            "@5xl/page:flex-row @5xl/page:items-start @5xl/page:gap-6"
           )}
-        </For>
+        >
+          <Canvas
+            class="min-w-0 flex-1"
+            height={canvasHeight(occupied())}
+            showGrid={canvas.active() !== null}
+            guides={canvas.guides()}
+          >
+            {/*
+              Keyed by id, not by the widget object.
+              `<For>` disposes and recreates a row whenever its item's identity
+              changes, and every pointer move during a drag produces a new widget
+              object. That would tear down the element the gesture is running on,
+              mid-gesture, and the drag would die on the first pixel.
+            */}
+            <For each={ids()}>
+              {(id, index) => {
+                const widget = () => widgets().find((w) => w.id === id);
+                return (
+                  <Show when={widget()}>
+                    {(card) => (
+                      <BoardCard
+                        board={board()}
+                        widget={card()}
+                        z={index()}
+                        snapshot={props.snapshot}
+                        canvas={canvas}
+                        arranging={canArrange()}
+                        onConfigure={() => setConfiguring(id)}
+                        onDuplicate={() => duplicate(card())}
+                        onBringToFront={() => void bringToFront(id)}
+                        onRemove={() => void remove(id)}
+                      />
+                    )}
+                  </Show>
+                );
+              }}
+            </For>
 
-        <Show when={widgets().length === 0}>
-          <div class="col-span-full rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">
-            Nothing on this dashboard yet.
-            <Show when={props.canEdit}>
-              <div class="mt-3">
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setEditing(true);
-                    setPaletteOpen(true);
-                  }}
-                >
-                  Add a widget
-                </Button>
+            {/* The page empty state, at the canvas's own width: a shrink-to-fit
+                box floating in the middle of a 1280px board reads as a card
+                somebody dropped there rather than as the state of the board. */}
+            <Show when={widgets().length === 0}>
+              <div class="absolute inset-x-0 top-24">
+                <Empty>
+                  <EmptyMedia>
+                    <LayoutGrid />
+                  </EmptyMedia>
+                  <EmptyTitle>{i18n.t("dashboard.empty_title")}</EmptyTitle>
+                  <EmptyDescription>{i18n.t("dashboard.empty_body")}</EmptyDescription>
+                  <Show when={props.canEdit}>
+                    <EmptyContent>
+                      <Button
+                        onClick={() => {
+                          setEditing(true);
+                          setPaletteOpen(true);
+                        }}
+                      >
+                        {i18n.t("dashboard.palette_title")}
+                      </Button>
+                    </EmptyContent>
+                  </Show>
+                </Empty>
               </div>
             </Show>
-          </div>
-        </Show>
+          </Canvas>
+
+          {/*
+            The palette as a rail, whenever the pane is wide enough to hold one.
+
+            It stays open while three cards go on in a row, and it does not cover
+            the thing they are going onto. Sticky, because the canvas is taller
+            than the viewport and the list should still be there once you have
+            scrolled down to the gap you are filling.
+          */}
+          <Show when={paletteOpen() && canArrange() && paletteIsRail()}>
+            <aside
+              class={cn(
+                "sticky top-2 flex max-h-[calc(100vh-8rem)] w-80 shrink-0 flex-col",
+                // The raised surface: the ring and its 1px lift, no border.
+                "rounded-md bg-card shadow-sm",
+                "@7xl/page:w-[404px]"
+              )}
+            >
+              <div class="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
+                <div class="min-w-0">
+                  <h2 class="text-body font-semibold">{i18n.t("dashboard.palette_title")}</h2>
+                  <p class="mt-0.5 text-copy-13 text-muted-foreground">{paletteHint()}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={i18n.t("dashboard.palette_close")}
+                  onClick={() => setPaletteOpen(false)}
+                >
+                  <X size={14} />
+                </Button>
+              </div>
+              <div class="min-h-0 flex-1 overflow-y-auto p-1">
+                <PresetList presets={palette()} onPick={add} />
+              </div>
+            </aside>
+          </Show>
+        </div>
       </div>
 
-      {/* The catalogue. */}
-      <Sheet open={paletteOpen()} onOpenChange={setPaletteOpen}>
+      {/*
+        The same palette, on a pane too narrow to put it beside the board.
+
+        A rail that squeezes the canvas below the width of one card is worse
+        than a drawer: the board is what you are aiming at, and you cannot aim
+        at forty pixels of it.
+      */}
+      <Sheet
+        open={paletteOpen() && canArrange() && !paletteIsRail()}
+        onOpenChange={setPaletteOpen}
+      >
         <SheetContent>
           <SheetHeader>
-            <SheetTitle>Add a widget</SheetTitle>
-            <SheetDescription>
-              A fixed catalogue, not a query builder. Each one answers a question this product
-              exists to answer.
-            </SheetDescription>
+            <SheetTitle>{i18n.t("dashboard.palette_title")}</SheetTitle>
+            <SheetDescription>{paletteHint()}</SheetDescription>
           </SheetHeader>
-          <SheetBody>
-            <div class="flex flex-col gap-2">
-              <For each={WIDGET_CATALOGUE}>
-                {(entry) => (
-                  <button
-                    type="button"
-                    onClick={() => add(entry)}
-                    class="cursor-pointer rounded-lg border bg-card p-3 text-left transition-colors hover:border-ring hover:bg-accent/40"
-                  >
-                    <div class="text-sm font-medium">{entry.label}</div>
-                    <div class="mt-0.5 text-xs text-muted-foreground">{entry.description}</div>
-                  </button>
-                )}
-              </For>
-            </div>
+          <SheetBody class="px-2">
+            <PresetList presets={palette()} onPick={add} />
           </SheetBody>
         </SheetContent>
       </Sheet>
 
-      {/* Per-widget settings. */}
-      <Sheet open={configuring() !== null} onOpenChange={(open) => !open && setConfiguring(null)}>
+      {/* The board's own filter. Applied to every card before any key is derived. */}
+      <Sheet open={filtering()} onOpenChange={setFiltering}>
         <SheetContent>
+          <SheetHeader>
+            <SheetTitle>{i18n.t("dashboard.board_filter_title")}</SheetTitle>
+            <SheetDescription>{i18n.t("dashboard.board_filter_body")}</SheetDescription>
+          </SheetHeader>
+          <SheetBody>
+            <FilterEditor
+              filter={board().filter}
+              discovery={props.discovery}
+              disabled={!props.canEdit}
+              onChange={(filter) => void persist({ ...board(), filter }, { refetch: true })}
+            />
+          </SheetBody>
+          <SheetFooter>
+            <Show when={filterCount() > 0}>
+              <Button
+                variant="outline"
+                class="mr-auto"
+                onClick={() =>
+                  void persist({ ...board(), filter: emptyFilter() }, { refetch: true })
+                }
+              >
+                {i18n.t("dashboard.clear")}
+              </Button>
+            </Show>
+            <Button onClick={() => setFiltering(false)}>{i18n.t("common.done")}</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Per-card settings: the query builder itself. Never inline. */}
+      <Sheet open={configuring() !== null} onOpenChange={(open) => !open && setConfiguring(null)}>
+        <SheetContent class="sm:max-w-2xl">
           <Show when={current()}>
             {(widget) => (
               <>
                 <SheetHeader>
-                  <SheetTitle>{widget().title ?? defaultTitle(widget())}</SheetTitle>
+                  <SheetTitle>{widget().title ?? defaultTitle(i18n, widget())}</SheetTitle>
                   <SheetDescription>
-                    <Badge variant="outline">{widget().type.replace("_", " ")}</Badge>
+                    <Badge variant="outline">
+                      {widget().kind === "note"
+                        ? i18n.t("dashboard.note_badge")
+                        : labels.visualisation((widget() as QueryWidget).viz)}
+                    </Badge>
                   </SheetDescription>
                 </SheetHeader>
 
                 <SheetBody>
-                  <WidgetSettings
+                  {/*
+                    The two card actions that do not fit on a small card. They
+                    are buttons on the card itself once it is big enough to
+                    carry them; here so that a card at the minimum size is not
+                    the one card you cannot duplicate.
+                  */}
+                  <div class="mb-5 flex gap-2 border-b pb-5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setConfiguring(null);
+                        duplicate(widget());
+                      }}
+                    >
+                      <Copy size={14} />
+                      {i18n.t("dashboard.duplicate")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void bringToFront(widget().id)}
+                    >
+                      <BringToFront size={14} />
+                      {i18n.t("dashboard.bring_to_front")}
+                    </Button>
+                  </div>
+
+                  <CardSettings
+                    workspaceSlug={props.workspaceSlug}
+                    projectSlug={props.projectSlug}
+                    range={board().range}
+                    discovery={props.discovery}
+                    sourceId={props.sources[0]?.id ?? null}
                     widget={widget()}
-                    onPatch={(changes, debounceMs) => patch(widget().id, changes, debounceMs)}
+                    canEdit={props.canEdit}
+                    onPatch={(changes, opts) => patch(widget().id, changes, opts)}
                   />
                 </SheetBody>
 
@@ -370,11 +660,11 @@ export function Dashboard(props: DashboardProps) {
                       setConfiguring(null);
                       void remove(id);
                     }}
-                    class="mr-auto hover:text-destructive"
+                    class="mr-auto hover:text-negative"
                   >
-                    Remove
+                    {i18n.t("common.remove")}
                   </Button>
-                  <Button onClick={() => setConfiguring(null)}>Done</Button>
+                  <Button onClick={() => setConfiguring(null)}>{i18n.t("common.done")}</Button>
                 </SheetFooter>
               </>
             )}
@@ -385,128 +675,377 @@ export function Dashboard(props: DashboardProps) {
   );
 }
 
-/** The knobs for one widget. Lives in the drawer, never inline. */
-function WidgetSettings(props: {
-  widget: Widget;
-  onPatch: (changes: Partial<Widget>, debounceMs?: number) => void;
+/** How many leaf conditions a filter tree holds, for the toolbar's count. */
+function countConditions(filter: Filter | undefined): number {
+  if (!filter) return 0;
+  if (filter.op === "and" || filter.op === "or") {
+    return filter.filters.reduce((n, child) => n + countConditions(child), 0);
+  }
+  if (filter.op === "not") return countConditions(filter.filter);
+  return 1;
+}
+
+/**
+ * Looking, or arranging. One control, always in the same place.
+ *
+ * This used to be a pair of buttons that swapped: "Arrange" became "Add card"
+ * and "Done", so the toolbar changed width and the thing under your cursor
+ * changed meaning in the same click. The reference's equivalent is a 72x36
+ * segmented control with a ring and two icon cells, and the cell that is filled
+ * IS the answer to which mode you are in -- no label to read, nothing to move.
+ */
+function ModeToggle(props: { arranging: boolean; onChange: (arranging: boolean) => void }) {
+  const i18n = useI18n();
+  const cell = (active: boolean) =>
+    cn(
+      "focus-ring flex h-full flex-1 cursor-pointer items-center justify-center rounded-sm",
+      "outline-none transition-colors",
+      active ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+    );
+
+  return (
+    <div
+      role="group"
+      aria-label={i18n.t("dashboard.mode_group")}
+      // The ring alone: this is a boundary around two cells, not a surface.
+      class="flex h-control-md w-18 shrink-0 items-center gap-0.5 rounded-md p-1 shadow-2xs"
+    >
+      <button
+        type="button"
+        title={i18n.t("dashboard.mode_look")}
+        aria-label={i18n.t("dashboard.mode_look")}
+        aria-pressed={!props.arranging}
+        class={cell(!props.arranging)}
+        onClick={() => props.onChange(false)}
+      >
+        <Eye size={14} />
+      </button>
+      <button
+        type="button"
+        title={i18n.t("dashboard.mode_arrange")}
+        aria-label={i18n.t("dashboard.mode_arrange")}
+        aria-pressed={props.arranging}
+        class={cell(props.arranging)}
+        onClick={() => props.onChange(true)}
+      >
+        <Move size={14} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The starting points, as popover rows.
+ *
+ * One list, two containers: a rail on a wide pane and a sheet on a narrow one.
+ * The row is the measured popover row -- 36px, radius 6, 8px of horizontal
+ * padding -- which has no second line to spend on a description, so the
+ * description stays on the row as its title rather than being dropped. Nothing
+ * here is a capability: every preset is a query somebody could have built in
+ * the drawer it opens.
+ */
+function PresetList(props: { presets: Preset[]; onPick: (preset: Preset) => void }) {
+  const i18n = useI18n();
+  return (
+    <div class="flex flex-col">
+      <For each={props.presets}>
+        {(preset) => (
+          <button
+            type="button"
+            title={presetHint(i18n, preset)}
+            onClick={() => props.onPick(preset)}
+            class={cn(
+              "focus-ring flex h-popover-row w-full cursor-pointer items-center gap-3",
+              "rounded-md px-2 text-left text-body text-foreground",
+              "outline-none transition-colors hover:bg-accent"
+            )}
+          >
+            <span class="min-w-0 flex-1 truncate">{presetLabel(i18n, preset)}</span>
+          </button>
+        )}
+      </For>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One card
+// ---------------------------------------------------------------------------
+
+/** One card control. Never a drag surface, which is what the marker is for. */
+function CardAction(props: {
+  label: string;
+  destructive?: boolean;
+  onClick: () => void;
+  children: JSX.Element;
 }) {
   return (
-    <div class="flex flex-col gap-5">
-      <div class="flex flex-col gap-2">
-        <Label for="widget-title">Title</Label>
-        <Input
-          id="widget-title"
-          placeholder={defaultTitle(props.widget)}
-          value={props.widget.title ?? ""}
-          onInput={(e) =>
-            props.onPatch({ title: e.currentTarget.value || undefined } as never, 500)
-          }
-        />
-        <p class="text-xs text-muted-foreground">Leave empty to use the default.</p>
-      </div>
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      title={props.label}
+      aria-label={props.label}
+      data-no-drag
+      // No size override: the glyph is 24px of icon inside the 28px hit target
+      // `icon-sm` already draws, and a control shrunk to the size of its own
+      // glyph is a control you have to aim at.
+      class={cn(props.destructive && "hover:bg-destructive/10 hover:text-negative")}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </Button>
+  );
+}
 
-      <div class="flex flex-col gap-2">
-        <Label>Width</Label>
-        <SegmentedControl
-          value={props.widget.width}
-          options={[
-            { value: 1, label: "1∕3" },
-            { value: 2, label: "2∕3" },
-            { value: 3, label: "Full" },
-          ]}
-          onChange={(width) => props.onPatch({ width } as never)}
-        />
-      </div>
+/**
+ * A card on the board: its frame, its controls, and its live answer.
+ *
+ * The whole card is the drag surface while the board is being arranged, so
+ * there is no grip to look at and nothing to aim for: press anywhere and move.
+ * The controls are revealed on hover and on focus, floating over the top-right
+ * corner rather than sitting in the header, because a card narrow enough to be
+ * a single number has no header room to give them.
+ *
+ * Which controls appear is itself a size question. Below tier 3 only settings
+ * and remove fit; duplicate and bring-to-front live in the drawer, where they
+ * are always reachable. Padding scales too: four pixels of chrome on a 140px
+ * card is a quarter of the space the number needs.
+ *
+ * Sizes here are the CARD's, never the cell's: `CanvasItem` is given the cell
+ * and draws this inset inside it by one gutter on every side.
+ */
+function BoardCard(props: {
+  board: Board;
+  widget: BoardWidget;
+  z: number;
+  snapshot: BoardSnapshot;
+  canvas: CanvasController;
+  arranging: boolean;
+  onConfigure: () => void;
+  onDuplicate: () => void;
+  onBringToFront: () => void;
+  onRemove: () => void;
+}) {
+  const i18n = useI18n();
+  const id = () => props.widget.id;
+  const title = () => props.widget.title ?? defaultTitle(i18n, props.widget);
+  // The widget's rect is its cell. Padding and the control strip are questions
+  // about the card drawn inside it, which is two gutters smaller, and this has
+  // to agree with the tier `CanvasItem` hands to the widget body.
+  const tier = () => cardTier(cardRect(props.widget));
+  /** A note with no title is a note; give it a header only while it is editable. */
+  const showHeader = () =>
+    props.arranging || props.widget.kind !== "note" || Boolean(props.widget.title);
 
-      <Show when={props.widget.type === "metric"}>
-        <div class="flex flex-col gap-2">
-          <Label>Metric</Label>
-          <Select
-            value={(props.widget as never as { metric: string }).metric}
-            onChange={(metric) => props.onPatch({ metric } as never)}
-            options={METRIC_KEYS.map((m) => ({ value: m, label: METRIC_LABELS[m] }))}
-          />
+  // Three steps, every one of them on the 4px rhythm. The half steps this used
+  // to walk (14px of inline padding, 10px above, 6px below) are the one thing
+  // on a card that no other measurement in the system agrees with.
+  const headerPad = () =>
+    tier() === 1 ? "px-2 pt-2 pb-1" : tier() === 2 ? "px-3 pt-3 pb-2" : "px-4 pt-4 pb-3";
+  const contentPad = () =>
+    tier() === 1 ? "px-2 pb-2" : tier() === 2 ? "px-3 pb-3" : "px-4 pb-4";
+
+  return (
+    <CanvasItem
+      rect={props.widget}
+      z={props.z}
+      active={props.canvas.active()?.id === id()}
+      // The same radius as the card inside it, so the focus ring and the
+      // arrange-mode outline trace the card rather than missing it by 6px.
+      class="group/card rounded-md"
+      aria-label={title()}
+      {...props.canvas.focusProps(id())}
+      {...props.canvas.moveProps(id())}
+    >
+      <Card
+        class={cn(
+          "h-full overflow-hidden",
+          // An outline, not a border: the card's hairline is a box-shadow ring
+          // and the card has no border to style, so a dashed border here would
+          // set a style on a zero-width edge and draw nothing. An outline is
+          // also outside the box, so arrange mode does not move anything.
+          props.arranging &&
+            "outline-1 outline-dashed outline-offset-0 outline-border hover:outline-ring"
+        )}
+      >
+        <Show when={showHeader()}>
+          <CardHeader class={cn("shrink-0", headerPad())}>
+            {/* One size at every card width. The measured card title is the
+                14/600 application heading step, and the container query that
+                used to sit here shrank it to 12 on exactly the cards with the
+                most room to spend. */}
+            <CardTitle class="min-w-0 truncate">{title()}</CardTitle>
+          </CardHeader>
+        </Show>
+
+        <CardContent class={cn("min-h-0 flex-1", contentPad())}>
+          <WidgetBody board={props.board} widget={props.widget} snapshot={props.snapshot} />
+        </CardContent>
+      </Card>
+
+      <Show when={props.arranging}>
+        <div
+          data-no-drag
+          class={cn(
+            // Inset far enough to clear the north and east resize handles,
+            // which reach eight pixels in from the edge they belong to.
+            "absolute right-2.5 top-2.5 z-30 flex items-center gap-0.5 rounded-md",
+            // The small shadow IS the hairline plus its lift, so no border here.
+            "bg-card/95 p-0.5 shadow-sm backdrop-blur-[1px]",
+            "opacity-0 transition-opacity",
+            "group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+          )}
+        >
+          <Show when={tier() >= 3}>
+            <CardAction
+              label={i18n.t("dashboard.bring_to_front")}
+              onClick={props.onBringToFront}
+            >
+              <BringToFront size={13} />
+            </CardAction>
+            <CardAction label={i18n.t("dashboard.duplicate")} onClick={props.onDuplicate}>
+              <Copy size={13} />
+            </CardAction>
+          </Show>
+          <CardAction label={i18n.t("dashboard.card_settings")} onClick={props.onConfigure}>
+            <SlidersHorizontal size={13} />
+          </CardAction>
+          <CardAction label={i18n.t("common.remove")} destructive onClick={props.onRemove}>
+            <Trash2 size={13} />
+          </CardAction>
         </div>
-        <Switch
-          checked={(props.widget as never as { compare: boolean }).compare}
-          onChange={(compare) => props.onPatch({ compare } as never)}
-          label="Compare to previous period"
-          description="Shows the change against the window before this one."
-        />
-      </Show>
 
-      <Show when={props.widget.type === "timeseries"}>
-        <div class="flex flex-col gap-2">
-          <Label>Metric</Label>
-          <Select
-            value={(props.widget as never as { metric: string }).metric}
-            onChange={(metric) => props.onPatch({ metric } as never)}
-            options={TIMESERIES_METRICS.map((m) => ({ value: m, label: METRIC_LABELS[m] }))}
-          />
-          <p class="text-xs text-muted-foreground">
-            Only metrics that are a countable event on a given day. Day 7 and install counts are
-            whole-window figures — there is no honest way to put them on a daily axis.
-          </p>
-        </div>
+        <ResizeHandles edgeProps={(edge) => props.canvas.resizeProps(id(), edge)} />
       </Show>
+    </CanvasItem>
+  );
+}
 
-      <Show when={props.widget.type === "versions"}>
-        <div class="flex flex-col gap-2">
-          <Label for="quiet-days">Quiet after</Label>
-          <div class="flex items-center gap-2">
-            <Input
-              id="quiet-days"
-              class="w-20"
-              value={String((props.widget as never as { quietDays: number }).quietDays)}
-              onInput={(e) => {
-                const n = parseInt(e.currentTarget.value, 10);
-                if (Number.isFinite(n) && n >= 1 && n <= 90) {
-                  props.onPatch({ quietDays: n } as never, 500);
-                }
-              }}
-            />
-            <span class="text-sm text-muted-foreground">days of silence</span>
-          </div>
-        </div>
-      </Show>
+// ---------------------------------------------------------------------------
+// Settings: the builder, on one card
+// ---------------------------------------------------------------------------
 
-      <Show when={props.widget.type === "retention"}>
-        <div class="flex flex-col gap-2">
-          <Label for="retention-days">Show up to day</Label>
-          <Input
-            id="retention-days"
-            class="w-20"
-            value={String((props.widget as never as { days: number }).days)}
-            onInput={(e) => {
-              const n = parseInt(e.currentTarget.value, 10);
-              if (Number.isFinite(n) && n >= 7 && n <= 60) props.onPatch({ days: n } as never, 500);
-            }}
-          />
-        </div>
-      </Show>
+type Patch = (changes: Partial<BoardWidget>, opts?: PersistOptions) => void;
 
-      <Show when={props.widget.type === "funnel" || props.widget.type === "join_health"}>
-        <p class="text-xs text-muted-foreground">
-          Nothing to configure. This card always shows exact and estimated as two separate numbers.
-        </p>
+/** A labelled row. The drawer has room to explain itself; a card header does not. */
+function Setting(props: { label: string; hint?: string; for?: string; children: JSX.Element }) {
+  return (
+    <div class="flex flex-col gap-2">
+      <Label for={props.for}>{props.label}</Label>
+      {props.children}
+      <Show when={props.hint}>
+        <p class="text-xs text-muted-foreground">{props.hint}</p>
       </Show>
     </div>
   );
 }
 
-function GearIcon() {
+/**
+ * Everything one card can be changed into.
+ *
+ * The query and the visualisation are the card, so the builder IS the settings
+ * drawer rather than a second surface beside it. Changing what a card asks
+ * reloads the board's snapshot, because the answer it needs is one nobody has
+ * fetched; changing its title or its chart type does not.
+ */
+function CardSettings(props: {
+  workspaceSlug: string;
+  projectSlug: string;
+  range: DateRange;
+  discovery: Discovery;
+  sourceId: string | null;
+  widget: BoardWidget;
+  canEdit: boolean;
+  onPatch: Patch;
+}) {
+  const i18n = useI18n();
+  const asQuery = (): QueryWidget | null =>
+    props.widget.kind === "query" ? props.widget : null;
+
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
+    <div class="flex flex-col gap-5">
+      <Setting
+        label={i18n.t("dashboard.setting_title")}
+        for="card-title"
+        hint={i18n.t("dashboard.setting_title_hint")}
+      >
+        <Input
+          id="card-title"
+          value={props.widget.title ?? ""}
+          placeholder={defaultTitle(i18n, props.widget)}
+          disabled={!props.canEdit}
+          onInput={(e) =>
+            props.onPatch(
+              { title: e.currentTarget.value || undefined },
+              { debounceMs: TYPING_DEBOUNCE_MS }
+            )
+          }
+        />
+      </Setting>
+
+      <Show
+        when={asQuery()}
+        fallback={
+          <Setting
+            label={i18n.t("dashboard.setting_text")}
+            hint={i18n.t("dashboard.setting_text_hint")}
+          >
+            <Textarea
+              autoResize
+              maxRows={12}
+              value={props.widget.kind === "note" ? props.widget.body : ""}
+              disabled={!props.canEdit}
+              onInput={(e) =>
+                props.onPatch({ body: e.currentTarget.value } as Partial<BoardWidget>, {
+                  debounceMs: TYPING_DEBOUNCE_MS,
+                })
+              }
+            />
+          </Setting>
+        }
+      >
+        {(widget) => (
+          <>
+            <Show when={widget().viz === "number"}>
+              <div class="flex flex-col gap-3 rounded-lg border p-3">
+                <Switch
+                  checked={widget().compare}
+                  label={i18n.t("dashboard.show_change")}
+                  description={i18n.t("dashboard.show_change_hint")}
+                  onChange={(compare) =>
+                    props.onPatch({ compare } as Partial<BoardWidget>, { refetch: true })
+                  }
+                />
+                <Switch
+                  checked={widget().sparkline}
+                  label={i18n.t("dashboard.show_shape")}
+                  description={i18n.t("dashboard.show_shape_hint")}
+                  onChange={(sparkline) =>
+                    props.onPatch({ sparkline } as Partial<BoardWidget>, { refetch: true })
+                  }
+                />
+              </div>
+            </Show>
+
+            <ExplorePanel
+              workspace={props.workspaceSlug}
+              project={props.projectSlug}
+              range={props.range}
+              discovery={props.discovery}
+              sourceId={props.sourceId}
+              query={widget().query}
+              viz={widget().viz}
+              disabled={!props.canEdit}
+              onChange={(next: { query: LogQuery; viz: Visualisation }) =>
+                props.onPatch(next as Partial<BoardWidget>, { refetch: true })
+              }
+            />
+          </>
+        )}
+      </Show>
+    </div>
   );
 }
 
-function CrossIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
+/** An empty discovery, for a board rendered before one has been fetched. */
+export const noDiscovery = emptyDiscovery;

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      net8.0 only. The DI and hosting abstractions are what an ASP.NET app already
+      has; a WPF app on .NET Framework does not, which is why this is a second
+      package rather than a target of the first one.
+    -->
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Enum members and obvious constructors do not need prose to be understood. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <AssemblyName>Firstrun.Extensions.Hosting</AssemblyName>
+    <RootNamespace>Firstrun</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Firstrun.Extensions.Hosting</PackageId>
+    <Version>0.1.0</Version>
+    <Description>DI and IHostedService wiring for the firstrun analytics client.</Description>
+    <PackageTags>analytics;telemetry;firstrun;aspnetcore</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Firstrun/Firstrun.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+</Project>

@@ -12,7 +12,7 @@ export function BreadcrumbList(props: ComponentProps<"ol">) {
   return (
     <ol
       class={cn(
-        "flex flex-wrap items-center gap-1.5 text-sm break-words text-muted-foreground",
+        "flex flex-wrap items-center gap-1.5 text-body break-words text-muted-foreground",
         local.class
       )}
       {...rest}
@@ -30,17 +30,23 @@ export function BreadcrumbLink(props: ComponentProps<"a">) {
   return <a class={cn("transition-colors hover:text-foreground", local.class)} {...rest} />;
 }
 
+/** The last crumb is where you are, so it is the only one at full contrast. */
 export function BreadcrumbPage(props: ComponentProps<"span">) {
   const [local, rest] = splitProps(props, ["class"]);
   return (
-    <span aria-current="page" class={cn("font-normal text-foreground", local.class)} {...rest} />
+    <span aria-current="page" class={cn("font-medium text-foreground", local.class)} {...rest} />
   );
 }
 
 export function BreadcrumbSeparator(props: ComponentProps<"li">) {
   const [local, rest] = splitProps(props, ["class", "children"]);
   return (
-    <li role="presentation" aria-hidden="true" class={cn("[&>svg]:size-3.5", local.class)} {...rest}>
+    <li
+      role="presentation"
+      aria-hidden="true"
+      class={cn("text-muted-foreground [&>svg]:size-3.5", local.class)}
+      {...rest}
+    >
       {local.children ?? <Breadcrumbs.Separator />}
     </li>
   );

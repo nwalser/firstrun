@@ -5,7 +5,17 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./log": "./src/log.ts",
+    "./severity": "./src/severity.ts",
+    "./attributes": "./src/attributes.ts",
+    "./conventions": "./src/conventions.ts",
+    "./surface": "./src/surface.ts",
+    "./canvas": "./src/canvas.ts",
+    "./query": "./src/query.ts",
+    "./board": "./src/board.ts",
+    "./overview": "./src/overview.ts",
+    "./templates": "./src/templates.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"

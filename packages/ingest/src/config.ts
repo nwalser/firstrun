@@ -1,33 +1,30 @@
 export interface IngestConfig {
   /**
-   * Origin the tag and the SDK talk to. Customers CNAME a subdomain at this.
-   * Also where the download redirect points, so it has to be externally
-   * reachable -- on Railway that is the service domain, not localhost.
+   * Origin the tag and the SDKs talk to. Customers CNAME a subdomain at this.
+   *
+   * It is where a batch is POSTed and where `/t.js` is served from, and that is
+   * all. firstrun does not sit in front of a download, an installer, or any
+   * other asset a customer ships: if this origin is unreachable, nothing on
+   * their site or in their app stops working.
    */
   publicOrigin: string;
-  /** Where /dl/<token>/<file> streams the real installer from. */
-  assetOrigin: string | null;
   /**
-   * Salt for hashing client IPs used in estimated matching.
+   * Largest body the event endpoint will read.
    *
-   * Must be stable across restarts or a redeploy loses 30 minutes of possible
-   * matches. Must not be shared with anything else: the hashes are the only
-   * network-identifying material this system keeps, and they exist purely to
-   * be compared against each other for half an hour.
+   * Intake is public and unauthenticated, so the cheapest thing it can do with
+   * an oversized body is refuse to hold it. `MAX_BATCH_ENTRIES` caps a batch at
+   * 500 entries and the attribute bounds cap what one entry can carry, so a
+   * megabyte is already far more than a well-behaved client can produce.
    */
-  ipHashSalt: string;
-  /** How far back a download can be and still be a candidate for a first run. */
-  estimateWindowMs: number;
-  /** More candidates than this in the window and the guess is not worth making. */
-  estimateMaxCandidates: number;
+  maxBodyBytes: number;
 }
 
 export function configFromEnv(env: Record<string, string | undefined> = process.env): IngestConfig {
   return {
-    publicOrigin: (env.PUBLIC_ORIGIN ?? env.PUBLIC_INGEST_ORIGIN ?? "http://localhost:3000").replace(/\/$/, ""),
-    assetOrigin: env.ASSET_ORIGIN ?? null,
-    ipHashSalt: env.IP_HASH_SALT ?? "dev-only-salt",
-    estimateWindowMs: 30 * 60 * 1000,
-    estimateMaxCandidates: 3,
+    publicOrigin: (env.PUBLIC_ORIGIN ?? env.PUBLIC_INGEST_ORIGIN ?? "http://localhost:3000").replace(
+      /\/$/,
+      ""
+    ),
+    maxBodyBytes: Number(env.INGEST_MAX_BODY_BYTES ?? 1_000_000),
   };
 }

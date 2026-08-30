@@ -1,14 +1,14 @@
 import { relations } from "drizzle-orm";
 import {
   bigint,
-  bigserial,
   customType,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
   primaryKey,
-  real,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -16,18 +16,24 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * One database for everything: events, identity, auth and configuration.
+ * One database for everything: log entries, auth and configuration.
  *
- * Drizzle owns the DDL. It does NOT own the analytics queries -- the funnel and
- * retention SQL lives in db/queries/*.sql, because those queries are the
- * product and should be readable by someone who knows SQL and nothing about
- * this codebase.
+ * Drizzle owns the DDL, with one exception it cannot express: `log_entries` is
+ * partitioned, so its real DDL is hand-written in
+ * migrations/0004_log_entries.sql and the declaration below exists for the
+ * types and the snapshot.
+ *
+ * Drizzle does NOT own the analytics queries. Every question a board asks is
+ * compiled by db/query.ts from a saved query, parameter-bound. There is no
+ * folder of hand-written .sql any more: a question the compiler cannot express
+ * is a question the customer cannot ask either, and a file that answers one
+ * behind their back is the closed catalogue coming back through the side door.
  *
  * The hierarchy is workspace > project > source:
  *
  *   workspace   who can see things, and who can change them
- *   project     ONE PRODUCT, and one namespace of people
- *   source      one thing that sends events: a website, a desktop app
+ *   project     one product, and one namespace of entry names
+ *   source      one thing that sends telemetry: a website, an app, a server
  */
 
 /**
@@ -44,15 +50,26 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 // Enumerations. Genuinely closed sets, so the database enforces them.
 // ---------------------------------------------------------------------------
 
-export const surfaceEnum = pgEnum("surface", ["web", "app"]);
-
-/** See CLAUDE.md rule 1: token and account are exact, estimate never is. */
-export const edgeMethodEnum = pgEnum("edge_method", ["token", "account", "estimate"]);
-
-export const distinctTypeEnum = pgEnum("distinct_type", ["web_visitor", "install", "account"]);
-
-/** What kind of thing is sending events. A project usually has both. */
-export const sourceKindEnum = pgEnum("source_kind", ["web", "desktop"]);
+/**
+ * What kind of thing a source is.
+ *
+ * The same five values as `Surface` in @firstrun/schema, in the same order, and
+ * they have to stay that way: the wire format encodes one of these into every
+ * source key. `other` exists so a CLI or a games console has a value to send
+ * rather than a reason to claim it is a server.
+ *
+ * There is no matching enum on the entry side any more. A log entry records the
+ * surface it arrived through as the `firstrun.source.surface` attribute, which
+ * the edge stamps from the source row. An enum there would have been a sixth
+ * promoted column pretending to be a type.
+ */
+export const sourceKindEnum = pgEnum("source_kind", [
+  "web",
+  "desktop",
+  "mobile",
+  "server",
+  "other",
+]);
 
 /**
  * Two roles, and only two for now.
@@ -103,8 +120,8 @@ export const sessions = pgTable(
 /**
  * A workspace is who, not what.
  *
- * It holds people and the projects they can see. It is deliberately NOT an
- * identity namespace -- that lives on the project, one level down.
+ * It holds people and the projects they can see, and nothing else: it is not a
+ * namespace for entries, for entry names, or for anybody's id.
  */
 export const workspaces = pgTable(
   "workspaces",
@@ -154,20 +171,20 @@ export const workspaceMembers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Projects: the identity namespace
+// Projects, sources and dashboards
 // ---------------------------------------------------------------------------
 
 /**
- * A project is one product, and ONE NAMESPACE OF PEOPLE.
+ * A project is one product, and one namespace of EVENT NAMES.
  *
- * This is the load-bearing decision in the whole model. Every source inside a
- * project resolves to the same people -- if the website and the desktop app had
- * separate person spaces, the web-to-install join could not exist, and that
- * join is the entire product.
+ * Every source inside a project reports into the same vocabulary, so a board
+ * can put the website and the desktop app side by side and `page_view` means
+ * the same thing on both. What a project is NOT is a namespace of people: the
+ * anonymous ids of two surfaces are never linked to each other, here or
+ * anywhere else. A browser has a visitor id, an app has an install id, and
+ * nothing merges them.
  *
- * So: one project per product, never one per platform. Two products in one
- * workspace are two projects, and a visitor to one is not a visitor to the
- * other.
+ * So: one project per product, never one per platform.
  */
 export const projects = pgTable(
   "projects",
@@ -187,11 +204,14 @@ export const projects = pgTable(
 );
 
 /**
- * An ingestion site: the marketing site, the desktop app, a second app.
+ * An ingestion site: the marketing site, the desktop app, a backend service.
  *
  * `ingestKey` is what clients send. Public by necessity -- it ships in a script
- * tag -- so it identifies and never authorises. Nothing destructive is reachable
- * with one.
+ * tag, and in a binary anyone can unpack -- so it identifies and never
+ * authorises. Nothing destructive is reachable with one.
+ *
+ * `kind` is where an event's `surface` comes from. The body never says: a
+ * client that lied about its surface would put desktop rows in a web column.
  */
 export const sources = pgTable(
   "sources",
@@ -214,13 +234,18 @@ export const sources = pgTable(
 );
 
 /**
- * The dashboard for a project.
+ * The dashboards for a project. Plural: a project has a tab strip of them.
  *
- * `layout` is an ordered array of widgets from a fixed catalogue -- see
- * packages/schema/src/widgets.ts. Deliberately a catalogue and not a query
- * builder: every widget answers a question this product exists to answer, and
- * none of them assemble an arbitrary query. A generic explore view is the
- * failure mode here, and that catalogue is the line.
+ * `layout` is an ordered array of widgets, and a widget is a SAVED QUERY plus a
+ * visualisation -- filter tree, group by, aggregation, time bucket, order,
+ * limit, compiled by db/query.ts. The conventional shapes in
+ * packages/schema/src are starting points a picker offers, not the set of
+ * questions the product can answer.
+ *
+ * A board is addressed by `slug`, not by id, because the URL of a board is a
+ * thing people paste to each other. `position` is the tab order, kept as a
+ * column rather than inferred from `created_at` so a board can be dragged
+ * somewhere without being recreated.
  */
 export const dashboards = pgTable(
   "dashboards",
@@ -230,169 +255,155 @@ export const dashboards = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull().default("Overview"),
+    slug: text("slug").notNull(),
+    position: integer("position").notNull().default(0),
     layout: jsonb("layout").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("dashboards_project_idx").on(t.projectId)]
-);
-
-// ---------------------------------------------------------------------------
-// The join
-// ---------------------------------------------------------------------------
-
-/** Minted at download, claimed on first run. The token lives in the filename. */
-export const downloadTokens = pgTable(
-  "download_tokens",
-  {
-    token: text("token").primaryKey(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
-    webVisitorId: text("web_visitor_id"),
-    asset: text("asset").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    claimedAt: timestamp("claimed_at", { withTimezone: true }),
-  },
   (t) => [
-    index("download_tokens_visitor_idx").on(t.projectId, t.webVisitorId),
-    index("download_tokens_expiry_idx").on(t.expiresAt),
+    uniqueIndex("dashboards_project_slug_key").on(t.projectId, t.slug),
+    index("dashboards_project_idx").on(t.projectId),
   ]
 );
 
-/**
- * Material for ESTIMATED matches only. Never for an exact join.
- *
- * A salted hash, not an address: this exists to be compared with another hash
- * of the same address for thirty minutes, and is pruned after an hour.
- */
-export const downloadHints = pgTable(
-  "download_hints",
-  {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    webVisitorId: text("web_visitor_id").notNull(),
-    ipHash: text("ip_hash").notNull(),
-    os: text("os"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("download_hints_lookup_idx").on(t.projectId, t.ipHash, t.createdAt)]
-);
-
 // ---------------------------------------------------------------------------
-// Events and identity
+// Log entries
 // ---------------------------------------------------------------------------
 
 /**
- * The event store.
+ * One structured log entry. There is no second telemetry table.
  *
- * `event_time` is client-stamped and authoritative; `ingest_time` is
- * server-stamped and read only while debugging. Nothing sorts, buckets, windows
- * or retains on ingest time. See CLAUDE.md rule 2.
+ * An error is a log entry. An event is a log entry. A metric sample is a log
+ * entry. What one of them MEANS is assigned by convention at write time (the
+ * `name` a client picks, the attribute keys it uses) and by query at read time,
+ * never by a closed set of types down here. The backend stays small; the
+ * indexes and db/query.ts do the work.
  *
- * The primary key is (project_id, event_id), which makes dedup a property of
- * the schema rather than a table someone has to remember to check. The desktop
- * SDK replays its disk queue after a crash, so duplicates are the normal case.
+ * The shape is OpenTelemetry's log data model, so the SDK conventions have a
+ * spec to point at instead of a vocabulary we invented:
  *
- * `person_id` is derived by @firstrun/identity. A client never sends one.
+ *   time         the entry's own timestamp -- OTel `timestamp`. Client-stamped
+ *                and authoritative. Everything buckets, sorts, windows,
+ *                partitions and retains on this.
+ *   ingested_at  OTel `observed_timestamp`. Server-stamped at the edge, read
+ *                while debugging and never used for bucketing.
+ *   severity     OTel `severity_number`, the 1..24 ladder. Nullable, because an
+ *                entry with no severity is honestly unclassified and one
+ *                silently filed as INFO is a lie a filter would act on.
+ *                `severity_text` is DERIVED from this and never stored.
+ *   name         OTel's log record event name: the short, low-cardinality thing
+ *                this entry is. `page_view`, `exception`, `http.request`.
+ *   attributes   everything else.
+ *
+ * `trace_id` and `span_id` are reserved by the spec and unused here. When they
+ * arrive they arrive as attributes first, and are promoted only if a query
+ * needs them to be columns.
+ *
+ * ## Five promoted columns, and no more
+ *
+ * `project_id`, `time`, `distinct_id`, `severity` and `name` are real columns
+ * because every query in the product constrains on them. `os`, `app_version`,
+ * `url`, `referrer`, the utm fields, the session id, the user id and the source
+ * id are NOT: they live in `attributes` and are queried from there. That makes
+ * a breakdown by OS slower than a column scan would have been, and that is the
+ * trade -- a closed set of columns is a closed set of questions, and the one
+ * thing we cannot know in advance is which question a customer needs answered.
+ * A generated column over `attributes` is the escape hatch when one of them
+ * turns out to be hot enough to pay for, and adding one is an index and a
+ * migration rather than a redesign.
+ *
+ * ## The primary key
+ *
+ * `(project_id, time, entry_id)`.
+ *
+ * Dedup wants `(project_id, entry_id)`: every SDK replays its disk queue after
+ * a crash, so the same entry id arriving twice is the normal case and
+ * `ON CONFLICT DO NOTHING` is how it is absorbed. But Postgres cannot enforce a
+ * unique constraint on a partitioned table unless the constraint CONTAINS the
+ * partition key, so `time` has to be in it. That is a real weakening and it is
+ * worth naming: two entries with the same id at genuinely different timestamps
+ * would both be stored. They cannot arise from a replay, because a replayed
+ * entry carries the timestamp it was stamped with on the client, which is the
+ * only way the same id is ever sent twice.
+ *
+ * `time` sits SECOND rather than last on purpose: the key's btree is then also
+ * the per-project time-range index every query starts with, so
+ * `where project_id = $1 and time >= $2 and time < $3` needs no index of its
+ * own and the hottest table in the database carries one btree fewer.
+ *
+ * ## Drizzle does not own this table's DDL
+ *
+ * `PARTITION BY RANGE (time)` has no Drizzle expression, so the real DDL is
+ * hand-written in migrations/0004_log_entries.sql and this declaration exists
+ * for the types, for the query builder and for the snapshot. Do NOT run
+ * `drizzle-kit push` against it: push would replace a partitioned table with an
+ * ordinary one and take every partition with it.
+ *
+ * There is no foreign key to `projects` either. A partitioned table can carry
+ * one, but every partition then carries the trigger, and `deleteProject`
+ * already drops the project's entries explicitly. The cascade was doing work
+ * the repo does anyway.
  */
-export const events = pgTable(
-  "events",
+export const logEntries = pgTable(
+  "log_entries",
   {
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    eventId: uuid("event_id").notNull(),
-    sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
+    projectId: uuid("project_id").notNull(),
 
-    eventName: text("event_name").notNull(),
-    eventTime: timestamp("event_time", { withTimezone: true }).notNull(),
-    ingestTime: timestamp("ingest_time", { withTimezone: true }).notNull().defaultNow(),
-    surface: surfaceEnum("surface").notNull(),
+    /** OTel `timestamp`. Client-stamped, authoritative, and the partition key. */
+    time: timestamp("time", { withTimezone: true }).notNull(),
 
-    personId: uuid("person_id").notNull(),
-    webVisitorId: text("web_visitor_id"),
-    installId: text("install_id"),
-    accountId: text("account_id"),
-    sessionId: text("session_id"),
+    /** Client-generated, so a replayed queue deduplicates instead of doubling. */
+    entryId: uuid("entry_id").notNull(),
 
-    appVersion: text("app_version"),
-    channel: text("channel"),
-    os: text("os"),
-    arch: text("arch"),
-    locale: text("locale"),
+    /** OTel `observed_timestamp`. Ours. Debugging only. */
+    ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
 
-    url: text("url"),
-    referrer: text("referrer"),
-    utmSource: text("utm_source"),
-    utmMedium: text("utm_medium"),
-    utmCampaign: text("utm_campaign"),
-
-    props: jsonb("props").notNull().default({}),
-  },
-  (t) => [
-    primaryKey({ columns: [t.projectId, t.eventId] }),
-    index("events_time_idx").on(t.projectId, t.eventTime),
-    index("events_person_idx").on(t.projectId, t.personId),
-    index("events_name_time_idx").on(t.projectId, t.eventName, t.eventTime),
-    index("events_install_idx").on(t.projectId, t.installId),
-    index("events_visitor_idx").on(t.projectId, t.webVisitorId),
-  ]
-);
-
-/**
- * Every belief we hold about two distincts being the same person.
- *
- * `estimate` rows live here and are read only by the funnel, which reports them
- * as a separate number. They never reach person_overrides and never influence a
- * person id. See CLAUDE.md rule 1.
- */
-export const identityEdges = pgTable(
-  "identity_edges",
-  {
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    fromType: distinctTypeEnum("from_type").notNull(),
-    fromId: text("from_id").notNull(),
-    toType: distinctTypeEnum("to_type").notNull(),
-    toId: text("to_id").notNull(),
-    method: edgeMethodEnum("method").notNull(),
-    /** 1 for exact methods, strictly below 1 for estimates. */
-    confidence: real("confidence").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.projectId, t.method, t.fromType, t.fromId, t.toType, t.toId] }),
-    index("edges_from_idx").on(t.projectId, t.fromType, t.fromId),
-    index("edges_to_idx").on(t.projectId, t.toType, t.toId),
-  ]
-);
-
-/**
- * The fast path for a merge.
- *
- * An exact link writes here immediately so queries are correct within a second,
- * and the squash job later folds it into events.person_id and deletes what it
- * drained. Small and hot by construction: if this table is large, squash is not
- * running.
- */
-export const personOverrides = pgTable(
-  "person_overrides",
-  {
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    distinctType: distinctTypeEnum("distinct_type").notNull(),
+    /**
+     * The anonymous id the client generated and persisted for ITS OWN surface:
+     * a visitor id in a browser, an install id in an app. Required, because an
+     * entry that belongs to nothing cannot be counted as a unique.
+     *
+     * `user.id` -- whatever the customer passed to `identify()` -- is an
+     * attribute, not a column. A unique is
+     * `count(distinct coalesce(attributes ->> 'user.id', distinct_id))`, and
+     * nothing else ever folds two ids together.
+     */
     distinctId: text("distinct_id").notNull(),
-    personId: uuid("person_id").notNull(),
-    version: bigint("version", { mode: "number" }).notNull(),
+
+    /** OTel `severity_number`, 1..24. Null means unclassified, not INFO. */
+    severity: smallint("severity"),
+
+    name: text("name").notNull(),
+
+    attributes: jsonb("attributes").notNull().default({}),
   },
-  (t) => [primaryKey({ columns: [t.projectId, t.distinctType, t.distinctId] })]
+  (t) => [
+    primaryKey({ columns: [t.projectId, t.time, t.entryId] }),
+
+    // Almost every question is "one name, one window", so this is the index the
+    // whole product stands on. Time last, because the name is an equality and
+    // the time is the range that follows it.
+    index("log_entries_name_time_idx").on(t.projectId, t.name, t.time),
+
+    // "Errors and worse, over the last day" is a range on the ladder, and the
+    // severity filter is the one a log view opens with.
+    index("log_entries_severity_time_idx").on(t.projectId, t.severity, t.time),
+
+    // One person's timeline, and every unique-counting walk.
+    index("log_entries_distinct_time_idx").on(t.projectId, t.distinctId, t.time),
+
+    // The index that makes attributes a first-class query surface rather than a
+    // blob we happen to store. Default `jsonb_ops` rather than
+    // `jsonb_path_ops`: path_ops is smaller and faster but indexes only
+    // containment (`@>`), and the compiler also emits key existence (`?`, `?|`)
+    // for "is set" and "has one of these keys", which path_ops cannot answer at
+    // all. One index covering every index-eligible operator we emit beats two
+    // indexes on the hottest table in the database. If containment ever
+    // dominates hard enough to matter this is the line to change, and
+    // db/query.ts records exactly which predicates would benefit.
+    index("log_entries_attributes_idx").using("gin", t.attributes),
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -436,5 +447,6 @@ export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Source = typeof sources.$inferSelect;
 export type Dashboard = typeof dashboards.$inferSelect;
-export type DownloadToken = typeof downloadTokens.$inferSelect;
+export type LogEntryRow = typeof logEntries.$inferSelect;
+export type SourceKind = (typeof sourceKindEnum.enumValues)[number];
 export type MemberRole = (typeof memberRoleEnum.enumValues)[number];
