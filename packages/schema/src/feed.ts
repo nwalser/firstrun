@@ -73,11 +73,10 @@ export const FEED_MAX_HOURS = 24 * 90;
  * A pinned window, in place of the rolling one.
  *
  * The log itself rolls (see `FEED_WINDOWS`), and that is right for "what just
- * happened". The rows behind a card are a different question: a card's number
- * is its board's whole range, which may be pinned to calendar dates in the
- * past, so the drill-down states its window instead of counting back from now.
- * A rolling window there would page a different set of entries than the number
- * was measured over, which is precisely the thing somebody opened it to check.
+ * happened". A caller asking about a fixed stretch of the past is asking a
+ * different question, and a rolling window would answer it with a different set
+ * of entries every time it was asked. Stating both ends is how a page of rows
+ * stays checkable against whatever produced the range.
  */
 export const FeedWindow = z.object({
   from: z.string().datetime({ offset: true }),
@@ -112,13 +111,22 @@ export const FeedRequest = z.object({
   /** Substring. The server decides which fields it looks at, and bounds it. */
   search: z.string().max(200).nullable().optional(),
   /**
-   * The entries behind one number, as the filter that number was measured with.
+   * The full filter tree, as a card is written in.
    *
-   * The same tree a card is written in, parsed by the same schema and compiled
-   * by the same compiler, because "url.path starts with /pricing" has to select
-   * the same entries here as it does on the board. A card that shows a total
-   * nobody can check is the reason this exists: the number and the rows behind
-   * it now come from one definition rather than two.
+   * This is the one that matters. The named fields above are shortcuts for the
+   * questions everybody asks first; this is every other question, and it is
+   * deliberately the SAME `Filter` a board card carries -- same operators, same
+   * attribute paths, same nesting, same builder on screen. A log with its own
+   * private filter language would be a second thing to learn and a second
+   * compiler to keep honest, and "url.path starts with /pricing" has to select
+   * the same entries here as it does on the board: a card whose total nobody
+   * can check against its own rows is what one definition rather than two
+   * prevents.
+   *
+   * Parsed here rather than cast. It reaches SQL through
+   * `compileFilterFragment`, and an attribute path binds as one `text[]`
+   * parameter (rule 3): the parse is what guarantees the shape the compiler
+   * assumes.
    *
    * This still returns rows, one bounded page at a time, and is still never
    * saved. A filter arriving here is a question asked once, not a widget.
@@ -157,25 +165,6 @@ export function feedWindow(request: FeedRequest, now: Date = new Date()): {
 
   return { from: new Date(now.getTime() - (request.hours ?? FEED_HOURS) * 3_600_000), to: now };
 }
-
-/**
- * The rows behind one card, as a request.
- *
- * The card's own filter over the card's own window, scoped to the card's own
- * project. Built here, in the contract, so the drawer that asks and the server
- * that answers cannot disagree about what "the entries behind this number"
- * means.
- */
-export const drillRequest = (options: {
-  window: FeedWindow;
-  project: string;
-  filter: Filter;
-}): FeedRequest => ({
-  window: options.window,
-  projects: [options.project],
-  filter: options.filter,
-  limit: FEED_PAGE,
-});
 
 /** The floor a band filter puts on the 1..24 ladder, or null for no floor. */
 export const severityFloor = (band: SeverityBand | null | undefined): number | null =>

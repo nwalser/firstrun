@@ -31,6 +31,7 @@ export const dashboard: DashboardMessages = {
   "dashboard.compare_year": "Vorjahreszeitraum",
   "dashboard.compare_custom": "Benutzerdefiniert",
   "dashboard.baseline": "ggü. {range}",
+  "dashboard.baseline_series": "Vergleichszeitraum",
 
   "dashboard.filters": "Filter",
   "dashboard.filters_one": "{count} Filter",
@@ -112,16 +113,10 @@ export const dashboard: DashboardMessages = {
   "dashboard.more_one": "+{count} weitere",
   "dashboard.more_other": "+{count} weitere",
 
-  "dashboard.view_entries": "Einträge ansehen",
-  "dashboard.drill_title": "Einträge hinter {card}",
-  "dashboard.drill_window": "Alles, worüber diese Karte gemessen wurde: {window}.",
-  "dashboard.drill_none": "Keine Einträge passen zu dieser Karte",
-  "dashboard.drill_none_hint":
-    "Die Karte zählt, was dieser Filter auswählt, und im Zeitraum passt nichts darauf. Das " +
-    "ist dieselbe Antwort, die die Zahl zeigt.",
-  "dashboard.drill_failed": "Diese Einträge konnten nicht geladen werden",
-  "dashboard.drill_failed_hint":
-    "Das Board ist davon nicht betroffen. Schließen und erneut versuchen.",
+  "dashboard.live": "Live",
+  "dashboard.live_title": "Dieses Board liest sich neu, solange es offen ist. Aktualisiert {when}.",
+  "dashboard.live_paused":
+    "Pausiert, solange das Board angeordnet wird. Es läuft weiter, sobald du fertig bist.",
 
   "dashboard.preset_event_count": "Ein Event zählen",
   "dashboard.preset_event_count_hint":

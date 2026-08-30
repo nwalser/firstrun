@@ -1,16 +1,15 @@
-import { Link, createFileRoute, useRouter } from "@tanstack/solid-router";
+import { Link, createFileRoute, notFound, redirect, useRouter } from "@tanstack/solid-router";
 import Antenna from "lucide-solid/icons/antenna";
-import BookOpen from "lucide-solid/icons/book-open";
 import Check from "lucide-solid/icons/check";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
-import Copy from "lucide-solid/icons/copy";
 import ListFilter from "lucide-solid/icons/list-filter";
 import Search from "lucide-solid/icons/search";
 import Trash2 from "lucide-solid/icons/trash-2";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { ingestTotal } from "../components/ingest-histogram.js";
 import { PageHeader } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
+import { SourceRow } from "../components/source-row.js";
 import {
   Button,
   Card,
@@ -31,7 +30,12 @@ import {
   toast,
 } from "../components/ui/index.js";
 import { cn } from "../lib/cn.js";
-import { deleteSourceFn, type SourceSummary } from "../lib/api.js";
+import {
+  deleteSourceFn,
+  getSession,
+  getWorkspaceSources,
+  type WorkspaceSourceSummary,
+} from "../lib/api.js";
 import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
 import { Route as ProjectRoute } from "./w.$wslug.$pslug.js";
 
@@ -60,10 +64,29 @@ import { Route as ProjectRoute } from "./w.$wslug.$pslug.js";
  * login.
  */
 export const Route = createFileRoute("/w/$wslug/$pslug/sources/")({
+  /*
+   * The project layout above already loaded this project's sources, and this
+   * asks for them again -- narrowed to the same project, but through the call
+   * the workspace list uses.
+   *
+   * That is the point. The nav's copy carries a name and a last-seen stamp,
+   * because that is all a sidebar needs; a ROW needs the month behind it and
+   * the rate off it, and those are two grouped scans nobody navigating between
+   * settings pages should pay for. Same loader, same shape, one scope down.
+   */
+  loader: async ({ params }) => {
+    const session = await getSession();
+    if (!session.user) throw redirect({ to: "/login" });
+    const view = await getWorkspaceSources({
+      data: { workspace: params.wslug, project: params.pslug },
+    });
+    if (!view) throw notFound();
+    return view;
+  },
   component: Sources,
 });
 
-type Sort = "activity" | "name";
+type Sort = "activity" | "volume" | "name";
 
 /** How long a source can say nothing before "receiving" stops being true. */
 const QUIET_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -80,7 +103,10 @@ type ActivityFacet = "receiving" | "quiet" | "never";
  * same fact in words, so a chip never hides a row for a reason the reader
  * cannot see in the rows it kept.
  */
-const ACTIVITY: Record<ActivityFacet, { labelKey: SimpleKey; match: (s: SourceSummary) => boolean }> = {
+const ACTIVITY: Record<
+  ActivityFacet,
+  { labelKey: SimpleKey; match: (s: WorkspaceSourceSummary) => boolean }
+> = {
   receiving: {
     labelKey: "sources.facet_receiving",
     match: (s) =>
@@ -103,16 +129,19 @@ const ACTIVITY_FACETS = Object.keys(ACTIVITY) as ActivityFacet[];
  */
 const SORT_KEYS = {
   activity: "sources.sort_activity",
+  volume: "sources.sort_volume",
   name: "sources.sort_name",
 } as const satisfies Record<Sort, SimpleKey>;
 
 function Sources() {
   const i18n = useI18n();
-  const view = ProjectRoute.useLoaderData();
+  const data = Route.useLoaderData();
+  const nav = ProjectRoute.useLoaderData();
   const router = useRouter();
 
-  const isAdmin = () => view().role === "admin";
-  const hasSources = () => view().sources.length > 0;
+  const sources = () => data().sources;
+  const isAdmin = () => nav().role === "admin";
+  const hasSources = () => sources().length > 0;
 
   const [query, setQuery] = createSignal("");
   const [sort, setSort] = createSignal<Sort>("activity");
@@ -154,7 +183,7 @@ function Sources() {
    * only ever match nothing is not a filter anybody would pick on purpose.
    */
   const present = createMemo(() =>
-    ACTIVITY_FACETS.filter((state) => view().sources.some(ACTIVITY[state].match))
+    ACTIVITY_FACETS.filter((state) => sources().some(ACTIVITY[state].match))
   );
 
   function toggleFacet(state: ActivityFacet) {
@@ -164,36 +193,43 @@ function Sources() {
   }
 
   /** Newest activity first, nulls last, so "never seen" never leads the page. */
-  const byActivity = (a: SourceSummary, b: SourceSummary) => {
+  const byActivity = (a: WorkspaceSourceSummary, b: WorkspaceSourceSummary) => {
     if (a.lastSeenAt === b.lastSeenAt) return a.name.localeCompare(b.name);
     if (!a.lastSeenAt) return 1;
     if (!b.lastSeenAt) return -1;
     return a.lastSeenAt < b.lastSeenAt ? 1 : -1;
   };
 
+  /** Busiest month first, so "what is this project mostly" reads off the top. */
+  const byVolume = (a: WorkspaceSourceSummary, b: WorkspaceSourceSummary) =>
+    ingestTotal(b.daily) - ingestTotal(a.daily) || a.name.localeCompare(b.name);
+
   const shown = createMemo(() => {
     const needle = query().trim().toLowerCase();
     const chosen = facets();
-    return [...view().sources]
+    const order =
+      sort() === "name"
+        ? (a: WorkspaceSourceSummary, b: WorkspaceSourceSummary) => a.name.localeCompare(b.name)
+        : sort() === "volume"
+          ? byVolume
+          : byActivity;
+
+    return [...sources()]
       .filter((source) => chosen.length === 0 || chosen.some((s) => ACTIVITY[s].match(source)))
       /*
         Not on the key. The row stopped showing it, and a search that silently
         matches something invisible reports a row whose reason for being there
         the reader cannot see.
       */
-      .filter(
-        (source) =>
-          !needle ||
-          source.name.toLowerCase().includes(needle)
-      )
-      .sort(sort() === "name" ? (a, b) => a.name.localeCompare(b.name) : byActivity);
+      .filter((source) => !needle || source.name.toLowerCase().includes(needle))
+      .sort(order);
   });
 
-  async function remove(source: SourceSummary) {
+  async function remove(source: WorkspaceSourceSummary) {
     const result = await deleteSourceFn({
       data: {
-        workspace: view().workspace.slug,
-        project: view().project.slug,
+        workspace: nav().workspace.slug,
+        project: nav().project.slug,
         sourceId: source.id,
       },
     });
@@ -290,7 +326,7 @@ function Sources() {
                 */}
                 <Link
                   to="/w/$wslug/$pslug/sources/new"
-                  params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
+                  params={{ wslug: nav().workspace.slug, pslug: nav().project.slug }}
                   class={buttonVariants({ size: "sm" })}
                 >
                   {i18n.t("sources.add")}
@@ -331,7 +367,7 @@ function Sources() {
                 <ChevronsUpDown class="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <For each={["activity", "name"] as Sort[]}>
+                <For each={["activity", "volume", "name"] as Sort[]}>
                   {(option) => (
                     <DropdownMenuItem onSelect={() => setSort(option)}>
                       <Check class={cn("size-4", sort() === option ? "opacity-100" : "opacity-0")} />
@@ -342,12 +378,10 @@ function Sources() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <RefreshButton />
-
             <Show when={isAdmin()}>
               <Link
                 to="/w/$wslug/$pslug/sources/new"
-                params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
+                params={{ wslug: nav().workspace.slug, pslug: nav().project.slug }}
                 class={cn(buttonVariants({ size: "toolbar" }), "shrink-0")}
               >
                 {i18n.t("sources.add")}
@@ -362,12 +396,12 @@ function Sources() {
               </span>
               <span class="text-caption text-muted-foreground">
                 <Show
-                  when={shown().length !== view().sources.length}
-                  fallback={<>{i18n.num(view().sources.length)}</>}
+                  when={shown().length !== sources().length}
+                  fallback={<>{i18n.num(sources().length)}</>}
                 >
                   {i18n.t("sources.count_of", {
                     shown: shown().length,
-                    total: view().sources.length,
+                    total: sources().length,
                   })}
                 </Show>
               </span>
@@ -392,10 +426,30 @@ function Sources() {
                   {(source) => (
                     <SourceRow
                       source={source}
-                      workspace={view().workspace.slug}
-                      project={view().project.slug}
-                      isAdmin={isAdmin()}
-                      onRemove={() => remove(source)}
+                      workspace={nav().workspace.slug}
+                      showProject={false}
+                      actions={
+                        <Show when={isAdmin()}>
+                          <ConfirmDelete
+                            trigger={
+                              <Button
+                                variant="ghost"
+                                size="toolbar-icon"
+                                class="text-muted-foreground hover:text-destructive"
+                                aria-label={i18n.t("sources.remove_source", { name: source.name })}
+                                title={i18n.t("sources.remove_source_title")}
+                              >
+                                <Trash2 class="size-4" />
+                              </Button>
+                            }
+                            title={i18n.t("sources.remove_confirm_title", { name: source.name })}
+                            description={i18n.t("sources.remove_confirm_hint")}
+                            confirmWord={source.name}
+                            actionLabel={i18n.t("sources.remove_action")}
+                            onConfirm={() => remove(source)}
+                          />
+                        </Show>
+                      }
                     />
                   )}
                 </For>
@@ -405,160 +459,5 @@ function Sources() {
         </div>
       </Show>
     </main>
-  );
-}
-
-/**
- * One source, at the reference's row shape: 16px of padding and a 12px gap, so
- * the row lands at about 75px. A left block naming it, a middle block carrying
- * the key, and a right block of icon actions.
- */
-function SourceRow(props: {
-  source: SourceSummary;
-  workspace: string;
-  project: string;
-  isAdmin: boolean;
-  onRemove: () => void;
-}) {
-  const i18n = useI18n();
-  return (
-    // `relative`, for the stretched link below.
-    <li class="relative flex items-center gap-3 p-4 has-[a:hover]:bg-accent">
-      {/*
-        The row opens the source. Stretched from underneath rather than wrapped
-        around the row, because the row also carries a copy button, a guide link
-        and a delete: inside one anchor, copying a key would be a navigation.
-      */}
-      <Link
-        to="/w/$wslug/$pslug/sources/$sid"
-        params={{ wslug: props.workspace, pslug: props.project, sid: props.source.id }}
-        class="absolute inset-0 z-0 outline-none"
-        aria-label={i18n.t("sources.open_source", { name: props.source.name })}
-      />
-      {/*
-        The reference splits this row at its own extra-large pane step. We
-        split at the medium one: their measuring pane was 2258px wide and
-        ours rarely is, so holding a 75px row stacked until 1280px would
-        leave most panes showing the tall form of a short row.
-      */}
-      <div class="pointer-events-none flex min-w-0 items-center gap-4 @md-page/page:w-[calc(25%+48px)]">
-        {/* One mark for every source, because there is one kind of source. */}
-        <div class="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-          <Antenna class="size-4" />
-        </div>
-        <div class="min-w-0">
-          <div class="truncate text-body font-medium" title={props.source.name}>
-            {props.source.name}
-          </div>
-          {/*
-            Muted rather than a warning colour: a source added a minute ago has
-            never been seen either, and nothing on this row tells the two apart.
-            On `time`, so this is when the source was last ACTIVE rather than
-            when we last heard from it.
-          */}
-          <div class="truncate text-caption text-muted-foreground">
-            <Show when={props.source.lastSeenAt} fallback={i18n.t("sources.never_seen")}>
-              {(at) => <>{i18n.t("sources.seen", { when: i18n.relative(at()) })}</>}
-            </Show>
-          </div>
-        </div>
-      </div>
-
-      {/*
-        No key on the row. It was the widest column here and it earned none of
-        that: a public identifier nobody reads, that everybody scans past, in a
-        list whose job is "which of these has stopped". It is still one click
-        away on the source itself, where somebody who actually wants to paste it
-        has gone looking for it.
-      */}
-      <div class="flex-1" />
-
-      <div class="relative z-10 ml-auto flex shrink-0 items-center gap-2">
-        {/*
-          The id travels in the query string, so the documentation opens with this source
-          already selected and every snippet on it carries this key. An icon,
-          not a panel: the guide is five pages long and belongs where it can be
-          read, which is the documentation and the step that just created the key.
-        */}
-        <Link
-          to="/docs"
-          search={{ source: props.source.id }}
-          class={buttonVariants({ variant: "ghost", size: "toolbar-icon" })}
-          aria-label={i18n.t("sources.how_to_install", { name: props.source.name })}
-          title={i18n.t("sources.guide_hint")}
-        >
-          <BookOpen class="size-4" />
-        </Link>
-
-        <Show when={props.isAdmin}>
-          <ConfirmDelete
-            trigger={
-              <Button
-                variant="ghost"
-                size="toolbar-icon"
-                class="text-muted-foreground hover:text-destructive"
-                aria-label={i18n.t("sources.remove_source", { name: props.source.name })}
-                title={i18n.t("sources.remove_source_title")}
-              >
-                <Trash2 class="size-4" />
-              </Button>
-            }
-            title={i18n.t("sources.remove_confirm_title", { name: props.source.name })}
-            description={i18n.t("sources.remove_confirm_hint")}
-            confirmWord={props.source.name}
-            actionLabel={i18n.t("sources.remove_action")}
-            onConfirm={() => props.onRemove()}
-          />
-        </Show>
-      </div>
-    </li>
-  );
-}
-
-/**
- * A key, inline, with the copy button that makes it useful.
- *
- * A source key is public by necessity and authorises nothing, so it is shown
- * rather than masked: the reader is here to compare it against what they pasted
- * into a deploy, and a value behind a "reveal" is one more click before they
- * can. It is still copied from the string rather than from the DOM, so a key
- * truncated on a narrow pane pastes whole.
- */
-function KeyCell(props: { value: string }) {
-  const i18n = useI18n();
-  const [copied, setCopied] = createSignal(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(props.value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // A denied clipboard is not worth a dialog: the key is on screen and can
-      // be selected by hand.
-      toast.error(i18n.t("sources.clipboard_failed"));
-    }
-  }
-
-  return (
-    // Raised above the row's stretched link, and only as wide as it needs to
-    // be: copying a key must not navigate, and the space beside it still must.
-    <div class="pointer-events-auto relative z-10 flex w-fit max-w-full min-w-0 items-center gap-1">
-      <span class="truncate font-mono text-mono text-muted-foreground" title={props.value}>
-        {props.value}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="shrink-0 text-muted-foreground hover:text-foreground"
-        onClick={copy}
-        aria-label={copied() ? i18n.t("common.copied") : i18n.t("sources.copy_key")}
-        title={copied() ? i18n.t("common.copied") : i18n.t("sources.copy_key")}
-      >
-        <Show when={copied()} fallback={<Copy class="size-3.5" />}>
-          <Check class="size-3.5 text-positive" />
-        </Show>
-      </Button>
-    </div>
   );
 }

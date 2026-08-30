@@ -23,6 +23,56 @@ import { useI18n } from "../../lib/i18n/index.js";
 export interface SelectOption<T extends string> {
   value: T;
   label: string;
+  /**
+   * The heading this option belongs under, if any.
+   *
+   * A name, not an index: the caller states which group each option is in and
+   * the order of first appearance decides the order of the groups, so nobody
+   * has to keep a separate list of headings in step with the options.
+   *
+   * Leaving it off everywhere gives a flat list, which is what most of these
+   * are. A list only earns headings once it mixes KINDS of thing -- promoted
+   * columns and attribute paths and the suggestions for a project that has not
+   * sent anything yet -- and a reader scrolling one flat run of those cannot
+   * tell where one kind ends.
+   */
+  group?: string;
+}
+
+/** One heading and the options under it, as Kobalte's listbox wants them. */
+interface SelectSection<T extends string> {
+  label: string;
+  options: SelectOption<T>[];
+}
+
+/**
+ * The options, grouped if any of them asked to be.
+ *
+ * Ungrouped options keep their place in the flat list rather than being swept
+ * into a leading "other": the picker's last row is a custom entry, and a group
+ * heading over it would promise a set where there is one row.
+ */
+function sectioned<T extends string>(
+  options: SelectOption<T>[]
+): Array<SelectOption<T> | SelectSection<T>> {
+  if (!options.some((option) => option.group)) return options;
+
+  const out: Array<SelectOption<T> | SelectSection<T>> = [];
+  const sections = new Map<string, SelectSection<T>>();
+  for (const option of options) {
+    if (!option.group) {
+      out.push(option);
+      continue;
+    }
+    let section = sections.get(option.group);
+    if (!section) {
+      section = { label: option.group, options: [] };
+      sections.set(option.group, section);
+      out.push(section);
+    }
+    section.options.push(option);
+  }
+  return out;
 }
 
 export function Select<T extends string>(props: {
@@ -38,14 +88,32 @@ export function Select<T extends string>(props: {
   const selected = () => props.options.find((o) => o.value === props.value) ?? null;
 
   return (
-    <KSelect<SelectOption<T>>
+    <KSelect<SelectOption<T>, SelectSection<T>>
       value={selected()}
       onChange={(option) => option && props.onChange(option.value)}
-      options={props.options}
+      options={sectioned(props.options)}
       optionValue="value"
       optionTextValue="label"
+      optionGroupChildren="options"
       disabled={props.disabled}
       placeholder={props.placeholder ?? i18n.t("ui.select_placeholder")}
+      /*
+        The heading, which is not a row: no highlight, no pointer, no keyboard
+        stop. Kobalte already keeps it out of the collection's focusable set;
+        the type carries the rest of that message. 13px in the dim tone, on the
+        item's own leading padding so a heading and the labels under it share a
+        left edge, and with room above it only when it follows something.
+      */
+      sectionComponent={(sectionProps) => (
+        <KSelect.Section
+          class={cn(
+            "px-2 pt-3 pb-1 text-label-13 text-muted-foreground/80 select-none",
+            "first:pt-1"
+          )}
+        >
+          {sectionProps.section.rawValue.label}
+        </KSelect.Section>
+      )}
       itemComponent={(itemProps) => (
         <KSelect.Item
           item={itemProps.item}

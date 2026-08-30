@@ -74,6 +74,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarLabel,
@@ -170,35 +171,6 @@ interface ProjectNavStore {
 }
 
 const ProjectNavCtx = createContext<ProjectNavStore>();
-
-/** One anchored section of the settings page currently on screen. */
-export interface SettingsSectionLink {
-  id: string;
-  label: string;
-}
-
-interface SettingsNavStore {
-  sections: Accessor<SettingsSectionLink[]>;
-  setSections: (sections: SettingsSectionLink[]) => void;
-}
-
-const SettingsNavCtx = createContext<SettingsNavStore>();
-
-/**
- * The sections of the open settings page, published upwards into the pane.
- *
- * The reference's settings pane lists 19 sub-items and the content is one
- * column: the pane IS the section list, which is why a settings page must not
- * grow a rail of its own. Our settings are one page per scope with anchored
- * sections inside it, so the page publishes its anchors and the pane draws
- * them, the same way a project publishes its boards.
- *
- * Same SSR caveat as `useProjectNav`: the path decides which pane is showing,
- * this only fills it in.
- */
-export function useSettingsNav(): SettingsNavStore {
-  return useContext(SettingsNavCtx) ?? { sections: () => [], setSections: () => {} };
-}
 
 /**
  * The open project, published upwards into the sidebar.
@@ -1804,10 +1776,21 @@ function RootNav(props: {
   const isActive = (href: string, exact = false) =>
     exact ? props.path === href : props.path === href || props.path.startsWith(href + "/");
 
+  /**
+   * What the first group is called, which is the scope you are standing in.
+   *
+   * It renames with the scope for the same reason item 1 below does: the group
+   * is the current scope's own destinations, and that is a different thing at
+   * a workspace than it is inside a project.
+   */
+  const scopeLabel = () =>
+    props.project ? i18n.t("shell.project") : i18n.t("shell.workspace");
+
   return (
     <>
       <SidebarGroup>
-        <SidebarMenu>
+        <SidebarGroupLabel>{scopeLabel()}</SidebarGroupLabel>
+        <SidebarMenu aria-label={scopeLabel()}>
           <Show
             when={props.project}
             fallback={
@@ -1826,68 +1809,40 @@ function RootNav(props: {
             }
           >
             {(project) => (
-              <>
-                {/*
-                  Item 1 RENAMES rather than disappearing when the scope
-                  narrows: Projects at workspace scope, Overview at project
-                  scope. That is what keeps the row count -- and with it every
-                  row's position -- stable across the switch.
-                */}
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    as={Link}
-                    to="/w/$wslug/$pslug"
-                    params={{ wslug: props.workspace.slug, pslug: project().slug }}
-                    tooltip={i18n.t("shell.overview")}
-                    isActive={isActive(`${base()}/${project().slug}`, true)}
-                  >
-                    <LayoutGrid />
-                    <SidebarLabel>{i18n.t("shell.overview")}</SidebarLabel>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <Show when={boards()}>
-                  {(open) => <BoardRows workspaceSlug={props.workspace.slug} nav={open()} />}
-                </Show>
-
-                <Show when={boards()?.role === "admin"}>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      as={Link}
-                      to="/w/$wslug/$pslug/dashboards/new"
-                      params={{ wslug: props.workspace.slug, pslug: project().slug }}
-                      tooltip={i18n.t("shell.new_board")}
-                      isActive={isActive(`${base()}/${project().slug}/dashboards/new`)}
-                    >
-                      <Plus />
-                      <SidebarLabel>{i18n.t("shell.new_board")}</SidebarLabel>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </Show>
-              </>
+              /*
+                Item 1 RENAMES rather than disappearing when the scope narrows:
+                Projects at workspace scope, Overview at project scope. That is
+                what keeps the row count -- and with it every row's position --
+                stable across the switch.
+              */
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  as={Link}
+                  to="/w/$wslug/$pslug"
+                  params={{ wslug: props.workspace.slug, pslug: project().slug }}
+                  tooltip={i18n.t("shell.overview")}
+                  isActive={isActive(`${base()}/${project().slug}`, true)}
+                >
+                  <LayoutGrid />
+                  <SidebarLabel>{i18n.t("shell.overview")}</SidebarLabel>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             )}
           </Show>
-        </SidebarMenu>
-      </SidebarGroup>
 
-      <SidebarSeparator />
+          {/*
+            Sources, the log and People used to sit in a "Resources" group of
+            their own under a rule. They are the same scope's destinations as
+            the row above them -- a workspace HAS its sources, its log and its
+            people, and standing in a project only narrows which ones you see
+            -- so a heading and a rule between them said there were two kinds
+            of navigation here when there is one. Merged into the scope group.
 
-      <SidebarGroup>
-        {/*
-          The resources group. A row here does NOT disappear when the scope
-          narrows: the reference's whole nav is the same list at team scope and
-          at project scope, and only the href changes. This used to swap People
-          out for Sources, so entering a project silently removed a destination
-          and the row under the rule meant two different things depending on
-          where you were standing.
+            Nothing about a row changed in the merge. Each one still exists at
+            BOTH scopes and only its destination moves, which is what keeps the
+            row count and every row's position stable when the scope narrows.
+          */}
 
-          Every row here now exists at both scopes and only its destination
-          moves. Sources points at the workspace-wide list or at one project's;
-          Events is one workspace-wide page that a project scope narrows with a
-          search param; People is the same href either way, because membership
-          is per workspace.
-        */}
-        <SidebarMenu>
           {/*
             Sources RENAMES its destination rather than appearing and
             disappearing: the workspace-wide list at workspace scope, this
@@ -1959,12 +1914,58 @@ function RootNav(props: {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+
+        {/*
+          The boards, under their own heading rather than running straight on
+          from Overview. A project's board list is the one part of this column
+          that the customer writes: it is as long as they have made it, its
+          names are theirs, and without a heading it reads as more shell
+          navigation that happens to be named oddly. New board belongs under it
+          for the same reason -- it is what the heading is about, not a
+          separate destination.
+
+          No rule above it. A separator here would say the boards are a
+          different KIND of thing from the overview they are boards of; the
+          heading alone says which rows are which without breaking the group.
+        */}
+        <Show when={boards()}>
+          {(open) => (
+            <>
+              <SidebarGroupLabel>{i18n.t("shell.boards")}</SidebarGroupLabel>
+              <SidebarMenu aria-label={i18n.t("shell.boards")}>
+                <BoardRows workspaceSlug={props.workspace.slug} nav={open()} />
+
+                <Show when={open().role === "admin"}>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      as={Link}
+                      to="/w/$wslug/$pslug/dashboards/new"
+                      params={{ wslug: props.workspace.slug, pslug: open().projectSlug }}
+                      tooltip={i18n.t("shell.new_board")}
+                      isActive={isActive(`${base()}/${open().projectSlug}/dashboards/new`)}
+                    >
+                      <Plus />
+                      <SidebarLabel>{i18n.t("shell.new_board")}</SidebarLabel>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </Show>
+              </SidebarMenu>
+            </>
+          )}
+        </Show>
       </SidebarGroup>
 
       <SidebarSeparator />
 
       <SidebarGroup>
-        <SidebarMenu>
+        {/*
+          Settings, the documentation, usage and support. The reference calls
+          this the account group and puts exactly these in it, which is also
+          the only honest name for a set whose one shared property is that
+          none of it is the data you came here to read.
+        */}
+        <SidebarGroupLabel>{i18n.t("shell.account")}</SidebarGroupLabel>
+        <SidebarMenu aria-label={i18n.t("shell.account")}>
           <Show
             when={props.project}
             fallback={
@@ -2074,24 +2075,43 @@ function RootNav(props: {
  * swaps what it is showing, and the content column narrows to the compact track
  * at the same time. Both halves of that are the reference's mechanism.
  *
- * The routes are thin because our settings are thin -- one page per scope. The
- * sections INSIDE the open page are the rest of the list: the page publishes
- * its anchors through `useSettingsNav` and they are drawn here, under a rule,
- * so the pane names every place a setting can be rather than making a reader
- * scroll the content to find out.
+ * Every row here is a ROUTE. The pane used to hold two lists: the settings
+ * routes, and under a rule, the anchors of whichever page was open, published
+ * up from the page itself. An anchor is not navigation -- it scrolled the page
+ * instead of changing it, so the back button did not step between rows, no row
+ * could be marked active because every section was always on screen at once,
+ * and a link somebody shared landed on the whole page rather than the part it
+ * was about. Each of those sections that is a page now has a page.
+ *
+ * Two rows here lead OUT of settings, to a page that already exists and is
+ * better than a settings copy of it would be: People is `/members`, and a
+ * project's Sources is the sources page. Membership is per workspace and a
+ * source is a real thing with a key and a history, so a second list of either
+ * inside settings would be a place for the two to disagree. The row is still
+ * named for what it manages, because that is what somebody in settings is
+ * looking for.
  */
 function SettingsNav(props: {
   workspace: WorkspaceSummary;
   project: ProjectSummary | null;
   path: string;
-  sections: SettingsSectionLink[];
 }) {
   const i18n = useI18n();
   const base = () => `/w/${props.workspace.slug}`;
 
+  const scopeLabel = () =>
+    props.project ? i18n.t("shell.project") : i18n.t("shell.workspace");
+
   return (
     <SidebarGroup>
-      <SidebarMenu>
+      {/*
+        Whose settings these are. The pane can be open at either scope and the
+        two lists look alike -- General, and then what that scope owns -- so the
+        one thing a reader needs from the top of it is which of the two they are
+        editing.
+      */}
+      <SidebarGroupLabel>{scopeLabel()}</SidebarGroupLabel>
+      <SidebarMenu aria-label={scopeLabel()}>
         <Show
           when={props.project}
           fallback={
@@ -2101,9 +2121,24 @@ function SettingsNav(props: {
                   as={Link}
                   to="/w/$wslug/settings"
                   params={{ wslug: props.workspace.slug }}
+                  /*
+                    Exact. General is the index of the settings area, so a
+                    prefix test would leave it marked while Projects is open --
+                    two active rows, one of which is lying.
+                  */
                   isActive={props.path === `${base()}/settings`}
                 >
                   <SidebarLabel>{i18n.t("shell.general")}</SidebarLabel>
+                </SidebarSubButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarSubButton
+                  as={Link}
+                  to="/w/$wslug/settings/projects"
+                  params={{ wslug: props.workspace.slug }}
+                  isActive={props.path === `${base()}/settings/projects`}
+                >
+                  <SidebarLabel>{i18n.t("shell.projects")}</SidebarLabel>
                 </SidebarSubButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
@@ -2120,39 +2155,31 @@ function SettingsNav(props: {
           }
         >
           {(project) => (
-            <SidebarMenuItem>
-              <SidebarSubButton
-                as={Link}
-                to="/w/$wslug/$pslug/settings"
-                params={{ wslug: props.workspace.slug, pslug: project().slug }}
-                isActive={props.path === `${base()}/${project().slug}/settings`}
-              >
-                <SidebarLabel>{i18n.t("shell.general")}</SidebarLabel>
-              </SidebarSubButton>
-            </SidebarMenuItem>
+            <>
+              <SidebarMenuItem>
+                <SidebarSubButton
+                  as={Link}
+                  to="/w/$wslug/$pslug/settings"
+                  params={{ wslug: props.workspace.slug, pslug: project().slug }}
+                  isActive={props.path === `${base()}/${project().slug}/settings`}
+                >
+                  <SidebarLabel>{i18n.t("shell.general")}</SidebarLabel>
+                </SidebarSubButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarSubButton
+                  as={Link}
+                  to="/w/$wslug/$pslug/sources"
+                  params={{ wslug: props.workspace.slug, pslug: project().slug }}
+                  isActive={props.path.startsWith(`${base()}/${project().slug}/sources`)}
+                >
+                  <SidebarLabel>{i18n.t("shell.sources")}</SidebarLabel>
+                </SidebarSubButton>
+              </SidebarMenuItem>
+            </>
           )}
         </Show>
       </SidebarMenu>
-
-      {/*
-        The open page's own sections. An anchor rather than a route, because
-        every one of them is already on screen: the shell owns the only scroll
-        container, so the browser scrolls that one.
-      */}
-      <Show when={props.sections.length > 0}>
-        <SidebarSeparator />
-        <SidebarMenu>
-          <For each={props.sections}>
-            {(section) => (
-              <SidebarMenuItem>
-                <SidebarSubButton as="a" href={`#${section.id}`}>
-                  <SidebarLabel>{section.label}</SidebarLabel>
-                </SidebarSubButton>
-              </SidebarMenuItem>
-            )}
-          </For>
-        </SidebarMenu>
-      </Show>
     </SidebarGroup>
   );
 }
@@ -2166,7 +2193,6 @@ export function AppShell(props: AppShellProps) {
   const i18n = useI18n();
   const path = () => routerState().location.pathname.replace(/\/+$/, "") || "/";
   const [nav, setNav] = createSignal<ProjectNav | null>(null);
-  const [sections, setSections] = createSignal<SettingsSectionLink[]>([]);
   const base = () => `/w/${props.workspace.slug}`;
 
   const slugs = () => props.projects.map((p) => p.slug);
@@ -2217,7 +2243,6 @@ export function AppShell(props: AppShellProps) {
 
   return (
     <ProjectNavCtx.Provider value={{ nav, setNav }}>
-      <SettingsNavCtx.Provider value={{ sections, setSections }}>
       <SidebarProvider>
         <Sidebar>
           <SidebarHeader>
@@ -2264,12 +2289,7 @@ export function AppShell(props: AppShellProps) {
                   />
                 )}
               </Show>
-              <SettingsNav
-                workspace={props.workspace}
-                project={project()}
-                path={path()}
-                sections={sections()}
-              />
+              <SettingsNav workspace={props.workspace} project={project()} path={path()} />
             </SidebarPane>
           </SidebarContent>
 
@@ -2342,7 +2362,6 @@ export function AppShell(props: AppShellProps) {
           </div>
         </SidebarInset>
       </SidebarProvider>
-      </SettingsNavCtx.Provider>
     </ProjectNavCtx.Provider>
   );
 }

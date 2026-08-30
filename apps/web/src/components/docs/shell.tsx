@@ -24,6 +24,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarLabel,
@@ -492,7 +493,6 @@ function DocsBreadcrumb() {
  */
 function TableOfContents() {
   const i18n = useI18n();
-  const { state } = useSidebar();
   const routerState = useRouterState();
   const path = () => routerState().location.pathname.replace(/\/+$/, "") || "/";
   const groups = () => sectionedTopics();
@@ -521,27 +521,13 @@ function TableOfContents() {
             <SidebarSeparator />
             <SidebarGroup>
               {/*
-                The section, named.
-
-                A rule on its own says two lists are different and refuses to
-                say how. The reference labels every group in its documentation
-                navigation -- Start, Ship and scale, Reference -- because a
-                reader scanning for "the install guides" is looking for those
-                two words, not for the gap above them, and 30-odd rows in one
-                column is exactly where a reader needs to know which part they
-                are in without reading every row.
-
-                The label is the 13px nav step at normal weight in the dim
-                tone, on the row's own 8/8/4 padding. It is NOT a control: it
-                does not link anywhere, and it collapses away with the labels
-                beside it, because in a 52px strip a word cannot fit and the
-                separator above it still does the grouping.
+                The section, named. 30-odd rows in one column is exactly where
+                a reader needs to know which part they are in without reading
+                every row: the reference labels every group in its
+                documentation navigation for the same reason. Why the heading
+                looks and behaves the way it does is on `SidebarGroupLabel`.
               */}
-              <Show when={state() !== "collapsed"}>
-                <div class="text-label-13 text-muted-foreground/80 px-2.5 pt-2 pb-1">
-                  {sectionLabel(i18n.t, group.section)}
-                </div>
-              </Show>
+              <SidebarGroupLabel>{sectionLabel(i18n.t, group.section)}</SidebarGroupLabel>
               <SidebarMenu aria-label={sectionLabel(i18n.t, group.section)}>
                 <For each={group.topics}>
                   {(topic) => (

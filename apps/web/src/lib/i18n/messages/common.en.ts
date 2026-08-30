@@ -39,18 +39,6 @@ export const common = {
   "common.all": "All",
   "common.unknown": "Unknown",
 
-  /*
-   * The refresh control, which every data view carries.
-   *
-   * Here rather than in one area's namespace despite the freeze above: it is
-   * rendered by ONE shared component (`components/refresh-button.tsx`) on six
-   * pages across five areas, so putting it in an area's file would mean picking
-   * an area at random and having the other five reach into it. That is the case
-   * this namespace exists for.
-   */
-  "common.refresh": "Refresh",
-  "common.updated_when": "Updated {when}",
-
   "common.name": "Name",
   "common.description": "Description",
   "common.actions": "Actions",

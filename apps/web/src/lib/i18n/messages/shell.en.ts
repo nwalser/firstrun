@@ -60,6 +60,18 @@ export const shell = {
   "shell.help": "Help",
   "shell.documentation": "Documentation",
   "shell.sign_out": "Sign out",
+
+  /*
+   * The sidebar's group headings.
+   *
+   * A rule between two lists says they are different and refuses to say how,
+   * which is fine for three rows and not fine for a column that now carries
+   * boards, sources, the log, people and five account destinations. These are
+   * the names of the groups, not of anything you can click, so they are their
+   * own strings rather than a reuse of the row labels underneath them.
+   */
+  "shell.project": "Project",
+  "shell.account": "Account",
 } satisfies Namespaced<"shell">;
 
 export type ShellMessages = typeof shell;

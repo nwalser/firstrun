@@ -2,6 +2,7 @@ import { Dialog } from "@kobalte/core/dialog";
 import ChevronLeft from "lucide-solid/icons/chevron-left";
 import PanelLeft from "lucide-solid/icons/panel-left";
 import {
+  Show,
   createContext,
   createSignal,
   onCleanup,
@@ -27,7 +28,7 @@ import { Tooltip } from "./tooltip.js";
  *   pane      287px expanded, 286 of content plus a one-DEVICE-pixel hairline
  *   rows      36px tall on a 37px pitch, 6px radius, 14px/400
  *   icon      a 36px square slot holding a 16px glyph, so labels start at 38
- *   groups    separated by a 1px rule with 4px above and below, never a label
+ *   groups    a 1px rule with 4px above and below, and a named heading
  *   nav       10px above, 8px below, the column itself inset 8px
  *   footer    52px: 8px of padding around a 36px row
  *
@@ -457,16 +458,46 @@ export function SidebarGroup(props: ComponentProps<"div">) {
 /**
  * The rule between groups.
  *
- * The reference has no group labels at all: a 1px rule with 4px above and below
- * is the entire separator, and it runs the full 270px of the column. A label
- * would add a row of type to a list whose whole point is that every row is the
- * same height.
+ * A 1px rule with 4px above and below, running the full 270px of the column.
+ * It says two lists are different; `SidebarGroupLabel` above it says HOW, and
+ * the two are used together rather than either standing alone.
  */
 export function SidebarSeparator(props: ComponentProps<"hr">) {
   const [local, rest] = splitProps(props, ["class"]);
   // gray-200, which is `secondary` here: the measured group rule sits one step
   // in from the chrome seam, so it reads as a divider rather than as an edge.
   return <hr class={cn("my-1 h-px w-full border-0 bg-secondary", local.class)} {...rest} />;
+}
+
+/**
+ * The name over a group of rows.
+ *
+ * A rule on its own says two lists are different and refuses to say how. A
+ * reader scanning for "the boards" or "the settings" is looking for those
+ * words, not for the gap above them, which is why the documentation column has
+ * carried headings since it grew past a screenful and why the shell's own nav
+ * carries them now.
+ *
+ * The 13px nav step at normal weight in the dim tone, on the row's own leading
+ * padding so the heading and the labels under it share a left edge. It is NOT
+ * a control: it links nowhere, takes no focus, and disappears in the collapsed
+ * strip, where a word does not fit in 52px and the rule above it is still
+ * doing the grouping on its own.
+ *
+ * Pair it with `aria-label` on the `SidebarMenu` it names, so the grouping
+ * survives for a reader who never sees the type.
+ */
+export function SidebarGroupLabel(props: ComponentProps<"div">) {
+  const { state } = useSidebar();
+  const [local, rest] = splitProps(props, ["class"]);
+  return (
+    <Show when={state() !== "collapsed"}>
+      <div
+        class={cn("px-2.5 pt-2 pb-1 text-label-13 text-muted-foreground/80", local.class)}
+        {...rest}
+      />
+    </Show>
+  );
 }
 
 /** 1px of gap on a 36px row is the measured 37px pitch. */

@@ -7,8 +7,16 @@ import {
   type FeedRequest,
   type SeverityBand,
 } from "@firstrun/schema";
+import {
+  FilterSchema,
+  countConditions,
+  emptyDiscovery,
+  emptyFilter,
+  type Filter,
+} from "@firstrun/schema/query";
 import { createFileRoute, notFound, redirect, useNavigate } from "@tanstack/solid-router";
 import Check from "lucide-solid/icons/check";
+import Funnel from "lucide-solid/icons/funnel";
 import ListFilter from "lucide-solid/icons/list-filter";
 import Radio from "lucide-solid/icons/radio";
 import ScrollText from "lucide-solid/icons/scroll-text";
@@ -24,8 +32,8 @@ import {
   onCleanup,
 } from "solid-js";
 import { EntryRow } from "../components/entry-row.js";
+import { FilterEditor } from "../components/explore/builder.js";
 import { PageHeader } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import {
   Badge,
   Button,
@@ -40,10 +48,17 @@ import {
   EmptyTitle,
   Input,
   Kbd,
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
   Spinner,
 } from "../components/ui/index.js";
 import { cn } from "../lib/cn.js";
-import { getEventFeed, getSession } from "../lib/api.js";
+import { getEventFeed, getFeedDiscovery, getSession } from "../lib/api.js";
 import { useI18n } from "../lib/i18n/index.js";
 import { Route as WorkspaceRoute } from "./w.$wslug.js";
 
@@ -118,6 +133,31 @@ interface EventSearch {
   severity?: SeverityBand;
   /** A substring of the name, the client id, or the message. */
   q?: string;
+  /**
+   * The full filter tree, as a card is written in.
+   *
+   * In the URL like everything else here, because a log somebody has narrowed
+   * to four conditions is exactly the log they will send to a colleague. It is
+   * a nested object rather than a scalar, which the router serialises as JSON
+   * and this parses back with the contract's own schema -- never casts: it is
+   * about to be compiled into SQL.
+   */
+  filter?: Filter;
+}
+
+/**
+ * A filter out of the URL, or nothing.
+ *
+ * `safeParse`, so a hand-edited or stale link opens the log unfiltered instead
+ * of refusing to render. An empty group is dropped as well: `and []` matches
+ * everything, and a chip claiming a filter that constrains nothing is worse
+ * than no chip.
+ */
+function filterFrom(raw: unknown): Filter | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const parsed = FilterSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  return countConditions(parsed.data) > 0 ? parsed.data : undefined;
 }
 
 const isWindow = (n: unknown): n is Window => WINDOWS.includes(n as Window);
@@ -142,6 +182,7 @@ export const Route = createFileRoute("/w/$wslug/events/")({
       ...(typeof search.source === "string" && search.source ? { source: search.source } : {}),
       ...(isBand(search.severity) ? { severity: search.severity } : {}),
       ...(typeof search.q === "string" && search.q.trim() ? { q: search.q.slice(0, 200) } : {}),
+      ...(filterFrom(search.filter) ? { filter: filterFrom(search.filter)! } : {}),
     };
   },
   // Without this the loader would not re-run when a filter changes, and the
@@ -150,11 +191,20 @@ export const Route = createFileRoute("/w/$wslug/events/")({
   loader: async ({ params, deps }) => {
     const session = await getSession();
     if (!session.user) throw redirect({ to: "/login" });
-    const page = await getEventFeed({
-      data: { workspace: params.wslug, filter: requestFrom(deps) },
-    });
+    // Together, because the page cannot draw without the first and cannot be
+    // narrowed without the second, and they are two round trips either way.
+    const [page, discovery] = await Promise.all([
+      getEventFeed({ data: { workspace: params.wslug, filter: requestFrom(deps) } }),
+      getFeedDiscovery({
+        data: {
+          workspace: params.wslug,
+          project: deps.project ?? null,
+          hours: (deps.days ?? 1) * HOURS_PER_DAY,
+        },
+      }),
+    ]);
     if (!page) throw notFound();
-    return page;
+    return { page, discovery: discovery ?? emptyDiscovery() };
   },
   component: Events,
 });
@@ -167,6 +217,7 @@ function requestFrom(search: EventSearch, before?: FeedEntry): FeedRequest {
     sources: search.source ? [search.source] : [],
     severity: search.severity ?? null,
     search: search.q ?? null,
+    filter: search.filter ?? null,
     before: before ? { time: before.time, entryId: before.entryId } : null,
     limit: FEED_PAGE,
   };
@@ -177,7 +228,8 @@ const POLL_MS = 8_000;
 
 function Events() {
   const i18n = useI18n();
-  const page = Route.useLoaderData();
+  const data = Route.useLoaderData();
+  const page = () => data().page;
   const search = Route.useSearch();
   const workspace = WorkspaceRoute.useLoaderData();
   const navigate = useNavigate({ from: "/w/$wslug/events/" });
@@ -192,6 +244,9 @@ function Events() {
   const [loadingOlder, setLoadingOlder] = createSignal(false);
   const [live, setLive] = createSignal(false);
   const [open, setOpen] = createSignal<string | null>(null);
+  const [building, setBuilding] = createSignal(false);
+
+  const conditions = () => countConditions(search().filter);
 
   /*
    * A new answer from the loader REPLACES the list.
@@ -283,7 +338,8 @@ function Events() {
     search().project !== undefined ||
     search().source !== undefined ||
     search().severity !== undefined ||
-    search().q !== undefined;
+    search().q !== undefined ||
+    conditions() > 0;
 
   const measured = createMemo(() => i18n.dateRange(page().from, page().to));
 
@@ -392,12 +448,36 @@ function Events() {
                 />
               )}
             </Show>
+
+            {/*
+              The tree gets ONE chip however many conditions it holds. Spelling
+              a nested filter out as chips would be a second, worse rendering of
+              the builder, and an `or` inside an `and` has no chip shape at all.
+              The count is the honest summary; the builder is where it is read.
+            */}
+            <Show when={conditions() > 0}>
+              <Button
+                variant="outline"
+                size="sm"
+                class="rounded-md"
+                aria-label={i18n.t("events.remove_filter", {
+                  filter: i18n.t("events.conditions_label"),
+                })}
+                onClick={() => void narrow({ filter: undefined })}
+              >
+                <span class="text-muted-foreground">
+                  {i18n.t("events.conditions_label")}:
+                </span>
+                {i18n.t("events.conditions", { count: conditions() })}
+                <X class="size-3.5 text-muted-foreground" />
+              </Button>
+            </Show>
           </>
         }
       />
 
       <div class="flex flex-col gap-4">
-        {/* The 36px toolbar row: search, the live toggle, refresh. */}
+        {/* The 36px toolbar row: search and the live toggle. */}
         <div class="flex flex-row items-center gap-2">
           <div class="relative min-w-0 flex-1">
             <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -411,6 +491,27 @@ function Events() {
             />
             <Kbd class="absolute top-1/2 right-2 -translate-y-1/2">/</Kbd>
           </div>
+
+          {/*
+            The whole filter language, on one button.
+
+            The dropdown above it holds the three questions everybody asks
+            first; this holds every other one, and it is the SAME builder a
+            board card is written in, over the same keys, with the same
+            operators. A log with its own private filter UI would be a second
+            thing to learn that answered fewer questions.
+          */}
+          <Button
+            variant={conditions() > 0 ? "secondary" : "outline"}
+            size="toolbar"
+            aria-expanded={building()}
+            onClick={() => setBuilding(true)}
+          >
+            <Funnel class="size-4" />
+            {conditions() === 0
+              ? i18n.t("events.filter_none")
+              : i18n.t("events.conditions", { count: conditions() })}
+          </Button>
 
           {/*
             Off by default, and it says so. A list that reorders itself under a
@@ -427,8 +528,6 @@ function Events() {
             <Radio class={cn("size-4", live() && "animate-pulse text-positive")} />
             {i18n.t("events.live")}
           </Button>
-
-          <RefreshButton />
         </div>
 
         <div>
@@ -486,6 +585,49 @@ function Events() {
           </Show>
         </div>
       </div>
+
+      {/*
+        The builder, in a drawer rather than inline.
+
+        Same shape the board's filter uses, and for the same reason: a filter
+        being edited over the list it narrows keeps the answer on screen while
+        the question changes. Every edit applies immediately -- there is no Save
+        in this product and this is not the screen to introduce one -- so the
+        footer only offers the way out and the way back to nothing.
+      */}
+      <Sheet open={building()} onOpenChange={setBuilding}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>{i18n.t("events.filter_title")}</SheetTitle>
+            <SheetDescription>{i18n.t("events.filter_body")}</SheetDescription>
+          </SheetHeader>
+          <SheetBody>
+            <FilterEditor
+              filter={search().filter}
+              discovery={data().discovery}
+              onChange={(filter) =>
+                void narrow({
+                  // An empty group is no filter at all. Storing it would leave
+                  // a chip claiming a constraint that selects everything.
+                  filter: countConditions(filter) > 0 ? filter : undefined,
+                })
+              }
+            />
+          </SheetBody>
+          <SheetFooter>
+            <Show when={conditions() > 0}>
+              <Button
+                variant="outline"
+                class="mr-auto"
+                onClick={() => void narrow({ filter: undefined })}
+              >
+                {i18n.t("events.filter_clear")}
+              </Button>
+            </Show>
+            <Button onClick={() => setBuilding(false)}>{i18n.t("common.done")}</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </main>
   );
 }

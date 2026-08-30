@@ -141,16 +141,14 @@ export const sources = {
   "sources.activity": "Activity",
   "sources.what_it_sends": "What it sends",
   "sources.severity_mix": "Severity",
-  "sources.recent": "Latest events",
   "sources.open_log": "See them all",
   "sources.nothing_sent": "Nothing in this window.",
 
-  "sources.install_title": "How to install it",
-  "sources.open_guide": "Open the step-by-step guide",
-  "sources.guide_note": "Opens with this source selected, so every snippet already carries its key.",
-  "sources.summary_generic":
-    "Anything that can make an HTTPS request can report. Send batches to POST /v1/e with your " +
-    "source key and a distinct id you generate once per install.",
+  // A heading and two buttons. The paragraph that used to sit between them
+  // explained what the buttons say, on a page about a source.
+  "sources.install_title": "Install it",
+  "sources.open_guide": "Guides",
+  "sources.open_api": "HTTP API",
 } satisfies Namespaced<"sources">;
 
 export type SourcesMessages = typeof sources;

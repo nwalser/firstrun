@@ -86,6 +86,7 @@ import {
   LogQuery,
   type BoardSnapshot,
   type DiscoveredAttribute,
+  emptyDiscovery,
   type Discovery,
   type Filter,
   type QueryResult,
@@ -308,12 +309,26 @@ export async function loadWorkspace(slug: string): Promise<WorkspaceView | null>
  *
  * Read access is enough: this reads and changes nothing.
  */
-export async function loadWorkspaceSources(slug: string): Promise<WorkspaceSourcesView | null> {
+export async function loadWorkspaceSources(
+  slug: string,
+  projectSlug: string | null = null
+): Promise<WorkspaceSourcesView | null> {
   const access = await requireAccess(slug);
   if (!access) return null;
 
   const db = getStore().db;
-  const sources = await listWorkspaceSources(db, access.workspace.id);
+  const all = await listWorkspaceSources(db, access.workspace.id);
+
+  /*
+   * One statement for the whole workspace, then narrowed in memory.
+   *
+   * A project's own list is the same list with a `where` on it, and a workspace
+   * has tens of sources, not thousands: a second query shape to filter a list
+   * this size would be two things to keep in step for no measurable read. The
+   * two ROLLUPS below are still asked for exactly the ids that came back, so
+   * the expensive half is already scoped.
+   */
+  const sources = projectSlug ? all.filter((s) => s.projectSlug === projectSlug) : all;
 
   // After the sources, and asked for exactly the ids that came back, so a
   // source deleted between the two statements draws no chart rather than a
@@ -344,7 +359,6 @@ export async function loadWorkspaceSources(slug: string): Promise<WorkspaceSourc
 }
 
 /** How many of a source's own entries its page shows before "see all". */
-const SOURCE_RECENT = 8;
 
 /** How many distinct names a source's page lists. */
 const SOURCE_NAMES = 8;
@@ -409,8 +423,8 @@ export async function loadSourceDetail(
   const source = sources.find((s) => s.id === sourceId);
   if (!source) return null;
 
-  // The SAME window the histogram buckets, so the bars, the names, the severity
-  // mix and the recent list all describe one thirty days. Read off
+  // The SAME window the histogram buckets, so the bars, the names and the
+  // severity mix all describe one thirty days. Read off
   // `histogramWindow` rather than computed here: a second copy of the
   // midnight-UTC rule is a second thing to get wrong, and the page would state
   // a range its own bars did not cover.
@@ -423,17 +437,9 @@ export async function loadSourceDetail(
     value: source.id,
   };
 
-  const [lastSeen, daily, recent, answers] = await Promise.all([
+  const [lastSeen, daily, answers] = await Promise.all([
     sourceLastSeen(store.db, project.id),
     sourceDailyCounts(store.db, project.workspaceId, [source.id]),
-    feedEntries(store.db, {
-      workspaceId: project.workspaceId,
-      from,
-      to,
-      projectIds: [project.id],
-      sourceIds: [source.id],
-      limit: SOURCE_RECENT,
-    }),
     runQueries(
       store,
       [
@@ -497,7 +503,6 @@ export async function loadSourceDetail(
         entries,
       }))
       .sort((a, b) => b.entries - a.entries),
-    recent: recent.map(toWire),
   };
 }
 
@@ -521,6 +526,37 @@ function toWire(r: FeedRow): FeedEntry {
     name: r.name,
     attributes: r.attributes,
   };
+}
+
+/**
+ * What the log can offer to filter on, at whichever scope it is open.
+ *
+ * The keys and values a picker lists are DISCOVERED, never declared (rule 2):
+ * there is no schema to register and a key nobody has sent yet is not an error,
+ * it is a filter that matches nothing. So this reads what the workspace has
+ * actually written, narrowed to one project when the log is.
+ *
+ * Read access is enough.
+ */
+export async function loadFeedDiscovery(input: {
+  workspace: string;
+  project?: string | null;
+  hours: number;
+}): Promise<Discovery | null> {
+  const access = await requireAccess(input.workspace);
+  if (!access) return null;
+
+  const all = await listProjects(getStore().db, access.workspace.id);
+  const scoped = input.project ? all.filter((p) => p.slug === input.project) : all;
+
+  // Whole days, because `DateRange` is a calendar range and the sample only
+  // has to cover roughly the window the reader is looking at. A log window of
+  // a few hours still discovers against today.
+  const days = Math.max(1, Math.ceil(input.hours / 24));
+  return discoverAcross(
+    scoped.map((p) => p.id),
+    { kind: "last", days }
+  );
 }
 
 /**
@@ -1082,12 +1118,34 @@ interface DiscoveryRow {
  * queries would read the same rows three times.
  */
 export async function discoverIn(projectId: string, range: DateRange): Promise<Discovery> {
+  return discoverAcross([projectId], range);
+}
+
+/**
+ * The same sample, over several projects.
+ *
+ * The log is workspace-wide, so its pickers have to be: a filter on
+ * `url.path` is useless if the only keys on offer came from one project. The
+ * scope is a list of ids the caller has already checked access on, which is
+ * also what keeps this one query rather than one per project.
+ *
+ * Still a SAMPLE and still bounded by `DISCOVERY_SAMPLE`, for the reason on
+ * that constant: opening a picker must never become the most expensive thing
+ * on the page. Over several projects the cap is shared, so the busiest project
+ * contributes most of it -- which is the right bias for a list whose job is
+ * "what does this workspace actually write".
+ */
+export async function discoverAcross(
+  projectIds: readonly string[],
+  range: DateRange
+): Promise<Discovery> {
+  if (projectIds.length === 0) return emptyDiscovery();
   const window = resolveRange(range);
   const rows = await getStore().query<DiscoveryRow>(
     `WITH sample AS (
          SELECT name, attributes
            FROM log_entries
-          WHERE project_id = $1::uuid AND time >= $2 AND time < $3
+          WHERE project_id = ANY($1::uuid[]) AND time >= $2 AND time < $3
           ORDER BY time DESC
           LIMIT $4
      ),
@@ -1116,7 +1174,7 @@ export async function discoverIn(projectId: string, range: DateRange): Promise<D
      SELECT 'value'::text, key, v, n::bigint FROM ranked WHERE r <= $5
      UNION ALL
      SELECT 'sampled'::text, NULL, NULL, count(*)::bigint FROM sample`,
-    [projectId, window.from, window.to, DISCOVERY_SAMPLE, DISCOVERY_VALUES]
+    [[...projectIds], window.from, window.to, DISCOVERY_SAMPLE, DISCOVERY_VALUES]
   );
 
   return foldDiscovery(rows);

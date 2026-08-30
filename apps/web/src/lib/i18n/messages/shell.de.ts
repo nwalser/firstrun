@@ -52,4 +52,6 @@ export const shell: ShellMessages = {
   "shell.help": "Hilfe",
   "shell.documentation": "Dokumentation",
   "shell.sign_out": "Abmelden",
+  "shell.project": "Projekt",
+  "shell.account": "Konto",
 };

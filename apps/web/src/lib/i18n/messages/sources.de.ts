@@ -125,15 +125,10 @@ export const sources: SourcesMessages = {
   "sources.activity": "Aktivität",
   "sources.what_it_sends": "Was sie sendet",
   "sources.severity_mix": "Severity",
-  "sources.recent": "Neueste Events",
   "sources.open_log": "Alle ansehen",
   "sources.nothing_sent": "Nichts in diesem Zeitraum.",
 
-  "sources.install_title": "So installieren Sie es",
-  "sources.open_guide": "Schritt-für-Schritt-Anleitung öffnen",
-  "sources.guide_note":
-    "Öffnet mit dieser Quelle ausgewählt, sodass jedes Snippet bereits ihren Key trägt.",
-  "sources.summary_generic":
-    "Alles, was eine HTTPS-Anfrage stellen kann, kann melden. Senden Sie Batches an POST /v1/e " +
-    "mit Ihrem Source Key und einer Distinct ID, die Sie einmal pro Installation erzeugen.",
+  "sources.install_title": "Installieren",
+  "sources.open_guide": "Anleitungen",
+  "sources.open_api": "HTTP API",
 };

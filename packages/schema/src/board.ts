@@ -282,7 +282,15 @@ const SPARKLINE_TZ = "UTC";
  * The same question with a bucket on it, so it keys identically to a chart card
  * asking the same thing and the two share one round trip.
  *
- * `withTotal` is DELETED rather than set to false. An explicit default written
+ * A sparkline is ONE filled series, so the four parts that would make it more
+ * than one go: `groupBy`, `withTotal`, `orderBy` and `limit`. A filled series
+ * cannot also be grouped or totalled -- the compiler refuses both pairs, and it
+ * refuses them for the whole board rather than for the one card that asked --
+ * and the other two are silently wrong rather than loud: a limit of 10 carried
+ * onto a series truncates it to ten days, and an order by an aggregate stops a
+ * chart drawn left to right from being chronological.
+ *
+ * They are DELETED rather than set to a default. An explicit default written
  * out longhand compiles to the same statement but canonicalises to a different
  * key, and a key that differs where the question does not is a second entry in
  * the plan for one answer.
@@ -294,9 +302,25 @@ const SPARKLINE_TZ = "UTC";
  * from a UTC one, because its days start somewhere else.
  */
 export function sparklineQuery(query: LogQuery): LogQuery {
-  const { withTotal: _total, ...rest } = query;
+  const { withTotal: _total, groupBy: _groups, orderBy: _order, limit: _limit, ...rest } = query;
   return { ...rest, bucket: { unit: "day", timezone: SPARKLINE_TZ }, fill: true };
 }
+
+/**
+ * Whether a card draws a daily shape behind its number.
+ *
+ * Shared, because `boardRequests` decides what to FETCH and
+ * `widgetSparklineKey` decides what to LOOK UP. A predicate written out twice
+ * that drifts leaves a card drawing an empty line, or a query nobody reads.
+ *
+ * A GROUPED question has none. The number a grouped card shows is the first
+ * row, which is one group's answer, and a series over every group is not that
+ * number drawn over time: it is a different question under the same heading.
+ * `sparklineQuery` would flatten it into an honest series of the total, and
+ * that is honest about itself and dishonest about the number above it.
+ */
+const hasSparkline = (widget: QueryWidget): boolean =>
+  widget.viz === "number" && widget.sparkline && (widget.query.groupBy ?? []).length === 0;
 
 export interface BoardRequest {
   key: string;
@@ -329,7 +353,7 @@ export function boardRequests(board: Board): BoardRequest[] {
     want(query, widget.compare);
     // A number card's sparkline is the same question with a bucket on it, and
     // it is never compared: a delta is drawn from the number, not the series.
-    if (widget.viz === "number" && widget.sparkline) want(sparklineQuery(query), false);
+    if (hasSparkline(widget)) want(sparklineQuery(query), false);
   }
 
   return [...seen.values()];
@@ -344,6 +368,4 @@ export const widgetSparklineKey = (
   board: BoardFrame,
   widget: QueryWidget
 ): string | null =>
-  widget.viz === "number" && widget.sparkline
-    ? queryKey(sparklineQuery(effectiveQuery(board, widget)))
-    : null;
+  hasSparkline(widget) ? queryKey(sparklineQuery(effectiveQuery(board, widget))) : null;

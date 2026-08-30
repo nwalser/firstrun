@@ -33,11 +33,6 @@ export const common: CommonMessages = {
   "common.all": "Alle",
   "common.unknown": "Unbekannt",
 
-  // Siehe den Kommentar in common.en.ts: das Aktualisieren steht hier, weil
-  // eine einzige gemeinsame Komponente es auf jeder Datenansicht zeichnet.
-  "common.refresh": "Aktualisieren",
-  "common.updated_when": "Aktualisiert {when}",
-
   "common.name": "Name",
   "common.description": "Beschreibung",
   "common.actions": "Aktionen",

@@ -34,6 +34,25 @@ export const events = {
    * cannot read, and the moment somebody is looking at one event is exactly the
    * moment they do not want thirty more above it.
    */
+  /*
+   * The filter builder, which is the log's real filtering.
+   *
+   * The dropdown holds the questions everybody asks first. This holds every
+   * other one, in the same language a board card is written in: any attribute
+   * the workspace has actually written, every operator the compiler has, and
+   * groups nested as deep as the question needs.
+   */
+  "events.filter_none": "Filter",
+  "events.conditions_label": "Filter",
+  "events.conditions_one": "{count} condition",
+  "events.conditions_other": "{count} conditions",
+  "events.filter_title": "Filter the log",
+  "events.filter_body":
+    "Conditions on anything an event carries: the promoted columns, and any attribute this " +
+    "workspace has actually written. The keys and values on offer are read from your own " +
+    "events, so a key nobody has sent is not on the list rather than being an error.",
+  "events.filter_clear": "Clear all",
+
   "events.live": "Live",
   "events.live_hint": "Check for new events every few seconds",
   "events.live_on": "Live. New events appear as they arrive.",

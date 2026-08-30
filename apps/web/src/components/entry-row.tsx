@@ -7,6 +7,7 @@ import {
 import { ATTR } from "@firstrun/schema/conventions";
 import { Link } from "@tanstack/solid-router";
 import ChevronDown from "lucide-solid/icons/chevron-down";
+import ChevronRight from "lucide-solid/icons/chevron-right";
 import { For, Show, createMemo, type JSX } from "solid-js";
 import { cn } from "../lib/cn.js";
 import { useI18n } from "../lib/i18n/index.js";
@@ -16,11 +17,10 @@ import { Badge } from "./ui/index.js";
 /**
  * One entry, as every surface that shows entries draws it.
  *
- * The log page and a card's drill-down are the same question asked from two
- * places -- "what did that client actually send" -- so they show an entry the
- * same way. A second row component would drift the moment one of them learned
- * to show something the other did not, and the two stamps sitting side by side
- * is the whole reason anybody opens a row.
+ * There is one row for every surface that shows entries, which today is the log
+ * page and the single-entry page. A second row component would drift the moment
+ * one of them learned to show something the other did not, and the two stamps
+ * sitting side by side is the whole reason anybody opens a row.
  *
  * Nothing here fetches. It takes an entry and draws it, so the page can poll
  * and the drawer can page and neither has to care what the other does.
@@ -66,9 +66,9 @@ export function EntryRow(props: {
   /**
    * Whether the row names its project.
    *
-   * Off in a card's drill-down, where every row is the same project and the
-   * column would be one word repeated fifty times. The opened row still states
-   * it, because that is where somebody checks rather than scans.
+   * Off wherever every row is already known to be the same project, because
+   * the column would then be one word repeated fifty times. The opened row
+   * still states it, because that is where somebody checks rather than scans.
    */
   showProject?: boolean;
 }) {
@@ -177,7 +177,22 @@ export function EntryRow(props: {
             "text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-ring"
           )}
         >
-          <ChevronDown class={cn("size-4 transition-transform", props.open && "rotate-180")} />
+          {/*
+            Right at rest, down while open. The resting direction is what every
+            other row in the product that leads somewhere points, and this row
+            does lead somewhere: a chevron resting downwards said "there is more
+            below" on a row whose click opens a page.
+
+            TWO ICONS rather than one rotated by a utility. `rotate-90` on this
+            element computes to `0deg` even though the rule is in the stylesheet
+            and the element matches it -- an identical synthetic `<svg>` with
+            the same class list rotates, this one does not. That is the trap
+            CLAUDE.md records about assuming a class name works, and swapping
+            the glyph is both immune to it and one fewer thing to explain.
+          */}
+          <Show when={props.open} fallback={<ChevronRight class="size-4" />}>
+            <ChevronDown class="size-4" />
+          </Show>
         </button>
       </div>
 

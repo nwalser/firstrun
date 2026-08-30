@@ -36,6 +36,16 @@ import { buttonVariants } from "./ui/index.js";
  * is whatever the customer points at the key. So the reader picks their own
  * client from the index, arriving with their source already selected, and every
  * snippet on whichever page they choose carries their real key.
+ *
+ * TWO LINKS, NOT ONE. The second goes straight to the HTTP API, because the
+ * reader who does not want a dependency is exactly the reader who will not find
+ * that page by browsing a list of SDKs, and it is the one page that answers
+ * "how do I send this myself" outright.
+ *
+ * A row of links and a heading, and nothing else. It carried a paragraph of
+ * summary and a footnote under the button, both of which explained what the
+ * button plainly does, on a page whose subject is a source and not its
+ * documentation.
  */
 
 export function InstallGuideLink(props: {
@@ -51,31 +61,37 @@ export function InstallGuideLink(props: {
     // an element carrying one of the shadow-ring values does not also carry a
     // border, or the two hairlines double up.
     <div class={cn("rounded-md bg-muted/20 p-4 shadow-2xs", props.class)}>
-      <div class="flex items-center gap-2 text-body font-medium">
-        <BookOpen class="size-4 text-muted-foreground" />
-        {i18n.t("sources.install_title")}
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span class="flex items-center gap-2 text-body font-medium">
+          <BookOpen class="size-4 text-muted-foreground" />
+          {i18n.t("sources.install_title")}
+        </span>
+
+        {/*
+          The id travels in the query string on both, so a link survives being
+          pasted to a colleague: the documentation reads it on arrival and
+          remembers it from there. Nothing is written to storage here -- a click
+          that never becomes a navigation should not change what the
+          documentation shows next time.
+        */}
+        <Link
+          to="/docs"
+          search={{ source: props.sourceId }}
+          class={cn(buttonVariants({ size: "sm" }), "ml-auto")}
+        >
+          {i18n.t("sources.open_guide")}
+          <ArrowRight class="size-4" />
+        </Link>
+
+        <Link
+          to="/docs/$topic"
+          params={{ topic: "http-api" }}
+          search={{ source: props.sourceId }}
+          class={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          {i18n.t("sources.open_api")}
+        </Link>
       </div>
-
-      <p class="mt-2 text-body leading-relaxed text-muted-foreground">
-        {i18n.t("sources.summary_generic")}
-      </p>
-
-      {/*
-        The id travels in the query string, so the link survives being pasted
-        to a colleague: the documentation reads it on arrival and remembers it from
-        there. Nothing is written to storage here -- a click that never becomes
-        a navigation should not change what the documentation shows next time.
-      */}
-      <Link
-        to="/docs"
-        search={{ source: props.sourceId }}
-        class={cn(buttonVariants({ size: "sm" }), "mt-4")}
-      >
-        {i18n.t("sources.open_guide")}
-        <ArrowRight class="size-4" />
-      </Link>
-
-      <p class="mt-2 text-caption text-muted-foreground">{i18n.t("sources.guide_note")}</p>
     </div>
   );
 }

@@ -1,11 +1,11 @@
 import {
   For,
+  Index,
   Match,
   Show,
   Switch,
   createMemo,
   createSignal,
-  createUniqueId,
   onCleanup,
   onMount,
   type JSX,
@@ -30,7 +30,7 @@ import {
   type Visualisation,
 } from "@firstrun/schema/query";
 import { useI18n, type I18n } from "../lib/i18n/index.js";
-import { NUM } from "./format.js";
+import { NUM, truncateMiddle } from "./format.js";
 import { queryLabels } from "./query-labels.js";
 import {
   Skeleton,
@@ -40,7 +40,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  hairlineBottom,
 } from "./ui/index.js";
 
 /**
@@ -112,11 +111,24 @@ function CardFit(props: { children: (tier: () => Tier) => JSX.Element }) {
   return <div class="h-full min-h-0">{props.children(tier)}</div>;
 }
 
+/**
+ * The room a headline card gives its own shape.
+ *
+ * From `small` up, not from `medium`: the stat tile that carries a number, its
+ * change and a mini chart is the single most common card on any board, and the
+ * size somebody actually places one at (300x180, every template counter) drew
+ * no chart at all under the old gate. A tile with no shape in it is a tile that
+ * answers "how many" and refuses "how it went", which is half the reason to
+ * look at it.
+ *
+ * `tiny` stays empty on purpose. Below the second tier a card is one number and
+ * nothing else, and a six-pixel chart is a smudge that reads as data.
+ */
 const SPARK_SPACE: Record<Tier, string> = {
   tiny: "",
-  small: "",
-  medium: "mt-2 min-h-[18px] flex-1",
-  large: "mt-3 min-h-[26px] flex-1",
+  small: "mt-2 min-h-[16px] flex-1",
+  medium: "mt-2 min-h-[22px] flex-1",
+  large: "mt-3 min-h-[28px] flex-1",
 };
 
 // ---------------------------------------------------------------------------
@@ -141,7 +153,9 @@ function Swatch(props: { colour: string }) {
 function Empty(props: { children: JSX.Element }) {
   return (
     <div class="flex h-full min-h-0 items-center justify-center overflow-hidden px-2 text-center">
-      <span class="line-clamp-4 break-words text-xs text-muted-foreground">{props.children}</span>
+      <span class="line-clamp-4 break-words text-label-13 text-muted-foreground">
+        {props.children}
+      </span>
     </div>
   );
 }
@@ -184,38 +198,52 @@ function Headline(props: { children: JSX.Element; class?: string }) {
 }
 
 /**
- * The change against the comparison window, or nothing.
+ * The change against the comparison window, as a pill beside the number.
+ *
+ * A tinted pill rather than coloured text on the card's own fill, which is what
+ * the reference draws and what makes the change readable at a glance next to a
+ * 31px figure: green words beside a black number read as a second number, and a
+ * badge reads as an annotation on the first.
  *
  * Null draws nothing at all, because a card that prints "0%" where it means
  * "nothing to compare against" is stating the opposite of what it knows.
+ *
+ * UP is drawn as good. That is a guess this product is allowed to make and the
+ * reference is not: every aggregation here counts occurrences of something a
+ * customer chose to measure, and there is no bounce rate in the vocabulary for
+ * it to be wrong about. If a metric where down is good ever lands, this needs a
+ * direction on the query rather than a cleverer rule here.
  */
-function Delta(props: { change: number | null; compare: { from: Date; to: Date }; tier: Tier }) {
+function Delta(props: { change: number | null }) {
   const i18n = useI18n();
   const shown = () => i18n.delta(props.change);
   return (
     <Show when={shown()}>
       {(change) => (
-        <div class="mt-2 flex shrink-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
-          <span
-            class={cn(
-              "font-semibold",
-              change().dir === "up" && "text-positive",
-              change().dir === "down" && "text-negative",
-              change().dir === "flat" && "text-muted-foreground"
-            )}
-          >
-            {change().label}
-          </span>
-          <Show when={atLeast(props.tier, "medium")}>
-            <span class="truncate text-muted-foreground">
-              {i18n.t("dashboard.baseline", {
-                range: i18n.dateRange(props.compare.from, props.compare.to),
-              })}
-            </span>
-          </Show>
-        </div>
+        <span
+          class={cn(
+            "shrink-0 rounded-sm px-1.5 py-0.5 text-caption font-semibold",
+            change().dir === "up" && "bg-positive/10 text-positive",
+            change().dir === "down" && "bg-destructive/10 text-negative",
+            change().dir === "flat" && "bg-muted text-muted-foreground"
+          )}
+        >
+          {change().label}
+        </span>
       )}
     </Show>
+  );
+}
+
+/** Which window the change is against, spelled out. Never a bare percentage. */
+function Baseline(props: { compare: { from: Date; to: Date } }) {
+  const i18n = useI18n();
+  return (
+    <div class="mt-1.5 truncate text-caption text-muted-foreground">
+      {i18n.t("dashboard.baseline", {
+        range: i18n.dateRange(props.compare.from, props.compare.to),
+      })}
+    </div>
   );
 }
 
@@ -235,11 +263,28 @@ function Measured(props: {
   const [box, setBox] = createSignal({ w: 0, h: 0 });
   let el: HTMLDivElement | undefined;
 
+  const measure = (w: number, h: number) => {
+    const next = { w: Math.round(w), h: Math.round(h) };
+    setBox((held) => (held.w === next.w && held.h === next.h ? held : next));
+  };
+
   onMount(() => {
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el) return;
+
+    // Measured once, here, and not left to the observer's first callback. A
+    // ResizeObserver delivers that callback on the next frame at the earliest,
+    // so a chart that waits for it paints its box empty and its marks a frame
+    // later, which reads as a flash on every navigation. It is also the only
+    // measurement that arrives at all where frames are not being produced --
+    // a headless render, a page in a background tab, a screenshot -- and a
+    // chart that draws nothing in a screenshot is a chart nobody can review.
+    const rect = el.getBoundingClientRect();
+    measure(rect.width, rect.height);
+
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      if (rect) setBox({ w: Math.round(rect.width), h: Math.round(rect.height) });
+      const size = entries[0]?.contentRect;
+      if (size) measure(size.width, size.height);
     });
     observer.observe(el);
     onCleanup(() => observer.disconnect());
@@ -342,6 +387,80 @@ const CHART_COLOURS = [
 
 const colourAt = (i: number) => CHART_COLOURS[i % CHART_COLOURS.length]!;
 
+// ---------------------------------------------------------------------------
+// The plot: scales, ticks and the box they are drawn in
+// ---------------------------------------------------------------------------
+
+/**
+ * A scale a person recognises, ending at or above the largest value.
+ *
+ * The old charts scaled straight to the maximum, which is fine while nothing is
+ * labelled and wrong the moment something is: an axis whose top tick reads
+ * 1,247 is an axis nobody can read a bar against. This rounds the top up to a
+ * step of 1, 2 or 5 times a power of ten, which is the only ladder anybody
+ * estimates in.
+ *
+ * Counts are integers, so a step below one is forced back up to one whenever
+ * the data itself reaches one. An average of 0.4 keeps its fractional ticks,
+ * because that is the honest scale for it.
+ */
+export function niceScale(max: number, targetTicks: number): { top: number; ticks: number[] } {
+  if (!Number.isFinite(max) || max <= 0) return { top: 1, ticks: [0, 1] };
+
+  const rough = max / Math.max(1, targetTicks);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+  const normalised = rough / magnitude;
+  let step = (normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 5 ? 5 : 10) * magnitude;
+  if (step < 1 && max >= 1) step = 1;
+
+  const top = Math.ceil(max / step) * step;
+  const ticks: number[] = [];
+  // Half a step of slack, because 3 * 0.1 is not 0.3 in binary floating point
+  // and a tick ladder that stops one step short leaves the top of the chart
+  // unlabelled.
+  for (let v = 0; v <= top + step / 2; v += step) ticks.push(Number(v.toPrecision(12)));
+  return { top, ticks };
+}
+
+/** The plot area inside the SVG: what is left once the axes have their room. */
+interface Plot {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * How much of the box the axes take.
+ *
+ * The left gutter is derived from the widest tick string rather than fixed,
+ * because "8" and "1.2M" are not the same number of pixels and a fixed gutter
+ * is either wasted space or a clipped label. Seven pixels per character is the
+ * mono advance at the caption size, rounded up; the cap stops one absurd label
+ * from eating the chart it is meant to explain.
+ *
+ * Four pixels of headroom at the top whether or not there are axes: a 2px line
+ * at the maximum value is otherwise drawn half outside its own box.
+ */
+const AXIS_ROW_H = 16;
+const CHAR_PX = 7;
+/** The measured air between a tick label and the plot it labels. */
+const AXIS_GAP_PX = 12;
+
+function plotOf(w: number, h: number, axes: boolean, xLabels: boolean, widest: string): Plot {
+  const left = axes ? Math.min(60, widest.length * CHAR_PX + AXIS_GAP_PX) : 0;
+  const bottom = xLabels ? AXIS_ROW_H : 0;
+  // Half a tick label sits above the highest gridline, so the headroom has to
+  // clear it. Without axes there is only the 2px half of a line's own stroke.
+  const top = axes ? 8 : 4;
+  return {
+    left,
+    top,
+    width: Math.max(1, w - left),
+    height: Math.max(1, h - top - bottom),
+  };
+}
+
 /**
  * `min(time)` and `max(time)` come back as epoch milliseconds, so the same
  * numeric array carries them as everything else. Printing one as a count would
@@ -407,27 +526,52 @@ export function NumberView(props: {
         )}
       >
         <div class="min-w-0 shrink-0">
-          <Headline>
-            {props.tier === "tiny"
-              ? i18n.compact(value() ?? 0)
-              : formatValue(i18n, props.query, 0, value())}
-          </Headline>
+          {/*
+            The change sits BESIDE the number on its baseline, which is where
+            the reference puts it and the reason a stat tile reads in one
+            movement: figure, then how it moved, then what it is. Under the
+            number it was a third line competing with the unit for the same
+            room, and on a 140px card there is no third line.
 
-          <Show when={atLeast(props.tier, "small")}>
-            {/* Printed as the catalogue writes it. Lower-casing it here was an
-                English typographic choice, and German capitalises a noun
-                wherever it stands: "einträge" is a spelling mistake. */}
-            <div class="mt-1.5 truncate text-xs text-muted-foreground" title={label()}>
+            It wraps rather than shrinking the figure, so a very long formatted
+            number keeps its own row on a narrow card.
+          */}
+          <div class="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <Headline>
+              {props.tier === "tiny"
+                ? i18n.compact(value() ?? 0)
+                : formatValue(i18n, props.query, 0, value())}
+            </Headline>
+            <Show when={atLeast(props.tier, "small") && props.compare}>
+              <Delta change={change()} />
+            </Show>
+          </div>
+
+          {/* What the number COUNTS, under it, where a unit goes.
+              The card's own title is already above this in the header, so a
+              second label over the figure would be two captions stacked on one
+              number. It is the first thing to go when the tile is small, and
+              the shape of the thing is what takes the room instead.
+
+              Printed as the catalogue writes it. Lower-casing it here was an
+              English typographic choice, and German capitalises a noun wherever
+              it stands: "einträge" is a spelling mistake. */}
+          <Show when={atLeast(props.tier, "medium")}>
+            <div class="mt-1.5 truncate text-label-13 text-muted-foreground" title={label()}>
               {label()}
             </div>
           </Show>
 
-          <Show when={atLeast(props.tier, "small") && props.compare}>
-            <Delta change={change()} compare={props.compare!} tier={props.tier} />
+          {/* The window the change is against, on the one tier with room for
+              it. The toolbar states both windows on every board, so this is the
+              second statement of a fact rather than the only one: it earns its
+              place on a big card and not on a small one. */}
+          <Show when={atLeast(props.tier, "large") && props.compare && change() !== null}>
+            <Baseline compare={props.compare!} />
           </Show>
         </div>
 
-        <Show when={atLeast(props.tier, "medium") && points().length > 0}>
+        <Show when={atLeast(props.tier, "small") && points().length > 0}>
           <Measured class={SPARK_SPACE[props.tier]}>
             {(box) => (
               <Show when={box().w > 0 && box().h > 0}>
@@ -463,29 +607,43 @@ export function NumberView(props: {
   );
 }
 
-/** Bars, because a sparkline of a bucketed count is a count per bucket. */
+/**
+ * The shape of the same question, with no axes on it at all.
+ *
+ * Bars, because a sparkline of a bucketed count is a count per bucket. It is
+ * deliberately unlabelled and unhoverable: a tile answers "how many, and is it
+ * going up", and the moment it grows ticks and a tooltip it is competing with
+ * the chart card next to it rather than supporting the number above it.
+ *
+ * Scaled to its own maximum with no shared domain, which is the point of a
+ * sparkline: the reader is judging the SHAPE. The bar that touches the top is
+ * the biggest day, and nothing here claims to say what it was.
+ */
 function Sparkline(props: { points: Point[]; w: number; h: number }) {
   const max = () => Math.max(1, ...props.points.map((p) => p.value));
-  const barWidth = () => props.w / Math.max(1, props.points.length);
+  const pitch = () => props.w / Math.max(1, props.points.length);
+  // A quarter of the pitch, capped at two pixels. Below about eight pixels of
+  // pitch a fixed gap eats the bar it is separating, and thirty days of a
+  // hundred-pixel tile is three pixels a day.
+  const gap = () => Math.min(2, Math.max(0.5, pitch() * 0.25));
 
   return (
     <svg class="block" width={props.w} height={props.h} aria-hidden="true">
-      <g opacity="0.7">
-        <For each={props.points}>
-          {(point, i) => {
-            const height = () => Math.max(point.value > 0 ? 1 : 0, (point.value / max()) * props.h);
-            return (
-              <rect
-                class="fill-chart-1"
-                x={i() * barWidth()}
-                y={props.h - height()}
-                width={Math.max(1, barWidth() - 1)}
-                height={height()}
-              />
-            );
-          }}
-        </For>
-      </g>
+      <For each={props.points}>
+        {(point, i) => {
+          const height = () => Math.max(point.value > 0 ? 1 : 0, (point.value / max()) * props.h);
+          return (
+            <rect
+              class="fill-chart-1 opacity-80"
+              x={i() * pitch()}
+              y={props.h - height()}
+              width={Math.max(1, pitch() - gap())}
+              height={height()}
+              rx={Math.min(1.5, Math.max(0, (pitch() - gap()) / 3))}
+            />
+          );
+        }}
+      </For>
     </svg>
   );
 }
@@ -495,11 +653,92 @@ function Sparkline(props: { points: Point[]; w: number; h: number }) {
 // ---------------------------------------------------------------------------
 
 /**
- * A line, bars or an area.
+ * Every series on one shared x domain.
+ *
+ * A grouped, bucketed query answers with the cross product MINUS the empty
+ * cells, so two groups routinely come back with different numbers of buckets.
+ * Drawn from their own point lists they were laid out over their own widths,
+ * which put the same Tuesday in two places on one chart. The union of the
+ * timestamps fixes that once, and it is also what a crosshair needs: one index
+ * per column, every line answering the same question at it.
+ *
+ * A cell nobody sent is null rather than zero. For a count they mean the same
+ * thing; for an average or a p95 they do not, and a line that dives to the axis
+ * because nobody measured anything that hour is a chart telling a lie about a
+ * quiet period. The line connects across the gap and the bar simply is not
+ * drawn, which is the same treatment a missing point has always had here.
+ */
+interface Grid {
+  times: Date[];
+  lines: Array<{ label: string; values: Array<number | null> }>;
+}
+
+export function gridFrom(series: Series[]): Grid {
+  const stamps = [...new Set(series.flatMap((s) => s.points.map((p) => p.at.getTime())))];
+  stamps.sort((a, b) => a - b);
+  const at = new Map(stamps.map((t, i) => [t, i]));
+
+  return {
+    times: stamps.map((t) => new Date(t)),
+    lines: series.map((s) => {
+      const values = new Array<number | null>(stamps.length).fill(null);
+      for (const point of s.points) values[at.get(point.at.getTime())!] = point.value;
+      return { label: s.label, values };
+    }),
+  };
+}
+
+/**
+ * Which columns get a label under them.
+ *
+ * A fixed STRIDE, not `want` positions interpolated across the range and
+ * rounded. Rounding bunches: over thirty days it put the 15th and the 16th
+ * forty pixels apart while every other pair was eighty, and two dates on top of
+ * each other is worse than one date missing. A stride cannot do that.
+ *
+ * The last column is always labelled, because it is the end of the window and a
+ * ruler stopping three days short of it is a ruler somebody misreads. When the
+ * stride lands too near it, the tick before is dropped rather than crowded.
+ */
+function tickIndices(count: number, want: number): number[] {
+  if (count <= 0) return [];
+  if (count === 1) return [0];
+  const n = Math.max(2, Math.min(want, count));
+  const stride = Math.max(1, Math.ceil((count - 1) / (n - 1)));
+
+  const out: number[] = [];
+  for (let i = 0; i < count; i += stride) out.push(i);
+
+  const last = count - 1;
+  if (out[out.length - 1] !== last) {
+    if (last - out[out.length - 1]! < stride / 2) out.pop();
+    out.push(last);
+  }
+  return out;
+}
+
+/**
+ * One label every ~130px.
+ *
+ * A short date is about sixty pixels of mono at the caption size, so this is
+ * roughly a label per two labels' worth of room. Tighter reads as a ruler on
+ * graph paper rather than as the handful of anchors somebody actually checks a
+ * shape against.
+ */
+const X_TICK_PITCH_PX = 130;
+
+/**
+ * A line, bars or an area, with a scale on it.
  *
  * Bucketed, it is a series per group over time. Grouped without a bucket, the x
  * axis is the groups themselves, which is what makes "bars" a chart type rather
  * than a second kind of ranking: the same query drawn either way.
+ *
+ * From tier 3 the chart carries real axes: a rounded y scale with its ticks
+ * labelled and a gridline at each, dated ticks along the bottom, and a
+ * crosshair that reads every series at one column. Below that it is a shape and
+ * nothing else, because an axis in forty pixels of height is two labels
+ * overlapping each other on top of the data they describe.
  */
 export function ChartView(props: {
   rows: readonly QueryRow[];
@@ -513,6 +752,7 @@ export function ChartView(props: {
   const notSet = () => i18n.t("dashboard.not_set");
   const bucketed = () => props.query.bucket !== undefined;
   const series = createMemo(() => seriesFrom(props.rows, notSet()).slice(0, MAX_SERIES));
+  const grid = createMemo(() => gridFrom(series()));
   const ranks = createMemo(() => ranksFrom(props.rows, notSet()));
 
   /**
@@ -523,24 +763,67 @@ export function ChartView(props: {
   const previous = () => {
     if (!props.previous || !atLeast(props.tier, "medium")) return null;
     const first = seriesFrom(props.previous, notSet())[0];
-    return first && first.points.length > 0 ? first.points : null;
+    if (!first || first.points.length === 0) return null;
+    // Cut to the current window's column count. The baseline is drawn on THIS
+    // chart's x mapping, so a comparison window holding one bucket more (a
+    // month against a shorter month, an hour lost to a clock change) would
+    // otherwise draw its last point past the right hand edge.
+    return first.points.slice(0, Math.max(1, grid().times.length)).map((p) => p.value);
   };
 
-  const max = () =>
+  const peak = () =>
     Math.max(
       1,
-      ...series().flatMap((s) => s.points.map((p) => p.value)),
+      ...grid().lines.flatMap((line) => line.values.map((v) => v ?? 0)),
       ...ranks().map((r) => r.value),
-      ...(previous() ?? []).map((p) => p.value)
+      ...(previous() ?? [])
     );
+
+  /** Axes from tier 3, and one more tick once there is room to read it. */
+  const axes = () => atLeast(props.tier, "medium");
+  const scale = createMemo(() => niceScale(peak(), atLeast(props.tier, "large") ? 4 : 3));
+
+  // Compact on the axis, in full in the tooltip. An axis has three characters
+  // of room and a tooltip has a line, so 12.4K on the scale and 12,431 under
+  // the pointer is the same number answered at two densities.
+  //
+  // NOT `i18n.compact`, which prints in full below a hundred thousand: that is
+  // right for a headline on a tiny card and wrong here, where an axis reading
+  // "80.000" pins the gutter at its cap and takes the width from the plot. A
+  // decimal only appears once the number is big enough to need one.
+  const tickText = (value: number) =>
+    i18n.num(value, {
+      notation: "compact",
+      compactDisplay: "short",
+      maximumFractionDigits: Math.abs(value) < 10_000 ? 0 : 1,
+    });
+  const valueText = (value: number) => formatValue(i18n, props.query, 0, value);
+  const widest = () =>
+    scale().ticks.reduce((held, t) => (tickText(t).length > held.length ? tickText(t) : held), "");
 
   const empty = () => (bucketed() ? series().length === 0 : ranks().length === 0);
   const label = () => labels.aggregation(props.query.aggregations[0] ?? { fn: "count" });
 
+  /**
+   * What the hovered column is called: the BUCKET, not the instant.
+   *
+   * A bare date under an hourly chart says the wrong thing twenty-three times a
+   * day. Sub-day buckets therefore print the time as well; a day, a week and a
+   * month all read as a date, and the bucket's own width is already stated by
+   * the chart's x axis.
+   */
+  const bucketHeading = (at: Date) => {
+    const unit = props.query.bucket?.unit;
+    return unit === "minute" || unit === "hour" ? i18n.dateTime(at) : i18n.shortDate(at);
+  };
+
   return (
     <Show when={!empty()} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
       <div class="flex h-full min-h-0 flex-col">
-        <Measured class="min-h-[32px] flex-1">
+        {/* `relative`, because the crosshair's tooltip is an HTML sibling of the
+            SVG rather than a `<title>`: a native tooltip cannot show several
+            series at once and appears a second after the pointer stops. */}
+        <Measured class="relative min-h-[32px] flex-1">
           {(box) => (
             <Show when={box().w > 0 && box().h > 0}>
               <Show
@@ -548,21 +831,29 @@ export function ChartView(props: {
                 fallback={
                   <CategoryChart
                     ranks={ranks()}
-                    max={max()}
+                    scale={scale()}
                     w={box().w}
                     h={box().h}
+                    axes={axes()}
+                    widest={widest()}
+                    tickText={tickText}
+                    valueText={valueText}
                     label={label()}
                   />
                 }
               >
                 <SeriesChart
-                  series={series()}
+                  grid={grid()}
                   previous={previous()}
                   chart={props.chart}
-                  max={max()}
+                  scale={scale()}
                   w={box().w}
                   h={box().h}
-                  baseline={atLeast(props.tier, "medium")}
+                  axes={axes()}
+                  widest={widest()}
+                  tickText={tickText}
+                  valueText={valueText}
+                  heading={bucketHeading}
                   label={label()}
                 />
               </Show>
@@ -570,32 +861,29 @@ export function ChartView(props: {
           )}
         </Measured>
 
-        <Show when={atLeast(props.tier, "small") && bucketed() && series()[0]}>
-          {(first) => (
-            <div
-              class={cn(
-                "mt-2 flex shrink-0 items-baseline justify-between gap-2",
-                "text-label-13 text-muted-foreground"
-              )}
-            >
-              <span class="truncate">{i18n.shortDate(first().points[0]!.at)}</span>
-              <Show when={atLeast(props.tier, "medium")}>
-                <span class="shrink-0">
-                  {i18n.t("dashboard.peak")}{" "}
-                  <span class={cn("font-semibold text-foreground", NUM)}>{i18n.num(max())}</span>
-                </span>
-              </Show>
-              <span class="truncate">
-                {i18n.shortDate(first().points[first().points.length - 1]!.at)}
-              </span>
-            </div>
-          )}
+        {/*
+          The window, in words, on a card too small to have carried an x axis.
+          Above tier 3 the ticks say this and better, so restating it would be
+          the same fact twice under one chart.
+        */}
+        <Show when={!axes() && atLeast(props.tier, "small") && bucketed() && grid().times.length > 0}>
+          <div
+            class={cn(
+              "mt-2 flex shrink-0 items-baseline justify-between gap-2",
+              "text-label-13 text-muted-foreground"
+            )}
+          >
+            <span class="truncate">{i18n.shortDate(grid().times[0]!)}</span>
+            <span class="truncate">
+              {i18n.shortDate(grid().times[grid().times.length - 1]!)}
+            </span>
+          </div>
         </Show>
 
         <Show when={atLeast(props.tier, "large")}>
           <div
             class={cn(
-              "mt-1.5 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1",
+              "mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1",
               "text-label-13 text-muted-foreground"
             )}
           >
@@ -617,6 +905,15 @@ export function ChartView(props: {
                 )}
               </For>
             </Show>
+            <Show when={previous()}>
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span
+                  aria-hidden="true"
+                  class="inline-block h-px w-3 shrink-0 border-t border-dashed border-muted-foreground"
+                />
+                <span class="truncate">{i18n.t("dashboard.baseline_series")}</span>
+              </span>
+            </Show>
           </div>
         </Show>
       </div>
@@ -624,168 +921,517 @@ export function ChartView(props: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// The axes, shared by both charts
+// ---------------------------------------------------------------------------
+
 /**
- * One or more series, drawn in real pixels.
+ * The horizontal rules and the numbers beside them.
+ *
+ * One rule per tick INCLUDING zero, so the axis a bar stands on is drawn by the
+ * same code as the rules above it and can never be a pixel out from them. They
+ * are the chrome's own hairline -- `--border` at one device pixel -- because a
+ * gridline heavier than the card it sits inside reads as data, and every one of
+ * them is behind the marks in paint order for the same reason.
+ *
+ * Labels are `--muted-foreground`, which is the token whose own definition
+ * names axis labels as one of its jobs, and set in the mono face like every
+ * other figure in the product so a column of them lines up on the digit.
+ */
+function Gridlines(props: {
+  plot: Plot;
+  scale: { top: number; ticks: number[] };
+  labels: boolean;
+  tickText: (value: number) => string;
+}) {
+  const yAt = (value: number) =>
+    props.plot.top + props.plot.height - (value / props.scale.top) * props.plot.height;
+
+  return (
+    <Index each={props.scale.ticks}>
+      {(tick) => (
+        <>
+          <line
+            class={hairlineStroke}
+            x1={props.plot.left}
+            x2={props.plot.left + props.plot.width}
+            y1={yAt(tick()) - 0.5}
+            y2={yAt(tick()) - 0.5}
+            stroke="var(--color-border)"
+            shape-rendering="crispEdges"
+          />
+          <Show when={props.labels}>
+            <text
+              class={cn("fill-muted-foreground text-caption", NUM)}
+              x={props.plot.left - AXIS_GAP_PX}
+              y={yAt(tick())}
+              text-anchor="end"
+              dominant-baseline="middle"
+            >
+              {props.tickText(tick())}
+            </text>
+          </Show>
+        </>
+      )}
+    </Index>
+  );
+}
+
+/** One dated or named label under a column. */
+function XTicks(props: {
+  plot: Plot;
+  count: number;
+  at: (index: number) => number;
+  text: (index: number) => string;
+}) {
+  const shown = () =>
+    tickIndices(props.count, Math.max(2, Math.floor(props.plot.width / X_TICK_PITCH_PX)));
+
+  return (
+    <Index each={shown()}>
+      {(index, nth) => {
+        // The first and last labels are pulled onto the plot's edges rather
+        // than centred on their column, which is what stops them being clipped
+        // by the SVG on a chart whose first column starts at x = 0.
+        const last = () => nth === shown().length - 1;
+        const first = () => nth === 0;
+        return (
+          <text
+            class={cn("fill-muted-foreground text-caption", NUM)}
+            x={props.at(index())}
+            y={props.plot.top + props.plot.height + AXIS_ROW_H - 4}
+            text-anchor={first() ? "start" : last() ? "end" : "middle"}
+          >
+            {props.text(index())}
+          </text>
+        );
+      }}
+    </Index>
+  );
+}
+
+/**
+ * What the pointer is over, drawn as a card rather than as a native tooltip.
+ *
+ * A `<title>` can carry one mark's value and appears a second after the pointer
+ * stops moving, which is the wrong answer to "what happened on the 14th" on a
+ * chart with four lines on it. This reads every series at one column, in the
+ * order the legend lists them.
+ *
+ * It flips sides at the halfway point instead of being clamped, so it never
+ * covers the column it is describing and never runs off the card.
+ *
+ * The heading is UNDER the rows, centred and muted, and it names the BUCKET
+ * rather than the instant: a reader hovering a chart is asking "what is this
+ * value", and the answer to "of what period" is the qualifier on it. Putting
+ * the period on top makes the first line of every tooltip the least useful one.
+ */
+function ChartTip(props: {
+  x: number;
+  flip: boolean;
+  heading: string;
+  rows: Array<{ label: string; colour: string; value: string }>;
+}) {
+  return (
+    <div
+      // Never a hit target: it follows the pointer, and a tooltip that can take
+      // a hover is a tooltip that fights the chart under it.
+      class={cn(
+        "pointer-events-none absolute top-0 z-20 max-w-[15rem] rounded-md",
+        "bg-popover px-2 py-1.5 text-caption text-popover-foreground shadow-tooltip"
+      )}
+      style={{
+        left: `${props.x}px`,
+        transform: props.flip ? "translateX(calc(-100% - 8px))" : "translateX(8px)",
+      }}
+    >
+      <For each={props.rows}>
+        {(row) => (
+          <div class="flex items-center justify-between gap-4 py-0.5">
+            <span class="flex min-w-0 items-center gap-1.5">
+              <Swatch colour={row.colour} />
+              <span class="truncate font-medium text-foreground">{row.label}</span>
+            </span>
+            {/* The figure in a chip of its own, so a column of them lines up
+                down the right hand edge whatever the names beside them are. */}
+            <span
+              class={cn("shrink-0 rounded-sm bg-muted px-1 py-px text-foreground", NUM)}
+            >
+              {row.value}
+            </span>
+          </div>
+        )}
+      </For>
+      <div class="mt-1 truncate text-center text-muted-foreground">{props.heading}</div>
+    </div>
+  );
+}
+
+/**
+ * One or more series over time, drawn in real pixels.
  *
  * The comparison window is always a faint dashed line regardless of the chart
  * type, because two sets of bars interleaved are unreadable. It is drawn in the
  * muted foreground: a second hue would imply a second kind of answer.
+ *
+ * Lines and areas put their first and last points ON the plot's edges; bars
+ * occupy a column of it. Those are two different x mappings for the same data,
+ * and the crosshair uses whichever one the chart is currently drawn with, so
+ * the rule lands on the mark under the pointer rather than half a column off it.
+ *
+ * Returns a fragment: the tooltip is a sibling of the SVG, so the caller has to
+ * be positioned.
  */
 function SeriesChart(props: {
-  series: Series[];
-  previous: Point[] | null;
+  grid: Grid;
+  previous: number[] | null;
   chart: "line" | "bar" | "area";
-  max: number;
+  scale: { top: number; ticks: number[] };
   w: number;
   h: number;
-  baseline: boolean;
+  axes: boolean;
+  widest: string;
+  tickText: (value: number) => string;
+  valueText: (value: number) => string;
+  /** What one column is CALLED. Passed in, because only the query knows the
+      bucket width and this component is handed a grid rather than a question. */
+  heading: (at: Date) => string;
   label: string;
 }) {
   const i18n = useI18n();
-  const gradientId = createUniqueId();
+  const [hover, setHover] = createSignal<number | null>(null);
 
-  const xAt = (i: number, count: number) =>
-    count <= 1 ? props.w / 2 : (i / (count - 1)) * props.w;
-  const yAt = (value: number) => props.h - (value / props.max) * props.h;
-
-  const linePath = (points: Point[]) =>
-    points
-      .map(
-        (p, i) =>
-          `${i === 0 ? "M" : "L"}${xAt(i, points.length).toFixed(1)},${yAt(p.value).toFixed(1)}`
-      )
-      .join(" ");
+  const count = () => props.grid.times.length;
+  const plot = () => plotOf(props.w, props.h, props.axes, props.axes, props.widest);
 
   /** Bars only make sense for one series. Several are drawn as lines instead. */
-  const asBars = () => props.chart === "bar" && props.series.length === 1;
+  const asBars = () => props.chart === "bar" && props.grid.lines.length === 1;
+
+  const pitch = () => plot().width / Math.max(1, count());
+  /** The centre of column `i`, which is what a tick and a crosshair aim at. */
+  const xAt = (i: number) =>
+    asBars()
+      ? plot().left + (i + 0.5) * pitch()
+      : count() <= 1
+        ? plot().left + plot().width / 2
+        : plot().left + (i / (count() - 1)) * plot().width;
+  const yAt = (value: number) =>
+    plot().top + plot().height - (value / props.scale.top) * plot().height;
+
+  const linePath = (values: Array<number | null>) => {
+    let started = false;
+    let d = "";
+    values.forEach((value, i) => {
+      if (value === null) return;
+      d += `${started ? "L" : "M"}${xAt(i).toFixed(1)},${yAt(value).toFixed(1)}`;
+      d += " ";
+      started = true;
+    });
+    return d.trim();
+  };
+
+  /** The nearest column to a pointer, in the SVG's own coordinates. */
+  const columnAt = (clientX: number, target: SVGSVGElement) => {
+    const rect = target.getBoundingClientRect();
+    const x = clientX - rect.left - plot().left;
+    if (count() <= 0) return null;
+    const i = asBars()
+      ? Math.floor(x / pitch())
+      : count() <= 1
+        ? 0
+        : Math.round((x / plot().width) * (count() - 1));
+    return Math.max(0, Math.min(count() - 1, i));
+  };
+
+  const tipRows = () => {
+    const i = hover();
+    if (i === null) return [];
+    const rows = props.grid.lines.map((line, n) => ({
+      label: line.label || props.label,
+      colour: colourAt(n),
+      value: line.values[i] === null ? "–" : props.valueText(line.values[i]!),
+    }));
+    const before = props.previous?.[i];
+    if (before !== undefined) {
+      rows.push({
+        label: i18n.t("dashboard.baseline_series"),
+        colour: "var(--color-muted-foreground)",
+        value: props.valueText(before),
+      });
+    }
+    return rows;
+  };
 
   return (
-    <svg class="block" width={props.w} height={props.h} role="img" aria-label={props.label}>
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--color-chart-1)" stop-opacity="0.45" />
-          <stop offset="100%" stop-color="var(--color-chart-1)" stop-opacity="0.02" />
-        </linearGradient>
-      </defs>
-
-      {/* The axis the bars stand on. Without it a short bar floats. */}
-      <Show when={props.baseline}>
-        <line
-          class={hairlineStroke}
-          x1="0"
-          y1={props.h - 0.5}
-          x2={props.w}
-          y2={props.h - 0.5}
-          stroke="var(--color-border)"
+    <>
+      <svg
+        class="block"
+        width={props.w}
+        height={props.h}
+        role="img"
+        aria-label={props.label}
+        onPointerMove={(e) => setHover(columnAt(e.clientX, e.currentTarget))}
+        onPointerLeave={() => setHover(null)}
+      >
+        <Gridlines
+          plot={plot()}
+          scale={props.scale}
+          labels={props.axes}
+          tickText={props.tickText}
         />
-      </Show>
 
-      <Show when={asBars()}>
-        <For each={props.series[0]!.points}>
-          {(point, i) => {
-            const count = props.series[0]!.points.length;
-            const barWidth = () => props.w / count;
-            const height = () =>
-              Math.max(point.value > 0 ? 1.5 : 0, (point.value / props.max) * props.h);
-            return (
-              <rect
-                // The bar brightens to say which one the native tooltip is
-                // about, and it transitions because every other thing on a card
-                // that answers a hover does. Opacity is not in Tailwind's
-                // colour transition list, so it is named.
-                class="fill-chart-1 opacity-90 transition-opacity hover:opacity-100"
-                x={i() * barWidth()}
-                y={props.h - height()}
-                width={Math.max(1, barWidth() - 1.5)}
-                height={height()}
-                rx="1"
-              >
-                <title>{`${i18n.shortDate(point.at)}: ${i18n.num(point.value)}`}</title>
-              </rect>
-            );
-          }}
-        </For>
-      </Show>
+        {/*
+          The column under the pointer, painted before the marks so it reads as
+          the chart's own background rather than as a fifth series.
 
-      <Show when={!asBars()}>
-        <For each={props.series}>
-          {(s, i) => (
-            <>
-              <Show when={props.chart === "area" && props.series.length === 1}>
+          A band for bars and a RULE for lines, because those are two different
+          questions: a bar owns a column and a line owns a point on one. The
+          rule is solid and in the foreground colour, not dashed and not the
+          focus blue: a dashed line inside a chart is a convention already spent
+          on the comparison series, and blue is a colour a series can be.
+
+          The rule needs a scale behind it to be worth anything, so it appears
+          only where the axes do. The band does not: a tinted column is legible
+          at sixty pixels and is the only way a bar that small can say which one
+          the tooltip is about.
+        */}
+        <Show when={hover() !== null && (asBars() || props.axes)}>
+          {asBars() ? (
+            <rect
+              class="fill-accent"
+              x={plot().left + hover()! * pitch()}
+              y={plot().top}
+              width={pitch()}
+              height={plot().height}
+            />
+          ) : (
+            <line
+              class={hairlineStroke}
+              x1={xAt(hover()!)}
+              x2={xAt(hover()!)}
+              y1={plot().top}
+              y2={plot().top + plot().height}
+              stroke="var(--color-foreground)"
+            />
+          )}
+        </Show>
+
+        <Show when={asBars()}>
+          <Index each={props.grid.lines[0]!.values}>
+            {(value, i) => {
+              const gap = () => Math.min(4, Math.max(1, pitch() * 0.22));
+              const height = () => {
+                const v = value();
+                return v === null
+                  ? 0
+                  : Math.max(v > 0 ? 1.5 : 0, (v / props.scale.top) * plot().height);
+              };
+              return (
+                <Show when={value() !== null}>
+                  <rect
+                    // The bar brightens to say which one the crosshair is
+                    // about, and it transitions because every other thing on a
+                    // card that answers a hover does. Opacity is not in
+                    // Tailwind's colour transition list, so it is named.
+                    class={cn(
+                      "fill-chart-1 transition-opacity",
+                      hover() === null || hover() === i ? "opacity-100" : "opacity-45"
+                    )}
+                    x={plot().left + i * pitch() + gap() / 2}
+                    y={plot().top + plot().height - height()}
+                    width={Math.max(1, pitch() - gap())}
+                    height={height()}
+                    rx={Math.min(2, Math.max(0, (pitch() - gap()) / 4))}
+                  />
+                </Show>
+              );
+            }}
+          </Index>
+        </Show>
+
+        <Show when={!asBars()}>
+          <For each={props.grid.lines}>
+            {(line, i) => (
+              <>
+                <Show when={props.chart === "area" && props.grid.lines.length === 1}>
+                  <path
+                    // One flat tone at 15%, not a gradient fading to nothing.
+                    // A gradient puts a soft edge halfway up the plot that
+                    // reads as a second, fainter series, and it hides the
+                    // gridlines it is drawn over unevenly: under a flat fill
+                    // every rule composites by the same amount, so the scale
+                    // stays legible through the shape.
+                    fill="var(--color-chart-1)"
+                    fill-opacity="0.15"
+                    d={`${linePath(line.values)} L${(plot().left + plot().width).toFixed(1)},${(
+                      plot().top + plot().height
+                    ).toFixed(1)} L${plot().left.toFixed(1)},${(
+                      plot().top + plot().height
+                    ).toFixed(1)} Z`}
+                  />
+                </Show>
                 <path
-                  fill={`url(#${gradientId})`}
-                  d={`${linePath(s.points)} L${props.w},${props.h} L0,${props.h} Z`}
+                  fill="none"
+                  stroke={colourAt(i())}
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                  d={linePath(line.values)}
+                />
+              </>
+            )}
+          </For>
+        </Show>
+
+        <Show when={props.previous}>
+          {(before) => <path fill="none" class="stroke-muted-foreground" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.75" d={linePath(before())} />}
+        </Show>
+
+        {/* The dot on every line at the hovered column, after the marks so it
+            is never buried under the one it belongs to. */}
+        <Show when={hover() !== null && !asBars()}>
+          <For each={props.grid.lines}>
+            {(line, i) => (
+              <Show when={line.values[hover()!] !== null && line.values[hover()!] !== undefined}>
+                <circle
+                  cx={xAt(hover()!)}
+                  cy={yAt(line.values[hover()!]!)}
+                  r="4"
+                  fill={colourAt(i())}
+                  // The card-coloured halo is a deliberate divergence from the
+                  // reference, which draws a bare dot. It draws ONE series;
+                  // this draws up to six, and two lines crossing at the hovered
+                  // column put two dots on top of each other. The halo is what
+                  // keeps them countable.
+                  class="stroke-card"
+                  stroke-width="1.5"
                 />
               </Show>
-              <path
-                fill="none"
-                stroke={colourAt(i())}
-                stroke-width="2"
-                stroke-linejoin="round"
-                d={linePath(s.points)}
-              />
-            </>
-          )}
-        </For>
-      </Show>
+            )}
+          </For>
+        </Show>
 
-      <Show when={props.previous}>
-        {(previous) => (
-          <path
-            fill="none"
-            stroke="var(--color-muted-foreground)"
-            stroke-width="1.5"
-            stroke-dasharray="3 3"
-            opacity="0.75"
-            d={linePath(previous())}
+        <Show when={props.axes}>
+          <XTicks
+            plot={plot()}
+            count={count()}
+            at={xAt}
+            text={(i) => i18n.shortDate(props.grid.times[i]!)}
+          />
+        </Show>
+      </svg>
+
+      <Show when={hover() !== null && props.grid.times[hover()!]}>
+        {(at) => (
+          <ChartTip
+            x={xAt(hover()!)}
+            flip={xAt(hover()!) > plot().left + plot().width / 2}
+            heading={props.heading(at())}
+            rows={tipRows()}
           />
         )}
       </Show>
-    </svg>
+    </>
   );
 }
 
-/** Groups on the x axis: the same answer a ranked list draws, as bars. */
+/**
+ * Groups on the x axis: the same answer a ranked list draws, as bars.
+ *
+ * The group name is customer data of unbounded length, so a tick under a bar is
+ * cut in the middle and the whole of it is in the tooltip. Cutting in the
+ * middle keeps the tail, which is the part that tells two names sharing a
+ * prefix apart.
+ */
 function CategoryChart(props: {
   ranks: Rank[];
-  max: number;
+  scale: { top: number; ticks: number[] };
   w: number;
   h: number;
+  axes: boolean;
+  widest: string;
+  tickText: (value: number) => string;
+  valueText: (value: number) => string;
   label: string;
 }) {
-  const i18n = useI18n();
-  const barWidth = () => props.w / Math.max(1, props.ranks.length);
+  const [hover, setHover] = createSignal<number | null>(null);
+
+  const count = () => props.ranks.length;
+  const plot = () => plotOf(props.w, props.h, props.axes, props.axes, props.widest);
+  const pitch = () => plot().width / Math.max(1, count());
+  const xAt = (i: number) => plot().left + (i + 0.5) * pitch();
+
+  const columnAt = (clientX: number, target: SVGSVGElement) => {
+    const rect = target.getBoundingClientRect();
+    const i = Math.floor((clientX - rect.left - plot().left) / pitch());
+    return count() <= 0 ? null : Math.max(0, Math.min(count() - 1, i));
+  };
+
+  /** How many characters a tick has room for at this pitch. */
+  const tickChars = () => Math.max(3, Math.floor(pitch() / CHAR_PX) - 1);
+
   return (
-    <svg class="block" width={props.w} height={props.h} role="img" aria-label={props.label}>
-      <line
-        class={hairlineStroke}
-        x1="0"
-        y1={props.h - 0.5}
-        x2={props.w}
-        y2={props.h - 0.5}
-        stroke="var(--color-border)"
-      />
-      <For each={props.ranks}>
-        {(rank, i) => {
-          const height = () =>
-            Math.max(rank.value > 0 ? 1.5 : 0, (rank.value / props.max) * props.h);
-          return (
-            <rect
-              // Same treatment as the bucketed bars: they are the same mark
-              // answering the same hover.
-              class="fill-chart-1 opacity-90 transition-opacity hover:opacity-100"
-              x={i() * barWidth()}
-              y={props.h - height()}
-              width={Math.max(1, barWidth() - 2)}
-              height={height()}
-              rx="1"
-            >
-              <title>{`${rank.label}: ${i18n.num(rank.value)}`}</title>
-            </rect>
-          );
-        }}
-      </For>
-    </svg>
+    <>
+      <svg
+        class="block"
+        width={props.w}
+        height={props.h}
+        role="img"
+        aria-label={props.label}
+        onPointerMove={(e) => setHover(columnAt(e.clientX, e.currentTarget))}
+        onPointerLeave={() => setHover(null)}
+      >
+        <Gridlines
+          plot={plot()}
+          scale={props.scale}
+          labels={props.axes}
+          tickText={props.tickText}
+        />
+
+        <For each={props.ranks}>
+          {(rank, i) => {
+            const gap = () => Math.min(6, Math.max(1, pitch() * 0.24));
+            const height = () =>
+              Math.max(rank.value > 0 ? 1.5 : 0, (rank.value / props.scale.top) * plot().height);
+            return (
+              <rect
+                class={cn(
+                  "fill-chart-1 transition-opacity",
+                  hover() === null || hover() === i() ? "opacity-100" : "opacity-45"
+                )}
+                x={plot().left + i() * pitch() + gap() / 2}
+                y={plot().top + plot().height - height()}
+                width={Math.max(1, pitch() - gap())}
+                height={height()}
+                rx={Math.min(2, Math.max(0, (pitch() - gap()) / 4))}
+              />
+            );
+          }}
+        </For>
+
+        <Show when={props.axes}>
+          <XTicks
+            plot={plot()}
+            count={count()}
+            at={xAt}
+            text={(i) => truncateMiddle(props.ranks[i]!.label, tickChars())}
+          />
+        </Show>
+      </svg>
+
+      <Show when={hover() !== null && props.ranks[hover()!]}>
+        {(rank) => (
+          <ChartTip
+            x={xAt(hover()!)}
+            flip={xAt(hover()!) > plot().left + plot().width / 2}
+            heading={rank().label}
+            rows={[
+              { label: props.label, colour: colourAt(0), value: props.valueText(rank().value) },
+            ]}
+          />
+        )}
+      </Show>
+    </>
   );
 }
 
@@ -825,18 +1471,22 @@ export function ListView(props: {
   return (
     <Show when={ranks().length > 0} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
       <div class="flex h-full min-h-0 flex-col">
+        {/*
+          ONE column header, over the values, and the group name beside it.
+
+          The reference draws exactly one: an uppercase micro-label above the
+          number column, and nothing above the names, because the names ARE the
+          rows. The group name is kept on the left because this product has no
+          tab group there to say what is being ranked, and without it a card
+          titled "Top pages" does not say the ranking is by path.
+        */}
         <Show when={atLeast(props.tier, "medium")}>
-          <div
-            class={cn(
-              "flex shrink-0 items-center justify-between gap-2 pb-2",
-              "text-label-13 text-muted-foreground"
-            )}
-          >
-            <span class="min-w-0 truncate font-medium">
+          <div class="flex shrink-0 items-center justify-between gap-2 px-3 pb-2">
+            <span class="min-w-0 truncate text-label-13 text-muted-foreground">
               {i18n.list((props.query.groupBy ?? []).map(labels.field)) ||
                 i18n.t("dashboard.all_events")}
             </span>
-            <span class="shrink-0">
+            <span class="shrink-0 text-caption uppercase tracking-wide text-muted-foreground">
               {labels.aggregation(props.query.aggregations[0] ?? { fn: "count" })}
             </span>
           </div>
@@ -844,21 +1494,37 @@ export function ListView(props: {
 
         <div class="min-h-0 flex-1 overflow-auto">
           <For each={shown()}>
-            {(rank, i) => (
+            {(rank) => (
               <div
                 class={cn(
-                  "relative flex items-center justify-between gap-3",
-                  // A device pixel, like every other rule in the chrome, and
-                  // stated per row rather than as a last-child exception: a
-                  // resolution variant and a position variant on the same
-                  // property is a fight about source order that a reader cannot
-                  // see and a scanner will not warn about.
-                  i() < shown().length - 1 && hairlineBottom,
-                  atLeast(props.tier, "small") ? "py-1.5" : "py-1"
+                  "group/row relative flex items-center justify-between gap-3 rounded-sm",
+                  // A 32px bar on a 40px pitch, which is the measured ranked
+                  // row, stepped down twice for the cards that cannot afford
+                  // it. Stated as a height rather than as padding so a row with
+                  // a two-line-worth label still occupies exactly one row.
+                  atLeast(props.tier, "medium")
+                    ? "my-1 h-8 px-3"
+                    : atLeast(props.tier, "small")
+                      ? "my-0.5 h-7 px-2"
+                      : "h-6 px-2"
                 )}
               >
+                {/*
+                  The track is NEUTRAL, and it is the separator.
+
+                  Two things changed here at once and they hold each other up.
+                  The bar was the series blue, which made a ranked list read as
+                  five bar charts of one bar; the reference fills it with the
+                  page's own light grey so the row reads as a row and the length
+                  is the only thing carrying data. And there used to be a
+                  hairline under every row as well, which is a second boundary
+                  on a list that already has one in the gap between tracks.
+                */}
                 <div
-                  class="absolute inset-y-0 left-0 rounded-sm bg-chart-1/20"
+                  class={cn(
+                    "absolute inset-y-0 left-0 rounded-sm bg-muted transition-colors",
+                    "group-hover/row:bg-accent"
+                  )}
                   style={{ width: `${Math.min(100, (rank.value / top()) * 100)}%` }}
                   aria-hidden="true"
                 />
@@ -900,7 +1566,7 @@ export function ListView(props: {
         </div>
 
         <Show when={atLeast(props.tier, "medium") && ranks().length > shown().length}>
-          <div class="shrink-0 pt-1.5 text-label-13 text-muted-foreground">
+          <div class="shrink-0 px-3 pt-1.5 text-caption text-muted-foreground">
             {i18n.t("dashboard.more", { count: ranks().length - shown().length })}
           </div>
         </Show>

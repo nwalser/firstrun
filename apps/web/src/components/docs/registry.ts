@@ -289,6 +289,7 @@ const TOPIC_KEYS: Record<string, { title: SimpleKey; summary: SimpleKey }> = {
     title: "docs.topic_install_script_title",
     summary: "docs.topic_install_script_summary",
   },
+  "http-api": { title: "docs.topic_http_api_title", summary: "docs.topic_http_api_summary" },
   "install-react": {
     title: "docs.topic_install_react_title",
     summary: "docs.topic_install_react_summary",

@@ -178,8 +178,6 @@ export interface SourceDetailView {
   names: Array<{ name: string; entries: number }>;
   /** The severity mix, folded to bands: how much of the volume is noise. */
   severities: Array<{ band: string; label: string; entries: number }>;
-  /** The last few entries from this source, newest first. */
-  recent: FeedEntry[];
 }
 
 export interface WorkspaceSourcesView {
@@ -353,10 +351,10 @@ export const getProjectOverview = createServerFn({ method: "GET" })
  * that only one page draws.
  */
 export const getWorkspaceSources = createServerFn({ method: "GET" })
-  .validator((slug: string) => slug)
+  .validator((input: { workspace: string; project?: string | null }) => input)
   .handler(async ({ data }): Promise<WorkspaceSourcesView | null> => {
     const { loadWorkspaceSources } = await import("./api.server.js");
-    return loadWorkspaceSources(data);
+    return loadWorkspaceSources(data.workspace, data.project ?? null);
   });
 
 /**
@@ -414,6 +412,20 @@ export const getSourceDetail = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<SourceDetailView | null> => {
     const { loadSourceDetail } = await import("./api.server.js");
     return loadSourceDetail(data.workspace, data.project, data.sourceId);
+  });
+
+/**
+ * What the log's own pickers can offer, at whichever scope it is open.
+ *
+ * A GET beside the page's own load rather than folded into it: the feed is
+ * re-read on every filter change and on every poll, and the vocabulary behind
+ * the pickers changes on neither.
+ */
+export const getFeedDiscovery = createServerFn({ method: "GET" })
+  .validator((input: { workspace: string; project?: string | null; hours: number }) => input)
+  .handler(async ({ data }): Promise<Discovery | null> => {
+    const { loadFeedDiscovery } = await import("./api.server.js");
+    return loadFeedDiscovery(data);
   });
 
 export const getProject = createServerFn({ method: "GET" })

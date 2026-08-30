@@ -1,5 +1,5 @@
 import type { BoardFrame, Comparison, DateRange, Rect } from "@firstrun/schema";
-import { effectiveQuery, findFreeSlot, resolveRange } from "@firstrun/schema";
+import { effectiveQuery, findFreeSlot } from "@firstrun/schema";
 import { useRouter } from "@tanstack/solid-router";
 import BringToFront from "lucide-solid/icons/bring-to-front";
 import Copy from "lucide-solid/icons/copy";
@@ -9,7 +9,6 @@ import Funnel from "lucide-solid/icons/funnel";
 import LayoutGrid from "lucide-solid/icons/layout-grid";
 import Move from "lucide-solid/icons/move";
 import Plus from "lucide-solid/icons/plus";
-import ScrollText from "lucide-solid/icons/scroll-text";
 import SlidersHorizontal from "lucide-solid/icons/sliders-horizontal";
 import Trash2 from "lucide-solid/icons/trash-2";
 import X from "lucide-solid/icons/x";
@@ -19,6 +18,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   type JSX,
@@ -35,7 +35,6 @@ import {
   createCanvas,
   type CanvasController,
 } from "./canvas.js";
-import { EntriesDrawer } from "./entries-drawer.js";
 import { FilterEditor } from "./explore/builder.js";
 import { ExplorePanel } from "./explore/panel.js";
 import {
@@ -47,6 +46,7 @@ import {
 } from "./explore/presets.js";
 import type { Board, BoardWidget, QueryWidget } from "@firstrun/schema/board";
 import {
+  countConditions,
   emptyDiscovery,
   emptyFilter,
   type BoardSnapshot,
@@ -57,7 +57,6 @@ import {
 } from "@firstrun/schema/query";
 import { useI18n } from "../lib/i18n/index.js";
 import { queryLabels } from "./query-labels.js";
-import { RefreshButton } from "./refresh-button.js";
 import { TimeRangePicker } from "./time-range.js";
 import {
   Badge,
@@ -83,6 +82,7 @@ import {
   Switch,
   Textarea,
 } from "./ui/index.js";
+import { LIVE_INTERVAL_MS, LiveBadge } from "./live-badge.js";
 import { WidgetBody, defaultTitle } from "./widgets.js";
 
 /**
@@ -165,10 +165,10 @@ export function Dashboard(props: DashboardProps) {
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [filtering, setFiltering] = createSignal(false);
   const [configuring, setConfiguring] = createSignal<string | null>(null);
-  /** Which card's rows are being read. One drawer, whichever card asked. */
-  const [drilling, setDrilling] = createSignal<string | null>(null);
   const [state, setState] = createSignal<SaveState>("idle");
   const [error, setError] = createSignal<string | null>(null);
+  /** When the loader last answered. Read by the live badge, nothing else. */
+  const [measuredAt, setMeasuredAt] = createSignal(new Date());
 
   // The loader is the source of truth. When it refetches -- after a range
   // change, or another tab saving -- take its answer over the local copy.
@@ -234,6 +234,65 @@ export function Dashboard(props: DashboardProps) {
       void setWidgets(withRect(id, rect), { debounceMs: DRAG_SAVE_DEBOUNCE_MS }),
   });
 
+  /**
+   * The board measures itself again, forever, without being asked.
+   *
+   * `router.invalidate()` re-runs the route's loader, which re-runs
+   * `measureBoard` -- one call for every card, deduplicated as always -- while
+   * the component tree stays mounted, so the arrangement, the open drawer and
+   * the scroll position all survive. That is the whole reason a board can be
+   * live at all: the alternative was a browser reload.
+   *
+   * It holds off in three cases, and every one of them is a case where a fresh
+   * answer would take something away from somebody.
+   *
+   * 1. WHILE ARRANGING. A loader answer replaces `props.layout`, and the effect
+   *    above takes it over the local copy: mid-drag that snatches the card back
+   *    to where the gesture started, and mid-edit it undoes a change the save
+   *    has not landed yet.
+   * 2. WHILE SAVING. Same race, one step earlier.
+   * 3. WHILE THE TAB IS HIDDEN. A board in a background tab is measuring for
+   *    nobody. It catches up the moment it is looked at again, which is also
+   *    the moment its numbers start mattering.
+   */
+  const [now, setNow] = createSignal(new Date());
+  const live = () =>
+    !canArrange() &&
+    canvas.active() === null &&
+    state() !== "saving" &&
+    !(typeof document !== "undefined" && document.hidden);
+
+  createEffect(on(() => props.snapshot, () => setMeasuredAt(new Date())));
+
+  onMount(() => {
+    let inFlight = false;
+
+    async function beat() {
+      setNow(new Date());
+      if (inFlight || !live()) return;
+      inFlight = true;
+      try {
+        await router.invalidate();
+      } catch {
+        // One missed beat. The last answer stays on screen carrying its own
+        // age, which is the truth: that is still when this data is from.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const timer = setInterval(() => void beat(), LIVE_INTERVAL_MS);
+    // Coming back to the tab is the one moment worth not waiting for.
+    const wake = () => {
+      if (!document.hidden) void beat();
+    };
+    document.addEventListener("visibilitychange", wake);
+    onCleanup(() => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", wake);
+    });
+  });
+
   const patch = (id: string, changes: Partial<BoardWidget>, opts?: PersistOptions) =>
     setWidgets(
       widgets().map((w) => (w.id === id ? ({ ...w, ...changes } as BoardWidget) : w)),
@@ -294,27 +353,6 @@ export function Dashboard(props: DashboardProps) {
     setWidgets([...widgets().filter((w) => w.id !== id), ...widgets().filter((w) => w.id === id)]);
 
   const current = () => widgets().find((w) => w.id === configuring()) ?? null;
-
-  /**
-   * The card whose rows are open, and the exact question it was measured with.
-   *
-   * `effectiveQuery` is what the board FETCHED with -- the frame's test-mode
-   * filter, the board's permanent filter and the card's own, in that order --
-   * so the drawer selects the entries the number counted rather than a
-   * near-enough approximation of them. Deriving it here, from the same function
-   * the planner uses, is the same discipline as deriving a query key: two
-   * descriptions of one question is how a total and its rows stop agreeing.
-   */
-  const drilled = createMemo(() => {
-    const widget = widgets().find((w) => w.id === drilling());
-    if (!widget || widget.kind !== "query") return null;
-    const window = resolveRange(board().range);
-    return {
-      title: widget.title ?? defaultTitle(i18n, widget),
-      filter: effectiveQuery(board(), widget).filter ?? emptyFilter(),
-      window: { from: window.from.toISOString(), to: window.to.toISOString() },
-    };
-  });
 
   /*
     Every preset, always. A few of them used to be held back unless the project
@@ -451,15 +489,14 @@ export function Dashboard(props: DashboardProps) {
           </Show>
 
           {/*
-            Re-measures the board without navigating.
+            That the board is live, and how long since it last said so.
 
-            A board left open on a screen is measuring a rolling window, so its
-            numbers go stale where nothing on the page says they have. This
-            re-runs the route's loader, which re-runs `measureBoard` -- one call
-            for every card, deduplicated as always -- while the arrangement,
-            the open drawer and the edit mode all stay exactly as they were.
+            There is no refresh button. A board is a window onto something still
+            happening, and a number you have to ask for is a number somebody
+            forgets to ask for -- so it asks itself, and what belongs in the
+            toolbar is the fact that it does rather than a control to make it.
           */}
-          <RefreshButton />
+          <LiveBadge at={measuredAt()} now={now()} paused={!live()} />
 
           <Show when={props.canEdit}>
             <ModeToggle
@@ -508,7 +545,8 @@ export function Dashboard(props: DashboardProps) {
           <Canvas
             class="min-w-0 flex-1"
             height={canvasHeight(occupied())}
-            showGrid={canvas.active() !== null}
+            showGrid={canArrange()}
+            gesturing={canvas.active() !== null}
             guides={canvas.guides()}
           >
             {/*
@@ -532,7 +570,6 @@ export function Dashboard(props: DashboardProps) {
                         canvas={canvas}
                         arranging={canArrange()}
                         onConfigure={() => setConfiguring(id)}
-                        onDrill={card().kind === "query" ? () => setDrilling(id) : null}
                         onDuplicate={() => duplicate(card())}
                         onBringToFront={() => void bringToFront(id)}
                         onRemove={() => void remove(id)}
@@ -669,24 +706,6 @@ export function Dashboard(props: DashboardProps) {
         </SheetContent>
       </Sheet>
 
-      {/*
-        The rows behind one card. Reachable while looking, because "that number
-        is wrong" is a thing somebody thinks about a board they are reading.
-      */}
-      <Show when={drilled()}>
-        {(target) => (
-          <EntriesDrawer
-            open={drilling() !== null}
-            onOpenChange={(open) => !open && setDrilling(null)}
-            workspaceSlug={props.workspaceSlug}
-            projectSlug={props.projectSlug}
-            window={target().window}
-            filter={target().filter}
-            title={i18n.t("dashboard.drill_title", { card: target().title })}
-          />
-        )}
-      </Show>
-
       {/* Per-card settings: the query builder itself. Never inline. */}
       <Sheet open={configuring() !== null} onOpenChange={(open) => !open && setConfiguring(null)}>
         <SheetContent class="sm:max-w-2xl">
@@ -767,16 +786,6 @@ export function Dashboard(props: DashboardProps) {
       </Sheet>
     </>
   );
-}
-
-/** How many leaf conditions a filter tree holds, for the toolbar's count. */
-function countConditions(filter: Filter | undefined): number {
-  if (!filter) return 0;
-  if (filter.op === "and" || filter.op === "or") {
-    return filter.filters.reduce((n, child) => n + countConditions(child), 0);
-  }
-  if (filter.op === "not") return countConditions(filter.filter);
-  return 1;
 }
 
 /**
@@ -909,8 +918,10 @@ function CardAction(props: {
  * are always reachable. Padding scales too: four pixels of chrome on a 140px
  * card is a quarter of the space the number needs.
  *
- * Sizes here are the CARD's, never the cell's: `CanvasItem` is given the cell
- * and draws this inset inside it by one gutter on every side.
+ * Sizes here are the CARD's, never the cell's. `CanvasItem` is laid out at the
+ * cell and pads by one gutter, so everything measured against the card sits
+ * inside the wrapper below and everything measured against the wall -- the
+ * dashed frame, the resize handles -- sits outside it.
  */
 function BoardCard(props: {
   board: Board;
@@ -923,8 +934,6 @@ function BoardCard(props: {
   onDuplicate: () => void;
   onBringToFront: () => void;
   onRemove: () => void;
-  /** Null on a note: there is no query behind it and so no rows to show. */
-  onDrill: (() => void) | null;
 }) {
   const i18n = useI18n();
   const id = () => props.widget.id;
@@ -945,112 +954,97 @@ function BoardCard(props: {
   const contentPad = () =>
     tier() === 1 ? "px-2 pb-2" : tier() === 2 ? "px-3 pb-3" : "px-4 pb-4";
 
+  const dragging = () => props.canvas.active()?.id === id();
+
   return (
     <CanvasItem
       rect={props.widget}
       z={props.z}
-      active={props.canvas.active()?.id === id()}
-      // The same radius as the card inside it, so the focus ring and the
-      // arrange-mode outline trace the card rather than missing it by 6px.
-      class="group/card rounded-md"
+      active={dragging()}
+      class={cn(
+        "group/card rounded-md",
+        // The dashed frame is the CELL: the outer wall the card is padded
+        // inside, which is the thing a drag moves and the thing the handles sit
+        // on. Drawn only while arranging, so nothing about a board being read
+        // says there is a box around each card.
+        //
+        // An outline, not a border: a border would take part in layout and push
+        // the card a pixel off its own wall. The colour is transitioned because
+        // the control strip in the same corner fades rather than appearing, and
+        // a frame that snaps while the buttons on top of it fade reads as two
+        // separate answers to one hover.
+        props.arranging &&
+          "outline-1 outline-dashed outline-offset-0 outline-border transition-colors hover:outline-ring"
+      )}
       aria-label={title()}
       {...props.canvas.focusProps(id())}
       {...props.canvas.moveProps(id())}
     >
-      <Card
-        class={cn(
-          "h-full overflow-hidden",
-          // An outline, not a border: the card's hairline is a box-shadow ring
-          // and the card has no border to style, so a dashed border here would
-          // set a style on a zero-width edge and draw nothing. An outline is
-          // also outside the box, so arrange mode does not move anything.
-          //
-          // The outline colour is transitioned because the control strip in the
-          // same corner fades rather than appearing, and a frame that snaps
-          // while the buttons on top of it fade reads as two separate answers
-          // to one hover. Tailwind v4 carries the outline colour in its colour
-          // transition list, so no extra property has to be named.
-          props.arranging &&
-            "outline-1 outline-dashed outline-offset-0 outline-border transition-colors hover:outline-ring"
-        )}
-      >
-        <Show when={showHeader()}>
-          <CardHeader class={cn("shrink-0", headerPad())}>
-            {/* One size at every card width. The measured card title is the
-                14/600 application heading step, and the container query that
-                used to sit here shrank it to 12 on exactly the cards with the
-                most room to spend. */}
-            <CardTitle class="min-w-0 truncate">{title()}</CardTitle>
-          </CardHeader>
-        </Show>
-
-        <CardContent class={cn("min-h-0 flex-1", contentPad())}>
-          <WidgetBody board={props.board} widget={props.widget} snapshot={props.snapshot} />
-        </CardContent>
-      </Card>
-
       {/*
-        Looking, not arranging: the one action that belongs to a card you are
-        only reading. "How many" is the card; "which ones" is a click away, and
-        making somebody enter arrange mode to check a number would be asking
-        them to pick the board up in order to read it.
+        The card, and everything that has to line up with the card rather than
+        with the wall. It fills the padded box exactly, so `absolute` inside
+        here measures from the BORDER while the handles outside measure from the
+        cell -- which is the whole point of the padding.
       */}
-      <Show when={!props.arranging && props.onDrill}>
-        {(drill) => (
+      <div class="relative h-full w-full">
+        <Card
+          class={cn(
+            "h-full overflow-hidden",
+            // The lift is on the card, not on the cell: what a person picks up
+            // is the thing with the border on it.
+            dragging() && "dragging"
+          )}
+        >
+          <Show when={showHeader()}>
+            <CardHeader class={cn("shrink-0", headerPad())}>
+              {/* One size at every card width. The measured card title is the
+                  14/600 application heading step, and the container query that
+                  used to sit here shrank it to 12 on exactly the cards with the
+                  most room to spend. */}
+              <CardTitle class="min-w-0 truncate">{title()}</CardTitle>
+            </CardHeader>
+          </Show>
+
+          <CardContent class={cn("min-h-0 flex-1", contentPad())}>
+            <WidgetBody board={props.board} widget={props.widget} snapshot={props.snapshot} />
+          </CardContent>
+        </Card>
+
+        <Show when={props.arranging}>
           <div
+            data-no-drag
             class={cn(
-              "absolute right-2.5 top-2.5 z-30 flex items-center gap-0.5 rounded-md",
+              // Measured from the card's own corner. The handles are outside
+              // this box entirely now, so there is nothing left to clear.
+              "absolute right-2 top-2 z-30 flex items-center gap-0.5 rounded-md",
+              // The small shadow IS the hairline plus its lift, so no border here.
               "bg-card/95 p-0.5 shadow-sm backdrop-blur-[1px]",
               "opacity-0 transition-opacity",
               "group-hover/card:opacity-100 group-focus-within/card:opacity-100"
             )}
           >
-            <CardAction label={i18n.t("dashboard.view_entries")} onClick={drill()}>
-              <ScrollText size={13} />
+            <Show when={tier() >= 3}>
+              <CardAction
+                label={i18n.t("dashboard.bring_to_front")}
+                onClick={props.onBringToFront}
+              >
+                <BringToFront size={13} />
+              </CardAction>
+              <CardAction label={i18n.t("dashboard.duplicate")} onClick={props.onDuplicate}>
+                <Copy size={13} />
+              </CardAction>
+            </Show>
+            <CardAction label={i18n.t("dashboard.card_settings")} onClick={props.onConfigure}>
+              <SlidersHorizontal size={13} />
+            </CardAction>
+            <CardAction label={i18n.t("common.remove")} destructive onClick={props.onRemove}>
+              <Trash2 size={13} />
             </CardAction>
           </div>
-        )}
-      </Show>
+        </Show>
+      </div>
 
       <Show when={props.arranging}>
-        <div
-          data-no-drag
-          class={cn(
-            // Inset far enough to clear the north and east resize handles,
-            // which reach eight pixels in from the edge they belong to.
-            "absolute right-2.5 top-2.5 z-30 flex items-center gap-0.5 rounded-md",
-            // The small shadow IS the hairline plus its lift, so no border here.
-            "bg-card/95 p-0.5 shadow-sm backdrop-blur-[1px]",
-            "opacity-0 transition-opacity",
-            "group-hover/card:opacity-100 group-focus-within/card:opacity-100"
-          )}
-        >
-          <Show when={tier() >= 3}>
-            <CardAction
-              label={i18n.t("dashboard.bring_to_front")}
-              onClick={props.onBringToFront}
-            >
-              <BringToFront size={13} />
-            </CardAction>
-            <CardAction label={i18n.t("dashboard.duplicate")} onClick={props.onDuplicate}>
-              <Copy size={13} />
-            </CardAction>
-          </Show>
-          <Show when={tier() >= 3 && props.onDrill}>
-            {(drill) => (
-              <CardAction label={i18n.t("dashboard.view_entries")} onClick={drill()}>
-                <ScrollText size={13} />
-              </CardAction>
-            )}
-          </Show>
-          <CardAction label={i18n.t("dashboard.card_settings")} onClick={props.onConfigure}>
-            <SlidersHorizontal size={13} />
-          </CardAction>
-          <CardAction label={i18n.t("common.remove")} destructive onClick={props.onRemove}>
-            <Trash2 size={13} />
-          </CardAction>
-        </div>
-
         <ResizeHandles edgeProps={(edge) => props.canvas.resizeProps(id(), edge)} />
       </Show>
     </CanvasItem>

@@ -82,6 +82,11 @@ export const docs: DocsMessages = {
   "docs.topic_workspaces_title": "Workspaces, Projekte und Quellen",
   "docs.topic_workspaces_summary":
     "Die drei Ebenen, die zwei Rollen, und wer was ändern darf.",
+  // "HTTP API" stays English: it is the name of the thing, and every reader
+  // who wants this page arrived knowing that name.
+  "docs.topic_http_api_title": "HTTP API",
+  "docs.topic_http_api_summary":
+    "Events selbst senden. Ein Endpunkt, ein Body-Format, kein SDK.",
   "docs.topic_identity_title": "Identität",
   "docs.topic_identity_summary":
     "Zwei Felder, nichts abgeleitet, und warum Uniques immer nur innerhalb einer Quelle gezählt werden.",

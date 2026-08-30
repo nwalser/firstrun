@@ -102,6 +102,8 @@ export const docs = {
     "One structured log for everything you ship, on your own Postgres.",
   "docs.topic_workspaces_title": "Workspaces, projects and sources",
   "docs.topic_workspaces_summary": "The three levels, the two roles, and who can change what.",
+  "docs.topic_http_api_title": "HTTP API",
+  "docs.topic_http_api_summary": "Post events yourself. One endpoint, one body shape, no SDK.",
   "docs.topic_identity_title": "Identity",
   "docs.topic_identity_summary":
     "Two fields, nothing inferred, and why a unique is only ever counted inside one source.",

@@ -277,6 +277,27 @@ export const emptyFilter = (): Filter => ({ op: "and", filters: [] });
 
 export const isGroupOp = (op: Filter["op"]): op is "and" | "or" => op === "and" || op === "or";
 
+/**
+ * How many leaf conditions a filter tree holds.
+ *
+ * What a toolbar means by "3 filters": the conditions somebody actually wrote,
+ * not the nodes it took to arrange them. A group counts as its children and
+ * `not` counts as what it negates, so wrapping two conditions in an `or` does
+ * not make the button say three.
+ *
+ * Here rather than beside either caller, because both the board and the log
+ * carry the same tree and put the same number on the same control. Two copies
+ * of this drifted once already.
+ */
+export function countConditions(filter: Filter | undefined): number {
+  if (!filter) return 0;
+  if (filter.op === "and" || filter.op === "or") {
+    return filter.filters.reduce((n, child) => n + countConditions(child), 0);
+  }
+  if (filter.op === "not") return countConditions(filter.filter);
+  return 1;
+}
+
 /** Whether an operator carries a value, a list of values, or nothing at all. */
 export function operatorArity(op: ComparisonOp): "none" | "one" | "many" {
   if (op === "exists" || op === "not_exists") return "none";

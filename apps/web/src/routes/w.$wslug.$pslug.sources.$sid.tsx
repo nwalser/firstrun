@@ -2,13 +2,11 @@ import { Link, createFileRoute, notFound, redirect, useNavigate } from "@tanstac
 import ArrowLeft from "lucide-solid/icons/arrow-left";
 import ScrollText from "lucide-solid/icons/scroll-text";
 import Trash2 from "lucide-solid/icons/trash-2";
-import { For, Show, createSignal, type JSX } from "solid-js";
-import { EntryRow } from "../components/entry-row.js";
+import { For, Show, type JSX } from "solid-js";
 import { IngestHistogram, ingestTotal } from "../components/ingest-histogram.js";
 import { IngestKeyCell } from "../components/ingest-key.js";
 import { InstallGuideLink } from "../components/install-guide.js";
 import { PageHeader } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import {
   Badge,
   Button,
@@ -30,9 +28,15 @@ import { Route as ProjectRoute } from "./w.$wslug.$pslug.js";
  *
  * A source is the thing a customer actually installs, and the question they
  * come back with a week later is not "when was it last seen" -- the list
- * answers that -- but "is it sending what I think it is". That needs three
- * things a list has no room for: the shape of its month, what it calls the
- * entries it writes, and the last few of them in full.
+ * answers that -- but "is it sending what I think it is". That needs two things
+ * a list has no room for: the shape of its month, and what it calls the events
+ * it writes.
+ *
+ * It used to end with the last few events in full. That is the event log's job,
+ * and the log does it better: it filters, it pages, it follows live, and it is
+ * one click away in the header. Eight rows here were a worse version of a tool
+ * that already exists, and they cost a feed query on every load of a page whose
+ * question is "is this arriving", not "what did it say".
  *
  * Everything measured here goes through the QUERY LAYER, filtered on the
  * attribute the edge stamps (`firstrun.source.id`). That is deliberate: this
@@ -66,7 +70,6 @@ function SourcePage() {
   const params = Route.useParams();
   const navigate = useNavigate();
 
-  const [open, setOpen] = createSignal<string | null>(null);
 
   const workspace = () => params().wslug;
   const isAdmin = () => nav().role === "admin";
@@ -101,7 +104,20 @@ function SourcePage() {
         description={i18n.t("sources.detail_hint")}
         actions={
           <>
-            <RefreshButton />
+            {/*
+              The log, pre-filtered to this source. A link rather than a list:
+              the page says whether events are arriving and what they are called,
+              and reading them is what the log is for.
+            */}
+            <Link
+              to="/w/$wslug/events"
+              params={{ wslug: workspace() }}
+              search={{ source: view().id, project: view().projectSlug }}
+              class={buttonVariants({ variant: "outline", size: "toolbar" })}
+            >
+              <ScrollText class="size-4" />
+              {i18n.t("sources.open_log")}
+            </Link>
             <Link
               to="/w/$wslug/$pslug/sources"
               params={{ wslug: workspace(), pslug: view().projectSlug }}
@@ -257,49 +273,6 @@ function SourcePage() {
             </CardContent>
           </Card>
         </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{i18n.t("sources.recent")}</CardTitle>
-            {/* The log, pre-filtered to this source. The page shows a handful;
-                everything else is one click into the tool built for it. */}
-            <Link
-              to="/w/$wslug/events"
-              params={{ wslug: workspace() }}
-              search={{ source: view().id, project: view().projectSlug }}
-              class={buttonVariants({ variant: "ghost", size: "sm" })}
-            >
-              <ScrollText class="size-4" />
-              {i18n.t("sources.open_log")}
-            </Link>
-          </CardHeader>
-          <CardContent class="px-0">
-            <Show
-              when={view().recent.length > 0}
-              fallback={
-                <div class="px-4">
-                  <Nothing>{i18n.t("sources.nothing_sent")}</Nothing>
-                </div>
-              }
-            >
-              <ul class="divide-y border-t">
-                <For each={view().recent}>
-                  {(entry) => (
-                    <EntryRow
-                      entry={entry}
-                      workspace={workspace()}
-                      showProject={false}
-                      open={open() === entry.entryId}
-                      onToggle={() =>
-                        setOpen((current) => (current === entry.entryId ? null : entry.entryId))
-                      }
-                    />
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </CardContent>
-        </Card>
 
         {/*
           Removing a source is the one action here that cannot be undone, so it

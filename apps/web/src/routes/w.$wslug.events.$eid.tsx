@@ -8,7 +8,6 @@ import UserRound from "lucide-solid/icons/user-round";
 import { Show, type JSX } from "solid-js";
 import { BAND_TONE, EntryAttributes, EntryFacts } from "../components/entry-row.js";
 import { PageHeader } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import {
   Badge,
   Card,
@@ -87,7 +86,6 @@ function EventPage() {
         description={i18n.t("events.detail_hint")}
         actions={
           <>
-            <RefreshButton />
             <Link
               to="/w/$wslug/events"
               params={{ wslug: workspace() }}

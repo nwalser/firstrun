@@ -34,6 +34,18 @@ export const events: EventsMessages = {
   "events.severity_min": "{band} und schlimmer",
   "events.remove_filter": "Filter {filter} entfernen",
 
+  "events.filter_none": "Filter",
+  "events.conditions_label": "Filter",
+  "events.conditions_one": "{count} Bedingung",
+  "events.conditions_other": "{count} Bedingungen",
+  "events.filter_title": "Log filtern",
+  "events.filter_body":
+    "Bedingungen auf alles, was ein Event trägt: die promoted Spalten und jedes Attribut, das " +
+    "dieser Workspace tatsächlich geschrieben hat. Schlüssel und Werte werden aus den eigenen " +
+    "Events gelesen: ein Schlüssel, den niemand gesendet hat, steht nicht zur Auswahl, statt " +
+    "ein Fehler zu sein.",
+  "events.filter_clear": "Alle entfernen",
+
   "events.live": "Live",
   "events.live_hint": "Alle paar Sekunden auf neue Events prüfen",
   "events.live_on": "Live. Neue Events erscheinen, sobald sie ankommen.",

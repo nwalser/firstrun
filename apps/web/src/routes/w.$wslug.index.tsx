@@ -11,7 +11,6 @@ import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { IngestHistogram, IngestRate, ingestTotal } from "../components/ingest-histogram.js";
 import { PageHeader, ROW_INTERACTION } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import {
   Avatar,
   AvatarFallback,
@@ -457,8 +456,6 @@ function WorkspaceProjects() {
                 <LayoutGrid class="size-4" />
               </ViewButton>
             </div>
-
-            <RefreshButton />
 
             <Show when={isAdmin()}>
               <Link

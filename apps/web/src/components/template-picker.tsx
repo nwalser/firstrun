@@ -1,4 +1,5 @@
 import { DASHBOARD_TEMPLATES, type DashboardTemplate } from "@firstrun/schema";
+import { cardRect } from "./canvas.js";
 import { For, Show } from "solid-js";
 import { cn } from "../lib/cn.js";
 import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
@@ -23,19 +24,6 @@ interface Sketch {
 }
 
 /**
- * Half the grid gap, taken off every side of every card.
- *
- * A 1280-wide board drawn 64px wide is scaled by about 1:20, which turns the
- * 20px gutter between two cards into one pixel. The handoff board is five
- * separate `funnel_step` cards in a row now rather than one wide `funnel`
- * widget, and at that scale they close ranks into a single bar -- a sketch that
- * shows the opposite of what the board does. Widening every gutter by the same
- * amount keeps the arrangement honest while making the seams survive the
- * scale-down; positions are untouched.
- */
-const GUTTER = 10;
-
-/**
  * Built once, at module load, rather than per render.
  *
  * `build()` allocates a whole layout, and the catalogue is static -- redoing it
@@ -47,14 +35,18 @@ for (const template of DASHBOARD_TEMPLATES) {
   SKETCHES[template.key] = {
     width: Math.max(1, ...widgets.map((w) => w.x + w.w)),
     height: Math.max(1, ...widgets.map((w) => w.y + w.h)),
-    // Inset rather than shrunk toward a centre: the bounding box above is the
-    // real one, so the box a card sits in is still where the board puts it.
-    rects: widgets.map((w) => ({
-      x: w.x + GUTTER,
-      y: w.y + GUTTER,
-      w: Math.max(1, w.w - GUTTER * 2),
-      h: Math.max(1, w.h - GUTTER * 2),
-    })),
+    // The board's OWN arithmetic, imported rather than restated.
+    //
+    // A widget's rect is its cell and the card is one gutter inside it, which
+    // is exactly what `cardRect` answers. This used to be a second copy of that
+    // sum with its own `GUTTER = 10` beside it, which is one edit away from a
+    // thumbnail that promises a board the canvas does not draw.
+    //
+    // Positions are untouched, so the bounding box above is the real one and
+    // the box a card sits in is still where the board puts it. At about 1:20
+    // the 20px seam between two cells survives as a visible pixel, which is
+    // what stops a row of four tiles reading as one wide bar.
+    rects: widgets.map((w) => cardRect(w)),
   };
 }
 

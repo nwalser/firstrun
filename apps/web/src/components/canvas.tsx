@@ -32,11 +32,18 @@ import { cn } from "../lib/cn.js";
  * included. So: absolute pixels, snapped to the grid, clamped to the canvas.
  *
  * A STORED RECT IS A CELL, NOT THE CARD YOU SEE. Cells are meant to touch: two
- * cards side by side are `x2 = x1 + w1`, exactly. The card is drawn inset
- * inside its cell by `GUTTER` on every side, so the borders have air between
- * them without anybody having to leave that air in the coordinates. Placement
- * is all cell arithmetic -- drag, resize, snapping, guides, the grid overlay --
- * and `CanvasItem` is the single place that converts to the other side.
+ * cards side by side are `x2 = x1 + w1`, exactly. The cell is the OUTER WALL:
+ * the element is drawn at the whole of it and PADS the card in by `GUTTER` on
+ * every side, so the air between two borders is padding rather than a hole left
+ * in the coordinates. Placement is all cell arithmetic -- drag, resize,
+ * snapping, guides, the grid overlay, the handles -- and the padding is the
+ * single place the two sides differ.
+ *
+ * That is why a card's BORDER is not where its handles are. The handles, the
+ * alignment guides, the grid dots and the focus ring all live on the wall,
+ * because the wall is what a drag actually moves; the border is the card drawn
+ * inside it. Sizing the element to the visible border instead would put the
+ * handles a gutter away from every line that explains them.
  *
  * Not a library. `@thisbeyond/solid-dnd` has not been published since 2023, and
  * sensors and collision strategies are not what a board of a dozen cards needs.
@@ -58,8 +65,6 @@ import { cn } from "../lib/cn.js";
 
 export type ResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
-export const RESIZE_EDGES: ResizeEdge[] = ["n", "e", "s", "w", "ne", "se", "sw", "nw"];
-
 export interface PlacedRect extends Rect {
   id: string;
 }
@@ -75,7 +80,7 @@ export interface Guide {
 }
 
 /**
- * The air between a cell's edge and the card drawn inside it.
+ * The padding between a cell's wall and the card drawn inside it.
  *
  * Ten pixels a side, which puts twenty between two neighbouring borders: one
  * grid cell, so the space you are looking at is a space you could have measured
@@ -91,7 +96,13 @@ export interface Guide {
 export const GUTTER = 10;
 
 /**
- * The card inside a cell. The one crossing between the two coordinate spaces.
+ * The card inside a cell: what the padding leaves.
+ *
+ * The element is laid out at the cell, so the browser already computes this as
+ * the content box. It is restated here because the two things that must agree
+ * with what a widget can say -- the tier and the hero type size -- are
+ * arithmetic rather than layout, and they have to be known before the box is
+ * measured.
  *
  * Symmetric on purpose: a cell's centre is its card's centre, so a centre
  * alignment guide points at exactly what it appears to point at, and a resize
@@ -307,10 +318,10 @@ export function alignmentGuides(rect: Rect, others: Rect[]): Guide[] {
  *    at all. Column counts, hiding a table column, wrapping a row: those are
  *    container-query questions. What to show at all is a tier question.
  *
- * Both channels measure the same box, and it is the card: the `CanvasItem`
- * element is drawn at the inset rect, so a container query is asked of the
- * width a widget actually gets. Sizing the element to the cell and insetting
- * the contents would mis-tier every widget on the board by two gutters.
+ * Both channels measure the same box, and it is the card. The `CanvasItem`
+ * element is laid out at the CELL, but it pads by one gutter and a size
+ * container queries its CONTENT box, so a container query is asked of the width
+ * a widget actually gets rather than of the wall two gutters outside it.
  *
  * The container type is `size` rather than `inline-size`. The item is
  * absolutely positioned with both dimensions written in pixels by the drag, so
@@ -671,24 +682,39 @@ export function createCanvas(options: CanvasOptions): CanvasController {
 // ---------------------------------------------------------------------------
 
 /**
- * The grid, drawn only while a gesture is running.
+ * The grid, drawn for as long as the board is being arranged.
  *
- * It marks CELL corners, which is what a drag lands on, so a card that has
- * snapped sits one gutter inside the dots rather than on them. That reads
- * correctly: the dots are where the boxes go, and the boxes are what touch.
+ * It marks CELL corners, which is what a drag lands on and where a card's outer
+ * wall goes, so a snapped card's handles, its focus ring and its dashed wall
+ * all sit on the dots. Its border sits one gutter inside them, which is the
+ * padding you are looking at.
+ *
+ * It is on the whole time you are arranging rather than only while the pointer
+ * is down: the question a grid answers is "where can this go", and that is
+ * asked before the drag starts. It stays off while you are only reading the
+ * board, because a permanent grid is a wireframe.
  *
  * At 20px a dot on every intersection is graph paper, and graph paper is the
  * thing you end up looking at instead of the board. So the fine dots are barely
  * there and a second, firmer dot lands every fifth cell -- a hundred pixels,
  * which is the distance anybody is actually judging by eye. The fine layer
- * gives the drag its felt resolution; the coarse layer gives it a ruler.
+ * gives the drag its felt resolution; the coarse layer gives it a ruler. Both
+ * come up while a gesture actually runs, so the ruler is loudest exactly while
+ * somebody is measuring against it.
  */
-function GridOverlay() {
+function GridOverlay(props: { active?: boolean }) {
   return (
     <>
       <div
         aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-30"
+        class={cn(
+          "pointer-events-none absolute inset-0 transition-opacity duration-200",
+          // A quarter rather than a seventh at rest. `--border` is an ALPHA in
+          // both themes (14% white in dark), so a further 15% of it is a dot
+          // nobody can see, and a grid you cannot see while arranging is the
+          // one state this must not have.
+          props.active ? "opacity-30" : "opacity-25"
+        )}
         style={{
           "background-image":
             "radial-gradient(circle at 0.5px 0.5px, var(--color-border) 1px, transparent 0)",
@@ -697,7 +723,10 @@ function GridOverlay() {
       />
       <div
         aria-hidden="true"
-        class="pointer-events-none absolute inset-0 rounded-md opacity-70"
+        class={cn(
+          "pointer-events-none absolute inset-0 transition-opacity duration-200",
+          props.active ? "opacity-70" : "opacity-30"
+        )}
         style={{
           "background-image":
             "radial-gradient(circle at 0.5px 0.5px, var(--color-ring) 1.5px, transparent 0)",
@@ -711,8 +740,10 @@ function GridOverlay() {
 export function Canvas(props: {
   /** Usually `canvasHeight(items)`. */
   height: number;
-  /** Only while something is being dragged. A permanent grid is a wireframe. */
+  /** Whenever the board is being arranged. A grid while reading is a wireframe. */
   showGrid?: boolean;
+  /** A gesture is actually running: the grid firms up and text stops selecting. */
+  gesturing?: boolean;
   guides?: Guide[];
   class?: string;
   children: JSX.Element;
@@ -734,14 +765,14 @@ export function Canvas(props: {
     <div
       class={cn(
         "overflow-x-auto overflow-y-hidden",
-        props.showGrid && "select-none",
+        props.gesturing && "select-none",
         props.class
       )}
       style={{ margin: `-${GUTTER}px` }}
     >
       <div class="relative" style={{ width: `${CANVAS_WIDTH}px`, height: `${props.height}px` }}>
         <Show when={props.showGrid}>
-          <GridOverlay />
+          <GridOverlay active={props.gesturing} />
         </Show>
 
         {props.children}
@@ -775,17 +806,23 @@ export function Canvas(props: {
 /**
  * One absolutely placed card. Everything about where it is lives here.
  *
- * `rect` is the CELL. This is the only place that crosses over: the element is
- * drawn at the inset rect, and the gutter around it holds nothing at all. That
- * is also the hit-testing rule, and it costs no code -- a press in the gutter
- * lands on the canvas, which listens for nothing, so it drags neither of the
- * cards whose cells meet there. The dead space is dead in both directions:
- * there is no half-gutter of a neighbour's card to grab by mistake.
+ * `rect` is the CELL, and the element IS the cell: it is laid out at the whole
+ * of it and pads its contents in by one gutter, so the air around a card is
+ * this element's padding rather than a hole in the coordinates. Two cells that
+ * touch draw two cards twenty pixels apart, and everything a person aims at
+ * while arranging -- the handles, the dashed wall, the focus ring -- is on the
+ * cell, because the cell is what a drag moves.
  *
- * The card is also the size container every widget inside it queries, and the
- * source of the tier those widgets render against -- see the tier contract
- * above. Both come from the same rect the drag is writing, so a card resized by
- * its edge re-tiers as the pointer moves rather than one frame later.
+ * The gutter is still dead in both directions for a MOVE: a press there is a
+ * press on this element, which drags this card and never the neighbour whose
+ * wall it shares. What changed is that a RESIZE now has the whole gutter to be
+ * grabbed by instead of four pixels either side of the border.
+ *
+ * The card is the size container every widget inside it queries, and the source
+ * of the tier those widgets render against -- see the tier contract above. A
+ * size container queries its CONTENT box, so the padding takes itself out of
+ * both answers, and both still come from the rect the drag is writing: a card
+ * resized by its edge re-tiers as the pointer moves rather than one frame later.
  */
 export function CanvasItem(
   props: ComponentProps<"div"> & { rect: Rect; z?: number; active?: boolean }
@@ -799,21 +836,20 @@ export function CanvasItem(
       <div
         class={cn(
           "absolute",
-          // One hairline, not three. The large shadow this used to carry
-          // already contains a ring, the card inside carries its own, and the
-          // explicit half-alpha ring on top of both is exactly the thing the
-          // design system warns reads as grey rather than as blue.
-          local.active && "dragging",
-          // The two-stop blue: 2px of the page colour, then 2px of the ring.
+          // The two-stop blue, on the wall rather than on the border: the ring
+          // and the handles answer the same question and have to agree about
+          // where the card's edge is. Four pixels of it fall outside the cell,
+          // which is inside the neighbour's own gutter and so over nothing.
           "focus-ring",
           local.class
         )}
         data-tier={tier()}
         style={{
-          left: `${card().x}px`,
-          top: `${card().y}px`,
-          width: `${card().w}px`,
-          height: `${card().h}px`,
+          left: `${local.rect.x}px`,
+          top: `${local.rect.y}px`,
+          width: `${local.rect.w}px`,
+          height: `${local.rect.h}px`,
+          padding: `${GUTTER}px`,
           "z-index": local.active ? LIFTED_Z : (local.z ?? 0),
           "container-type": "size",
           "container-name": CARD_CONTAINER,
@@ -829,15 +865,16 @@ export function CanvasItem(
 }
 
 /**
- * Eight grab zones: four corners and four edges.
+ * Eight grab zones: four corners and four edges, all on the cell's wall.
  *
  * Width and height are both changeable, so both need a handle. The edges are
  * invisible strips that only announce themselves through the cursor; the
  * corners get a visible dot, because a corner is where people look first.
  *
- * Each one straddles its edge and so reaches four pixels into the card's own
- * gutter. That is the one part of the gutter that is not dead, and it can never
- * reach the neighbour: half a gutter is ten pixels and a handle spends four.
+ * They are positioned against the padding box, which is the cell, so each one
+ * sits in the card's own gutter and NONE of them crosses into the neighbour's.
+ * Two cards placed touching therefore have two handles ten pixels apart rather
+ * than two in the same place arguing about which one the pointer meant.
  *
  * These are the one part of a card that is not a drag surface, which is why
  * every one of them is marked as such: the card behind them would otherwise
@@ -845,16 +882,18 @@ export function CanvasItem(
  */
 export function ResizeHandles(props: { edgeProps: (edge: ResizeEdge) => GestureProps }) {
   const CORNERS: Array<{ edge: ResizeEdge; class: string }> = [
-    { edge: "nw", class: "-left-1 -top-1" },
-    { edge: "ne", class: "-right-1 -top-1" },
-    { edge: "se", class: "-right-1 -bottom-1" },
-    { edge: "sw", class: "-left-1 -bottom-1" },
+    { edge: "nw", class: "left-0 top-0" },
+    { edge: "ne", class: "right-0 top-0" },
+    { edge: "se", class: "right-0 bottom-0" },
+    { edge: "sw", class: "left-0 bottom-0" },
   ];
+  // The strips stop one corner short at each end, so a corner dot is never
+  // sitting on top of the edge handle it shares a pixel with.
   const SIDES: Array<{ edge: ResizeEdge; class: string }> = [
-    { edge: "n", class: "inset-x-3 -top-1 h-2" },
-    { edge: "s", class: "inset-x-3 -bottom-1 h-2" },
-    { edge: "w", class: "inset-y-3 -left-1 w-2" },
-    { edge: "e", class: "inset-y-3 -right-1 w-2" },
+    { edge: "n", class: "inset-x-4 top-0 h-2.5" },
+    { edge: "s", class: "inset-x-4 bottom-0 h-2.5" },
+    { edge: "w", class: "inset-y-4 left-0 w-2.5" },
+    { edge: "e", class: "inset-y-4 right-0 w-2.5" },
   ];
 
   return (
@@ -875,7 +914,7 @@ export function ResizeHandles(props: { edgeProps: (edge: ResizeEdge) => GestureP
             aria-hidden="true"
             data-no-drag
             class={cn(
-              "absolute z-20 size-3 rounded-full border border-ring bg-background opacity-0 transition-opacity",
+              "absolute z-20 size-2.5 rounded-full border border-ring bg-background opacity-0 transition-opacity",
               "group-hover/card:opacity-100 group-focus-within/card:opacity-100",
               corner.class
             )}

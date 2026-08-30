@@ -1,4 +1,4 @@
-import { For, Show, createEffect, onCleanup, type JSX } from "solid-js";
+import { For, Show, type JSX } from "solid-js";
 import {
   Card,
   CardContent,
@@ -10,7 +10,6 @@ import {
 } from "./ui/index.js";
 import { PageHeader } from "./page-header.js";
 import { useI18n } from "../lib/i18n/index.js";
-import { useSettingsNav, type SettingsSectionLink } from "./app-shell.js";
 
 /**
  * The frame every settings page shares.
@@ -22,8 +21,14 @@ import { useSettingsNav, type SettingsSectionLink } from "./app-shell.js";
  *
  * There is NO nav column beside the content. Settings reuses the one sidebar:
  * the shell swaps it to the settings pane and narrows the content to the
- * compact track, and this page publishes its sections into that pane. A rail
- * here would be a second navigation for the same list, on every settings page.
+ * compact track. A rail here would be a second navigation for the same list, on
+ * every settings page.
+ *
+ * The pane lists ROUTES, and this page does not tell it about them. It used to:
+ * every settings page published its card anchors up into the pane, which made
+ * the pane's rows scroll the page instead of changing it. Each of those cards
+ * that is a page now has a page, and a route is something the router already
+ * knows about without being told.
  *
  * The track itself belongs to the shell, so nothing here caps a width. Padding
  * follows the reference's split: horizontal on the container, vertical as a
@@ -32,36 +37,12 @@ import { useSettingsNav, type SettingsSectionLink } from "./app-shell.js";
 export function SettingsShell(props: {
   title: string;
   description?: string;
-  sections: SettingsSectionLink[];
-  /**
-   * The heading's right-hand cell.
-   *
-   * Almost every settings page has nothing to put here: its actions belong to
-   * the section they change. The exception is a page that also LISTS something
-   * somebody else can change while you are looking at it, which is what the
-   * members page is, and what a Refresh belongs on.
-   */
-  actions?: JSX.Element;
   children: JSX.Element;
 }) {
-  const { setSections } = useSettingsNav();
-
-  // From an effect rather than during render: writing a signal a parent reads
-  // while that parent is rendering is the loop Solid warns about, and the
-  // effect never runs on the server, so the pane fills in on the client. The
-  // sections are cleared on the way out or the pane keeps offering anchors for
-  // a page nobody is on. Same shape as `useProjectNav` in the project route.
-  createEffect(() => setSections(props.sections));
-  onCleanup(() => setSections([]));
-
   return (
     <main class="px-6">
       <div class="my-6 flex min-w-0 flex-col gap-4">
-        <PageHeader
-          title={props.title}
-          description={props.description}
-          actions={props.actions}
-        />
+        <PageHeader title={props.title} description={props.description} />
         {props.children}
       </div>
     </main>

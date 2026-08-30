@@ -109,19 +109,35 @@ export function FieldPicker(props: {
       (attr) => !props.numeric || discoveredType(attr) === "number"
     );
 
+  /*
+   * Three kinds of thing in one list, so the list says which is which.
+   *
+   * A promoted column, a path this project has actually written, and a path
+   * out of the conventions it has not written yet are answered by the picker
+   * identically -- that is rule 2 -- but they are not the same thing to
+   * whoever is choosing. Unheaded, the run from `severity` through
+   * `browser.name` through a suggestion nobody has ever sent reads as one
+   * arbitrary list, and the difference that matters most (this key has data,
+   * that one does not) is the one the flat list hides.
+   */
   const options = createMemo(() => {
-    const out: Array<{ value: string; label: string }> = [];
+    const columns = i18n.t("explore.field_group_columns");
+    const out: Array<{ value: string; label: string; group?: string }> = [];
     for (const column of ENTRY_COLUMNS) {
       if (props.numeric && !NUMERIC_COLUMNS.includes(column)) continue;
-      out.push({ value: `c:${column}`, label: labels.column(column) });
+      out.push({ value: `c:${column}`, label: labels.column(column), group: columns });
     }
+    // With the columns rather than under a heading of its own: a heading over
+    // one row promises a set, and a unique is built out of the promoted
+    // columns it sits beside.
     if (props.allowUnique && !props.numeric) {
-      out.push({ value: "u:", label: i18n.t("explore.field_unique_option") });
+      out.push({ value: "u:", label: i18n.t("explore.field_unique_option"), group: columns });
     }
     for (const attr of attributes()) {
       out.push({
         value: `a:${attr.key}:${props.numeric ? "number" : "text"}`,
         label: attributeOptionLabel(attr.key),
+        group: i18n.t("explore.field_group_attributes"),
       });
     }
 
@@ -145,6 +161,7 @@ export function FieldPicker(props: {
         out.push({
           value: `a:${suggestion.key}:text`,
           label: attributeOptionLabel(suggestion.key),
+          group: i18n.t("explore.field_group_suggested"),
         });
       }
     }
@@ -915,6 +932,12 @@ export function QueryBuilder(props: {
                     orderBy:
                       props.query.orderBy ?? [{ key: { aggregate: 0 }, direction: "desc" }],
                     withTotal: true,
+                    // A filled series cannot also be grouped or totalled, and
+                    // this sets both. The switch below stops being offered at
+                    // the same moment, so leaving the flag on left a query
+                    // nobody could turn off and the compiler refused for the
+                    // whole board.
+                    fill: false,
                   })
                 }
               >

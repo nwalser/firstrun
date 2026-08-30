@@ -41,6 +41,9 @@ export const explore: ExploreMessages = {
   "explore.field_label": "Feld",
   "explore.field_placeholder": "Feld auswählen",
   "explore.field_custom": "Anderes Attribut…",
+  "explore.field_group_columns": "Spalten",
+  "explore.field_group_attributes": "Attribute",
+  "explore.field_group_suggested": "Vorschläge",
 
   "explore.agg_events": "Events",
   "explore.agg_uniques": "Uniques",

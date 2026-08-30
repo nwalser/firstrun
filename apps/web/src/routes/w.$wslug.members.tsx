@@ -28,7 +28,6 @@ import {
   SettingsSection,
   SettingsShell,
 } from "../components/settings-shell.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import { useI18n, type TranslationKey } from "../lib/i18n/index.js";
 import {
   addMemberFn,
@@ -109,14 +108,6 @@ function Members() {
   /** The one the server will refuse to touch, so the UI can explain instead. */
   const isLastAdmin = (member: { role: MemberRole }) => member.role === "admin" && admins() === 1;
 
-  const sections = () =>
-    isAdmin()
-      ? [
-          { id: "members", label: i18n.t("members.title") },
-          { id: "add", label: i18n.t("members.add") },
-        ]
-      : [{ id: "members", label: i18n.t("members.title") }];
-
   /**
    * Run one mutation, and put its failure where the reader can act on it.
    *
@@ -174,11 +165,6 @@ function Members() {
       // the row that leads here cannot say two different words.
       title={i18n.t("shell.people")}
       description={i18n.t("members.description")}
-      sections={sections()}
-      // Somebody else adding a member does not change this page under you, so
-      // the list is only ever as current as the last navigation. This is how
-      // you ask again.
-      actions={<RefreshButton />}
     >
       <SettingsSection
         id="members"

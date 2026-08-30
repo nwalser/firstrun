@@ -16,6 +16,9 @@ export const dashboard = {
   "dashboard.compare_year": "Previous year",
   "dashboard.compare_custom": "Custom",
   "dashboard.baseline": "vs {range}",
+  // The comparison window, as a legend entry and a tooltip row. Not "vs
+  // {range}": that key is a sentence about one number, and this names a line.
+  "dashboard.baseline_series": "Baseline",
 
   "dashboard.filters": "Filters",
   "dashboard.filters_one": "{count} filter",
@@ -103,16 +106,11 @@ export const dashboard = {
   "dashboard.more_one": "+{count} more",
   "dashboard.more_other": "+{count} more",
 
-  // The rows behind one number. The card says how many; this says which ones.
-  "dashboard.view_entries": "View entries",
-  "dashboard.drill_title": "Entries behind {card}",
-  "dashboard.drill_window": "Everything this card was measured over: {window}.",
-  "dashboard.drill_none": "No entries match this card",
-  "dashboard.drill_none_hint":
-    "The card counts what this filter selects, and nothing in the window does. That is the " +
-    "same answer the number is showing.",
-  "dashboard.drill_failed": "Could not load these entries",
-  "dashboard.drill_failed_hint": "The board is unaffected. Close this and try again.",
+  // That the board is measuring itself. There is no refresh button: a board is
+  // a window onto something still happening, so it re-reads itself while open.
+  "dashboard.live": "Live",
+  "dashboard.live_title": "This board re-reads itself while it is open. Updated {when}.",
+  "dashboard.live_paused": "Paused while the board is being arranged. It resumes when you stop.",
 
   // The starting points in the palette. The title is what the row reads; the
   // description is its `title` attribute, because a 36px row has no second line.

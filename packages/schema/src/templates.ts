@@ -95,13 +95,13 @@ const board = (widgets: BoardWidget[]): Board => ({
 
 function overviewBoard(): Board {
   return board([
-    counter({ id: "views", title: "Page views", x: 0, y: 0, w: 300, h: 160 }, NAME.PAGE_VIEW, "entries"),
-    counter({ id: "visitors", title: "Visitors", x: 320, y: 0, w: 300, h: 160 }, NAME.PAGE_VIEW, "uniques"),
-    counter({ id: "installs", title: "Installs", x: 640, y: 0, w: 300, h: 160 }, NAME.APP_INSTALL, "uniques"),
-    counter({ id: "launches", title: "Launches", x: 960, y: 0, w: 300, h: 160 }, NAME.APP_LAUNCH, "uniques"),
+    counter({ id: "views", title: "Page views", x: 0, y: 0, w: 320, h: 180 }, NAME.PAGE_VIEW, "entries"),
+    counter({ id: "visitors", title: "Visitors", x: 320, y: 0, w: 320, h: 180 }, NAME.PAGE_VIEW, "uniques"),
+    counter({ id: "installs", title: "Installs", x: 640, y: 0, w: 320, h: 180 }, NAME.APP_INSTALL, "uniques"),
+    counter({ id: "launches", title: "Launches", x: 960, y: 0, w: 320, h: 180 }, NAME.APP_LAUNCH, "uniques"),
 
     card(
-      { id: "series", title: "Visitors per day", x: 0, y: 180, w: 620, h: 300 },
+      { id: "series", title: "Visitors per day", x: 0, y: 180, w: 640, h: 300 },
       "bar",
       seriesQuery("uniques", TEMPLATE_TZ, nameIs(NAME.PAGE_VIEW)),
       { compare: true }
@@ -119,17 +119,17 @@ function overviewBoard(): Board {
       limit: 200,
     }),
 
-    ranking({ id: "pages", title: "Top pages", x: 0, y: 500, w: 620, h: 300 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
+    ranking({ id: "pages", title: "Top pages", x: 0, y: 500, w: 640, h: 300 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
     ranking({ id: "refs", title: "Where people came from", x: 640, y: 500, w: 640, h: 300 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
   ]);
 }
 
 function webBoard(): Board {
   return board([
-    counter({ id: "views", title: "Page views", x: 0, y: 0, w: 300, h: 160 }, NAME.PAGE_VIEW, "entries"),
-    counter({ id: "visitors", title: "Visitors", x: 320, y: 0, w: 300, h: 160 }, NAME.PAGE_VIEW, "uniques"),
-    counter({ id: "sessions", title: "Sessions", x: 640, y: 0, w: 300, h: 160 }, NAME.SESSION_START, "entries"),
-    counter({ id: "forms", title: "Form submits", x: 960, y: 0, w: 300, h: 160 }, NAME.FORM_SUBMIT, "uniques"),
+    counter({ id: "views", title: "Page views", x: 0, y: 0, w: 320, h: 180 }, NAME.PAGE_VIEW, "entries"),
+    counter({ id: "visitors", title: "Visitors", x: 320, y: 0, w: 320, h: 180 }, NAME.PAGE_VIEW, "uniques"),
+    counter({ id: "sessions", title: "Sessions", x: 640, y: 0, w: 320, h: 180 }, NAME.SESSION_START, "entries"),
+    counter({ id: "forms", title: "Form submits", x: 960, y: 0, w: 320, h: 180 }, NAME.FORM_SUBMIT, "uniques"),
 
     card(
       { id: "series", title: "Page views per day", x: 0, y: 180, w: 1280, h: 280 },
@@ -138,12 +138,12 @@ function webBoard(): Board {
       { compare: true }
     ),
 
-    ranking({ id: "pages", title: "Top pages", x: 0, y: 480, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
-    ranking({ id: "refs", title: "Referrers", x: 440, y: 480, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
+    ranking({ id: "pages", title: "Top pages", x: 0, y: 480, w: 440, h: 320 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
+    ranking({ id: "refs", title: "Referrers", x: 440, y: 480, w: 440, h: 320 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
     ranking({ id: "camps", title: "Campaigns", x: 880, y: 480, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.UTM_CAMPAIGN, 10),
 
     card(
-      { id: "vitals", title: "Web vitals", x: 0, y: 820, w: 620, h: 220 },
+      { id: "vitals", title: "Web vitals", x: 0, y: 820, w: 640, h: 220 },
       "table",
       vitalsQuery(NAME.WEB_VITAL)
     ),
@@ -154,12 +154,12 @@ function webBoard(): Board {
 
 function appBoard(): Board {
   return board([
-    counter({ id: "installs", title: "Installs", x: 0, y: 0, w: 300, h: 160 }, NAME.APP_INSTALL, "uniques"),
-    counter({ id: "launches", title: "Launches", x: 320, y: 0, w: 300, h: 160 }, NAME.APP_LAUNCH, "uniques"),
-    counter({ id: "sessions", title: "Sessions", x: 640, y: 0, w: 300, h: 160 }, NAME.SESSION_START, "entries"),
-    counter({ id: "identified", title: "Identified", x: 960, y: 0, w: 300, h: 160 }, NAME.IDENTIFY, "uniques"),
+    counter({ id: "installs", title: "Installs", x: 0, y: 0, w: 320, h: 180 }, NAME.APP_INSTALL, "uniques"),
+    counter({ id: "launches", title: "Launches", x: 320, y: 0, w: 320, h: 180 }, NAME.APP_LAUNCH, "uniques"),
+    counter({ id: "sessions", title: "Sessions", x: 640, y: 0, w: 320, h: 180 }, NAME.SESSION_START, "entries"),
+    counter({ id: "identified", title: "Identified", x: 960, y: 0, w: 320, h: 180 }, NAME.IDENTIFY, "uniques"),
 
-    ranking({ id: "versions", title: "Versions in use", x: 0, y: 180, w: 620, h: 320 }, null, ATTR.SERVICE_VERSION, 20),
+    ranking({ id: "versions", title: "Versions in use", x: 0, y: 180, w: 640, h: 320 }, null, ATTR.SERVICE_VERSION, 20),
 
     // What used to be a retention curve. Retention needs each unique's first
     // entry and then its later ones, which is a self-join this layer does not
@@ -167,16 +167,16 @@ function appBoard(): Board {
     // -- is the software still being opened -- without pretending to be a
     // cohort.
     card(
-      { id: "active", title: "Active installs per day", x: 660, y: 180, w: 620, h: 320 },
+      { id: "active", title: "Active installs per day", x: 640, y: 180, w: 640, h: 320 },
       "line",
       seriesQuery("uniques", TEMPLATE_TZ, nameIs(NAME.APP_LAUNCH)),
       { compare: true }
     ),
 
-    ranking({ id: "os", title: "Operating systems", x: 0, y: 520, w: 620, h: 280 }, NAME.APP_INSTALL, ATTR.OS_TYPE, 8),
+    ranking({ id: "os", title: "Operating systems", x: 0, y: 520, w: 640, h: 280 }, NAME.APP_INSTALL, ATTR.OS_TYPE, 8),
 
     card(
-      { id: "faults", title: "Errors per day", x: 660, y: 520, w: 620, h: 280 },
+      { id: "faults", title: "Errors per day", x: 640, y: 520, w: 640, h: 280 },
       "bar",
       seriesQuery("entries", TEMPLATE_TZ, atLeast("ERROR"))
     ),

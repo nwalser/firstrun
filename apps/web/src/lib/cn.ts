@@ -34,6 +34,13 @@ const twMerge = extendTailwindMerge({
         "lead",
         "prose",
         "body",
+        // Both 13px steps. They were missing, which is exactly the failure the
+        // note above describes: every `text-label-13` written beside a colour
+        // in one `cn()` call lost its size and rendered at the inherited 14px,
+        // in silence, across the sidebar headings, the widget chrome and the
+        // explore builder.
+        "label-13",
+        "copy-13",
         "small",
         "caption",
         "mono",

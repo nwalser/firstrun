@@ -1,18 +1,15 @@
 import { Link, createFileRoute, notFound, redirect } from "@tanstack/solid-router";
 import Antenna from "lucide-solid/icons/antenna";
-import ChevronRight from "lucide-solid/icons/chevron-right";
-import BookOpen from "lucide-solid/icons/book-open";
 import Check from "lucide-solid/icons/check";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
 import ListFilter from "lucide-solid/icons/list-filter";
 import Search from "lucide-solid/icons/search";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { IngestHistogram, IngestRate, ingestTotal } from "../components/ingest-histogram.js";
+import { ingestTotal } from "../components/ingest-histogram.js";
 import { PageHeader } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
+import { SourceRow } from "../components/source-row.js";
 import {
-  Badge,
   Button,
   Card,
   DropdownMenu,
@@ -57,7 +54,7 @@ export const Route = createFileRoute("/w/$wslug/sources")({
   loader: async ({ params }) => {
     const session = await getSession();
     if (!session.user) throw redirect({ to: "/login" });
-    const view = await getWorkspaceSources({ data: params.wslug });
+    const view = await getWorkspaceSources({ data: { workspace: params.wslug } });
     if (!view) throw notFound();
     return view;
   },
@@ -307,7 +304,7 @@ function WorkspaceSources() {
         }
       >
         <div class="flex flex-col gap-4">
-          {/* The 36px toolbar row: search, sort, refresh. */}
+          {/* The 36px toolbar row: search and sort. */}
           <div class="flex flex-row items-center gap-2">
             <div class="relative min-w-0 flex-1">
               <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -344,8 +341,6 @@ function WorkspaceSources() {
                 </For>
               </DropdownMenuContent>
             </DropdownMenu>
-
-            <RefreshButton />
           </div>
 
           <div>
@@ -382,125 +377,5 @@ function WorkspaceSources() {
         </div>
       </Show>
     </main>
-  );
-}
-
-/**
- * One source, at the reference's 75px row shape.
- *
- * The row opens the source's own page, but it is not WRAPPED in an anchor:
- * three things on it are separately worth clicking (the project, the key, the
- * guide), and inside one anchor copying a key would be a navigation. So the
- * link is stretched across the row from underneath and everything interactive
- * sits above it.
- */
-function SourceRow(props: { workspace: string; source: WorkspaceSourceSummary }) {
-  const i18n = useI18n();
-  const total = () => ingestTotal(props.source.daily);
-
-  return (
-    <li class="relative flex items-center gap-3 p-4 has-[a:hover]:bg-accent">
-      {/* The stretched link. First in the markup and behind everything, so it
-          is what a click on dead space in the row lands on. */}
-      <Link
-        to="/w/$wslug/$pslug/sources/$sid"
-        params={{
-          wslug: props.workspace,
-          pslug: props.source.projectSlug,
-          sid: props.source.id,
-        }}
-        class="absolute inset-0 z-0 outline-none"
-        aria-label={i18n.t("sources.open_source", { name: props.source.name })}
-      />
-
-      <div class="pointer-events-none flex min-w-0 items-center gap-4 @md-page/page:w-[calc(25%+48px)]">
-        <div class="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-          <Antenna class="size-4" />
-        </div>
-        <div class="min-w-0">
-          <div class="truncate text-body font-medium" title={props.source.name}>
-            {props.source.name}
-          </div>
-          {/*
-            Muted rather than a warning colour: a source added a minute ago has
-            never been seen either, and nothing on this row tells the two apart.
-            On `time`, so this is when the source was last ACTIVE rather than
-            when we last heard from it.
-          */}
-          <div class="truncate text-caption text-muted-foreground">
-            <Show when={props.source.lastSeenAt} fallback={i18n.t("sources.never_seen")}>
-              {(at) => <>{i18n.t("sources.seen", { when: i18n.relative(at()) })}</>}
-            </Show>
-          </div>
-        </div>
-      </div>
-
-      {/* Which product this reports into, and a way into it. The one thing this
-          page has that the project's own list cannot. */}
-      {/*
-        The CELL stays transparent to the pointer and only the link inside it is
-        raised. A raised cell swallows every click across its whole width, which
-        is most of the row: the stretched link under it would then only work on
-        the gaps between columns.
-      */}
-      <div class="pointer-events-none hidden w-[22%] min-w-0 shrink-0 flex-col gap-0.5 @md-page/page:flex">
-        <span class="text-caption text-muted-foreground">
-          {i18n.t("sources.project_label")}
-        </span>
-        <Link
-          to="/w/$wslug/$pslug/sources"
-          params={{ wslug: props.workspace, pslug: props.source.projectSlug }}
-          class="pointer-events-auto relative z-10 w-fit max-w-full truncate text-body hover:underline"
-          title={i18n.t("sources.open_project", { name: props.source.projectName })}
-        >
-          {props.source.projectName}
-        </Link>
-      </div>
-
-      {/*
-        No key on the row. It was the widest column here and it earned none of
-        that: a public identifier nobody reads, that everybody scans past, in a
-        list whose job is "which of these has stopped". It is still one click
-        away on the source itself, where somebody who actually wants to paste it
-        has gone looking for it.
-      */}
-
-      {/*
-        The figure, then the shape it came from, at the geometry a project row
-        uses: the rate stacked over its unit, then the month taking whatever is
-        left. Both lists draw the same pair from the same component over the same
-        window, so a source's bars can honestly be read against its project's.
-        Thirty bars in 140px is a texture; thirty bars in three hundred is a
-        shape, and the shape is what the row is here to show.
-      */}
-      <div class="pointer-events-none hidden shrink-0 @md-page/page:block">
-        <IngestRate perHour={props.source.perHour} unit={i18n.t("sources.per_hour_unit")} />
-      </div>
-
-      <div class="pointer-events-none hidden min-w-0 flex-1 @md-page/page:block">
-        <IngestHistogram
-          daily={props.source.daily}
-          label={i18n.t("sources.ingest_30d", { count: total() })}
-        />
-      </div>
-
-      <div class="relative z-10 flex shrink-0 items-center gap-2">
-        {/*
-          The id travels in the query string, so the documentation opens with this source
-          already selected and every snippet on it carries this key.
-        */}
-        <Link
-          to="/docs"
-          search={{ source: props.source.id }}
-          class={buttonVariants({ variant: "ghost", size: "toolbar-icon" })}
-          aria-label={i18n.t("sources.how_to_install", { name: props.source.name })}
-          title={i18n.t("sources.guide_hint")}
-        >
-          <BookOpen class="size-4" />
-        </Link>
-
-        <ChevronRight class="pointer-events-none size-4 text-muted-foreground" />
-      </div>
-    </li>
   );
 }

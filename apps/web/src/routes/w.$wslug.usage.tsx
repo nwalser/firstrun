@@ -6,7 +6,6 @@ import ListFilter from "lucide-solid/icons/list-filter";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, type JSX } from "solid-js";
 import { PageHeader } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import {
   Badge,
   Button,
@@ -209,7 +208,6 @@ function Usage() {
       <PageHeader
         title={i18n.t("usage.title")}
         description={i18n.t("usage.hint")}
-        actions={<RefreshButton withLabel />}
         filters={
           <>
             <DropdownMenu>

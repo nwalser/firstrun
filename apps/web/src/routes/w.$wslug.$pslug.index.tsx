@@ -9,7 +9,6 @@ import Plug from "lucide-solid/icons/plug";
 import Plus from "lucide-solid/icons/plus";
 import { For, Show, type JSX } from "solid-js";
 import { ROW_INTERACTION } from "../components/page-header.js";
-import { RefreshButton } from "../components/refresh-button.js";
 import {
   Badge,
   Card,
@@ -170,12 +169,6 @@ function ProjectOverview() {
             )}
           </Show>
         </div>
-
-        {/* Re-reads the snapshot in place. The window is fixed on this page, so
-            "is this thing alive" is a question whose answer changes without
-            anything on screen changing, and a reload was the only way to ask
-            it again. */}
-        <RefreshButton />
 
         <Link
           to="/w/$wslug/$pslug/sources"

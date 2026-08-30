@@ -46,6 +46,17 @@ export const explore = {
   "explore.field_label": "Field",
   "explore.field_placeholder": "Pick a field",
   "explore.field_custom": "Another attribute…",
+  /*
+   * The field picker's headings.
+   *
+   * Not the same thing three times: a promoted column is always there, a
+   * discovered attribute is a path this project has written, and a suggestion
+   * is one it has not. All three are legal fields, and only the last one
+   * matches nothing until a client starts sending it.
+   */
+  "explore.field_group_columns": "Columns",
+  "explore.field_group_attributes": "Attributes",
+  "explore.field_group_suggested": "Suggested",
 
   // What an aggregation is called once it has a field in it.
   "explore.agg_events": "Events",
