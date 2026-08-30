@@ -22,15 +22,52 @@ export interface OAuthConfig {
   callbackUrl: string;
 }
 
+/**
+ * A proxy header can carry a list when a request crossed more than one hop.
+ * The first entry is the one the client actually spoke to, which is the only
+ * one that describes the URL a human typed.
+ */
+function forwarded(req: Request, name: string): string | undefined {
+  const raw = req.headers.get(name);
+  if (!raw) return undefined;
+  const first = raw.split(",")[0]!.trim();
+  return first || undefined;
+}
+
+/**
+ * The origin this deployment is reached at from outside.
+ *
+ * `req.url` is the WRONG answer anywhere the process does not terminate TLS
+ * itself. On Railway the edge speaks https to the browser and plain http to
+ * the container on an internal hostname, so `new URL(req.url).origin` is
+ * something like `http://web.railway.internal:8080`. Sending that to GitHub as
+ * `redirect_uri` fails the exact-match check against the registered callback,
+ * and the failure surfaces on GitHub's own error page rather than in our logs.
+ *
+ * So: the configured origin first, because it is the one pasted into the OAuth
+ * app registration and the only one guaranteed to match. Then the forwarding
+ * headers, which is what makes a preview deployment or a bare Railway domain
+ * work without anyone setting a variable. `req.url` is the last resort and is
+ * correct only in development, where the process really is the edge.
+ */
+export function publicOrigin(req: Request): string {
+  const configured = process.env.PUBLIC_ORIGIN?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+
+  const url = new URL(req.url);
+  const proto = forwarded(req, "x-forwarded-proto") ?? url.protocol.replace(":", "");
+  const host = forwarded(req, "x-forwarded-host") ?? req.headers.get("host") ?? url.host;
+  return `${proto}://${host}`;
+}
+
 export function oauthConfig(req: Request): OAuthConfig | null {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
-  const origin = process.env.PUBLIC_ORIGIN ?? new URL(req.url).origin;
   return {
     clientId,
     clientSecret,
-    callbackUrl: `${origin.replace(/\/$/, "")}/auth/github/callback`,
+    callbackUrl: `${publicOrigin(req)}/auth/github/callback`,
   };
 }
 
@@ -56,9 +93,14 @@ export function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether the browser's leg of this request was https, which is what decides
+ * if the session cookie may carry `Secure`. Read from the same place the
+ * origin is: behind a proxy the container's own scheme is always http, and
+ * trusting it would drop `Secure` from every cookie in production.
+ */
 function isSecure(req: Request): boolean {
-  const proto = req.headers.get("x-forwarded-proto") ?? new URL(req.url).protocol.replace(":", "");
-  return proto === "https";
+  return new URL(publicOrigin(req)).protocol === "https:";
 }
 
 /** The signed-in user for this request, or null. */

@@ -10,9 +10,9 @@ WORKDIR /app
 # dependency graph.
 COPY package.json bun.lock tsconfig.json ./
 COPY apps/web/package.json apps/web/
-COPY packages/schema/package.json packages/schema/
-COPY packages/identity/package.json packages/identity/
+COPY packages/analytics/package.json packages/analytics/
 COPY packages/ingest/package.json packages/ingest/
+COPY packages/schema/package.json packages/schema/
 COPY packages/web-tag/package.json packages/web-tag/
 COPY db/package.json db/
 RUN bun install --frozen-lockfile
