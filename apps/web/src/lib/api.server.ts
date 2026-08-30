@@ -19,6 +19,7 @@ import {
   listMembers,
   listProjects,
   listProjectsWithStats,
+  projectEntryCounts,
   listSources,
   listWorkspaces,
   listWorkspaceSources,
@@ -41,12 +42,15 @@ import {
   sourceLastSeen,
   workspaceForUser,
   workspaceSourceLastSeen,
+  workspaceUsage,
   type LogQuery as CompilerQuery,
   type QueryRow as CompilerRow,
 } from "@firstrun/db";
 import { configFromEnv } from "@firstrun/ingest";
+import { SEVERITY_LABELS, severityBand } from "@firstrun/schema/severity";
 import {
   FEED_PAGE,
+  feedWindow,
   severityFloor,
   type FeedEntry,
   type FeedPage,
@@ -80,12 +84,14 @@ import {
 } from "@firstrun/schema/query";
 import type {
   MemberRole,
+  UsageSlice,
   ProjectNav,
   ProjectView,
   Result,
   SessionInfo,
-  WikiContext,
+  DocsContext,
   WorkspaceSourcesView,
+  WorkspaceUsageView,
   WorkspaceView,
 } from "./api.js";
 import { currentUser, oauthConfig } from "./auth.server.js";
@@ -152,15 +158,15 @@ export async function loadSession(): Promise<SessionInfo> {
 }
 
 /**
- * The wiki's context, and the one read in this file that never denies.
+ * The documentation's context, and the one read in this file that never denies.
  *
- * Every other read here returns null for a stranger. The wiki is public on
+ * Every other read here returns null for a stranger. The documentation is public on
  * purpose -- installation instructions are the thing somebody reads BEFORE they
  * have an account, and putting them behind a login is how a product becomes
  * impossible to evaluate. Signed out, this is simply an empty source list and a
  * public origin.
  */
-export async function loadWikiContext(): Promise<WikiContext> {
+export async function loadDocsContext(): Promise<DocsContext> {
   await ensureReady();
   const publicOrigin = configFromEnv().publicOrigin;
 
@@ -350,7 +356,10 @@ export async function loadFeed(input: {
   if (!access) return null;
 
   const db = getStore().db;
-  const window = resolveRange(input.filter.range);
+  // Rolling from now for the log itself, pinned when a card asked for the rows
+  // behind its number: see `feedWindow`. Bounded either way, so the read still
+  // prunes to the partitions it touches (rule 4).
+  const window = feedWindow(input.filter);
   const limit = input.filter.limit ?? FEED_PAGE;
   const empty = {
     entries: [],
@@ -377,6 +386,7 @@ export async function loadFeed(input: {
     sourceIds: input.filter.sources ?? [],
     minSeverity: severityFloor(input.filter.severity),
     search: input.filter.search ?? null,
+    filter: input.filter.filter ?? null,
     before: input.filter.before
       ? { time: new Date(input.filter.before.time), entryId: input.filter.before.entryId }
       : null,
@@ -397,6 +407,147 @@ export async function loadFeed(input: {
   }));
 
   return { ...empty, entries, more: entries.length >= limit };
+}
+
+/** A day, in the milliseconds every bucket boundary here is counted in. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The usage page, in one call.
+ *
+ * Two statements: the grouping-set roll-up over this window, and a flat count
+ * per project over the baseline. Everything else is labelling, which needs the
+ * projects and the sources and gets them from tables measured in tens of rows.
+ *
+ * The day axis is built here rather than inferred from the answer, so a day
+ * nothing arrived on is a zero bar instead of a missing one. A window with a
+ * hole in it reads as a shorter window.
+ *
+ * Read access is enough: this reads and changes nothing.
+ */
+export async function loadWorkspaceUsage(
+  slug: string,
+  days: number,
+  projectSlug: string | null
+): Promise<WorkspaceUsageView | null> {
+  const access = await requireAccess(slug);
+  if (!access) return null;
+
+  const db = getStore().db;
+  const range: DateRange = { kind: "last", days: Math.min(365, Math.max(1, Math.trunc(days))) };
+  const now = new Date();
+  const window = resolveRange(range, now);
+  // Always "the window before this one", because usage is read as "more or less
+  // than last time" and the same length is the only baseline that answers it.
+  const baseline = resolveComparison(range, { kind: "previous" }, now) ?? window;
+
+  const [allProjects, allSources] = await Promise.all([
+    listProjects(db, access.workspace.id),
+    listWorkspaceSources(db, access.workspace.id),
+  ]);
+
+  // A slug naming no project the reader can see narrows to nothing rather than
+  // widening back out to the whole workspace.
+  const chosen = projectSlug ? allProjects.filter((p) => p.slug === projectSlug) : [];
+  const ids = chosen.map((p) => p.id);
+  if (projectSlug && ids.length === 0) {
+    return {
+      from: window.from.toISOString(),
+      to: window.to.toISOString(),
+      compare: { from: baseline.from.toISOString(), to: baseline.to.toISOString() },
+      days: [],
+      total: 0,
+      previousTotal: 0,
+      byProject: [],
+      bySource: [],
+      bySeverity: [],
+    };
+  }
+
+  const [usage, previous] = await Promise.all([
+    workspaceUsage(db, access.workspace.id, window.from, window.to, ids),
+    projectEntryCounts(db, access.workspace.id, baseline.from, baseline.to, ids),
+  ]);
+
+  const buckets = Math.max(1, Math.round((window.to.getTime() - window.from.getTime()) / DAY_MS));
+  const axis = Array.from({ length: buckets }, (_, i) =>
+    new Date(window.from.getTime() + i * DAY_MS).toISOString()
+  );
+  const indexOf = (day: Date) => Math.floor((day.getTime() - window.from.getTime()) / DAY_MS);
+
+  /**
+   * Fold one dimension's day rows into one row per value.
+   *
+   * `label` decides both the name and the identity: two severity NUMBERS in one
+   * band are one row, which is the whole reason a band is what people filter
+   * on. `null` from the query means the dimension is absent on those entries,
+   * and the caller names that absence rather than the query pretending to.
+   */
+  const fold = (
+    slices: readonly { key: string | null; day: Date; entries: number }[],
+    describe: (key: string | null) => { key: string; label: string; projectSlug?: string | null }
+  ): UsageSlice[] => {
+    const out = new Map<string, UsageSlice>();
+    for (const slice of slices) {
+      const described = describe(slice.key);
+      let row = out.get(described.key);
+      if (!row) {
+        row = {
+          key: described.key,
+          label: described.label,
+          projectSlug: described.projectSlug ?? null,
+          entries: 0,
+          previous: null,
+          daily: new Array<number>(buckets).fill(0),
+        };
+        out.set(described.key, row);
+      }
+      row.entries += slice.entries;
+      const at = indexOf(slice.day);
+      if (at >= 0 && at < buckets) row.daily[at] = (row.daily[at] ?? 0) + slice.entries;
+    }
+    return [...out.values()].sort((a, b) => b.entries - a.entries || a.label.localeCompare(b.label));
+  };
+
+  const projectById = new Map(allProjects.map((p) => [p.id, p]));
+  const sourceById = new Map(allSources.map((s) => [s.id, s]));
+
+  const byProject = fold(usage.byProject, (key) => {
+    const project = key ? projectById.get(key) : undefined;
+    return project
+      ? { key: project.id, label: project.name, projectSlug: project.slug }
+      : { key: "unknown", label: "Deleted project", projectSlug: null };
+  });
+
+  // The baseline is per project, so it is grafted on here and nowhere else.
+  for (const row of byProject) row.previous = previous.get(row.key) ?? 0;
+
+  const bySource = fold(usage.bySource, (key) => {
+    const source = key ? sourceById.get(key) : undefined;
+    if (source) return { key: source.id, label: `${source.projectName} / ${source.name}` };
+    // Entries written before the edge stamped a source, and entries whose
+    // source has since been deleted. One row, because both answer "we cannot
+    // tell you which of your sources this was".
+    return { key: "unattributed", label: "Unattributed" };
+  });
+
+  const bySeverity = fold(usage.bySeverity, (key) => {
+    if (key === null) return { key: "none", label: "Unclassified" };
+    const band = severityBand(Number(key));
+    return { key: band, label: SEVERITY_LABELS[band] };
+  });
+
+  return {
+    from: window.from.toISOString(),
+    to: window.to.toISOString(),
+    compare: { from: baseline.from.toISOString(), to: baseline.to.toISOString() },
+    days: axis,
+    total: byProject.reduce((sum, row) => sum + row.entries, 0),
+    previousTotal: [...previous.values()].reduce((sum, n) => sum + n, 0),
+    byProject,
+    bySource,
+    bySeverity,
+  };
 }
 
 export async function loadProjectNav(
@@ -558,10 +709,9 @@ export async function loadProjectOverview(
  * tab is the project's first board. Both lookups are scoped to the project, so
  * a slug belonging to a board somewhere else is a not-found rather than a read.
  *
- * `dashboardBySlug` and `defaultDashboard` return the board already migrated:
- * the repo reads every stored layout through `parseBoard`, which is the same
- * reader this file used to have to reach around when the contract package still
- * described a board as a closed union of card types.
+ * `dashboardBySlug` and `defaultDashboard` return the board already parsed:
+ * the repo reads every stored layout through `parseBoard`, so nothing in this
+ * file handles raw stored JSON.
  */
 async function boardRow(projectId: string, slug: string | null) {
   const store = getStore();
@@ -1198,9 +1348,9 @@ export async function addSource(input: {
     const layout = template.build();
     // The STORED json, not a parsed board: a board somebody has since edited is
     // saved in the current shape and can never equal a freshly built template,
-    // which is the right answer. Comparing parsed boards would read every
-    // edited board back through a migration and could suppress the new board
-    // over a coincidence.
+    // which is the right answer. Comparing parsed boards would round every
+    // edited board through the reader's defaults and could suppress the new
+    // board over a coincidence.
     const existing = await store.query<{ layout: unknown }>(
       `SELECT layout FROM dashboards WHERE project_id = $1::uuid`,
       [found.project.id]

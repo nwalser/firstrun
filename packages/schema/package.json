@@ -16,7 +16,8 @@
     "./board": "./src/board.ts",
     "./overview": "./src/overview.ts",
     "./feed": "./src/feed.ts",
-    "./templates": "./src/templates.ts"
+    "./templates": "./src/templates.ts",
+    "./recipes": "./src/recipes.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"

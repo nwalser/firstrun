@@ -55,13 +55,13 @@ export const sources = {
   "sources.project_label": "Project",
   "sources.all_projects": "All projects",
   "sources.sort_volume": "Volume",
-  "sources.ingest_30d_one": "{count} entry in the last 30 days",
-  "sources.ingest_30d_other": "{count} entries in the last 30 days",
+  "sources.ingest_30d_one": "{count} event in the last 30 days",
+  "sources.ingest_30d_other": "{count} events in the last 30 days",
   "sources.thirty_days": "30 days",
   "sources.open_project": "Open {name}",
   "sources.none_in_workspace": "No sources in this workspace",
   "sources.none_in_workspace_hint":
-    "A source is one thing that writes entries: a site, an app, a server. Open a project to " +
+    "A source is one thing that writes events: a site, an app, a server. Open a project to " +
     "add one, and it starts reporting the moment it is installed.",
   "sources.open_projects": "Open projects",
 
@@ -74,7 +74,7 @@ export const sources = {
   "sources.option_desktop_title": "Desktop app",
   "sources.option_desktop_body":
     "Versions, retention and what people do once it is running. The queue is on disk, so " +
-    "entries written offline arrive at the next launch.",
+    "events written offline arrive at the next launch.",
   "sources.option_desktop_action": "Add a desktop app",
 
   // A row's actions. Every one of these is an accessible name, a tooltip, or
@@ -86,7 +86,7 @@ export const sources = {
   "sources.remove_confirm_title": "Remove {name}?",
   "sources.remove_confirm_hint":
     "Its key stops being accepted immediately, so anything still running against it goes " +
-    "quiet. The entries it already sent stay: they belong to the project.",
+    "quiet. The events it already sent stay: they belong to the project.",
   "sources.remove_action": "Remove source",
   "sources.clipboard_failed": "Could not reach the clipboard. Select the key and copy it.",
 
@@ -128,9 +128,9 @@ export const sources = {
   "sources.ready": "{name} is ready",
   "sources.ready_hint":
     "Nothing arrives until something sends it. Next: install it, which is five steps in the " +
-    "wiki with this key already substituted into every snippet.",
+    "documentation with this key already substituted into every snippet.",
 
-  // The handover into the wiki, one summary per surface.
+  // The handover into the documentation, one summary per surface.
   //
   // The `other` surface's key is `summary_generic`, not `summary_other`. A key
   // ending in an `Intl.PluralRules` category is read as a member of a plural

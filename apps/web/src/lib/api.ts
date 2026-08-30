@@ -147,6 +147,55 @@ export interface WorkspaceSourcesView {
   sources: WorkspaceSourceSummary[];
 }
 
+/**
+ * One row of a usage breakdown: a project, a source, or a severity band.
+ *
+ * The same shape whichever dimension is being read, because the page draws them
+ * with one table and one chart. A dimension is a way of slicing one number, not
+ * three different pages.
+ */
+export interface UsageSlice {
+  /** Stable across renders and unique within its dimension. */
+  key: string;
+  label: string;
+  /** Set only on a project slice, so a row can lead into the project. */
+  projectSlug: string | null;
+  entries: number;
+  /**
+   * The same slice over the comparison window, or null where there is nothing
+   * to compare against.
+   *
+   * Only projects carry one. A delta needs a baseline measured the same way,
+   * and reading the previous window three ways as well would double the cost of
+   * the page to put a percentage on a row nobody is billed for.
+   */
+  previous: number | null;
+  /** Entries per day of the window, oldest first, zero-filled. */
+  daily: number[];
+}
+
+/**
+ * What a workspace has ingested, and where it came from.
+ *
+ * Usage here is ENTRIES. One row in the table is one unit, whatever it is
+ * called and whatever severity it carries: an exception, a page view and a
+ * measurement cost the same, because they are the same row (rule 1). There is
+ * no plan and no quota in this product, so the page reports volume and its
+ * shape rather than a bill.
+ */
+export interface WorkspaceUsageView {
+  from: string;
+  to: string;
+  compare: { from: string; to: string };
+  /** Midnight UTC of each bucket, oldest first. One per bar. */
+  days: string[];
+  total: number;
+  previousTotal: number;
+  byProject: UsageSlice[];
+  bySource: UsageSlice[];
+  bySeverity: UsageSlice[];
+}
+
 export interface DashboardSummary {
   id: string;
   name: string;
@@ -191,7 +240,7 @@ export interface ProjectView {
   publicOrigin: string;
 }
 
-export interface WikiSource {
+export interface DocsSource {
   id: string;
   name: string;
   kind: Surface;
@@ -203,9 +252,9 @@ export interface WikiSource {
   workspaceName: string;
 }
 
-export interface WikiContext {
+export interface DocsContext {
   signedIn: boolean;
-  sources: WikiSource[];
+  sources: DocsSource[];
   publicOrigin: string;
 }
 
@@ -222,10 +271,10 @@ export const getSession = createServerFn({ method: "GET" }).handler(
   }
 );
 
-export const getWikiContext = createServerFn({ method: "GET" }).handler(
-  async (): Promise<WikiContext> => {
-    const { loadWikiContext } = await import("./api.server.js");
-    return loadWikiContext();
+export const getDocsContext = createServerFn({ method: "GET" }).handler(
+  async (): Promise<DocsContext> => {
+    const { loadDocsContext } = await import("./api.server.js");
+    return loadDocsContext();
   }
 );
 
@@ -289,6 +338,21 @@ export const getEventFeed = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<FeedPage | null> => {
     const { loadFeed } = await import("./api.server.js");
     return loadFeed(data);
+  });
+
+/**
+ * The usage breakdown, over one window.
+ *
+ * A read of its own: three roll-ups and a baseline, which is real work and
+ * which only this page draws. `project` narrows every number on it to one
+ * project without changing which page you are on, so the scope switcher can
+ * stay where it is.
+ */
+export const getWorkspaceUsage = createServerFn({ method: "GET" })
+  .validator((input: { workspace: string; days: number; project?: string | null }) => input)
+  .handler(async ({ data }): Promise<WorkspaceUsageView | null> => {
+    const { loadWorkspaceUsage } = await import("./api.server.js");
+    return loadWorkspaceUsage(data.workspace, data.days, data.project ?? null);
   });
 
 export const getProject = createServerFn({ method: "GET" })

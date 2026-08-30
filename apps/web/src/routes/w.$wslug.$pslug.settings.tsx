@@ -19,16 +19,25 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
+  Spinner,
   toast,
 } from "../components/ui/index.js";
-import { DangerZone, SettingsSection, SettingsShell } from "../components/settings-shell.js";
+import {
+  DangerZone,
+  SettingsPending,
+  SettingsSection,
+  SettingsShell,
+} from "../components/settings-shell.js";
+import { LogoField } from "../components/logo-field.js";
 import { useI18n } from "../lib/i18n/index.js";
 import {
+  clearProjectLogoFn,
   deleteProjectFn,
   deleteSourceFn,
   getProject,
   getSession,
   renameProjectFn,
+  setProjectLogoFn,
 } from "../lib/api.js";
 
 /**
@@ -48,6 +57,7 @@ export const Route = createFileRoute("/w/$wslug/$pslug/settings")({
     return view;
   },
   component: ProjectSettings,
+  pendingComponent: SettingsPending,
 });
 
 function ProjectSettings() {
@@ -102,8 +112,11 @@ function ProjectSettings() {
     });
     setBusy(false);
     if (!result.ok) {
+      // Inline only. The message has a place on screen -- under the field it is
+      // about -- and a toast repeating it in the corner is the same sentence
+      // twice, one copy of which then times out. A toast is for a failure with
+      // nowhere to land: the two deletes below are exactly that.
       setError(result.error);
-      toast.error(result.error);
       return;
     }
     toast.success(i18n.t("settings.renamed_to", { name: name().trim() }));
@@ -113,6 +126,28 @@ function ProjectSettings() {
       to: "/w/$wslug/$pslug/settings",
       params: { wslug: workspace().slug, pslug: result.slug },
     });
+    await router.invalidate();
+  }
+
+  async function uploadLogo(dataUrl: string) {
+    const result = await setProjectLogoFn({
+      data: { workspace: workspace().slug, project: project().slug, dataUrl },
+    });
+    // Thrown rather than returned: LogoField puts its preview back on a
+    // rejection, so a failed save never leaves a picture claiming success.
+    if (!result.ok) throw new Error(result.error);
+    toast.success(i18n.t("settings.logo_updated"));
+    // The image URL is cache-keyed by logoUpdatedAt, which only changes in the
+    // loader data. Without this the old picture stays on screen everywhere else.
+    await router.invalidate();
+  }
+
+  async function clearLogo() {
+    const result = await clearProjectLogoFn({
+      data: { workspace: workspace().slug, project: project().slug },
+    });
+    if (!result.ok) throw new Error(result.error);
+    toast.success(i18n.t("settings.logo_removed"));
     await router.invalidate();
   }
 
@@ -155,7 +190,13 @@ function ProjectSettings() {
           title={i18n.t("shell.general")}
           description={i18n.t("settings.name_hint")}
           footer={
+            /* Spinner and the changed word, the treatment `ConfirmDelete`
+                already uses: a disabled button reading "Saving" is
+                indistinguishable from a disabled button that has stopped. */
             <Button type="submit" form="project-general" disabled={busy() || !renamed()}>
+              <Show when={busy()}>
+                <Spinner />
+              </Show>
               {busy() ? i18n.t("common.saving") : i18n.t("common.save")}
             </Button>
           }
@@ -184,6 +225,23 @@ function ProjectSettings() {
               </Field>
             </FieldGroup>
           </form>
+
+          {/* Outside the form on purpose: it saves the moment a file is chosen,
+              and a control inside a form with a Save button claims otherwise.
+              Not a <Field> either -- the control is a drop zone, an image and
+              two buttons, so there is nothing for a label to point at. */}
+          <div class="mt-4 flex flex-col gap-2">
+            <FieldLabel>{i18n.t("settings.project_logo")}</FieldLabel>
+            <LogoField
+              name={project().name}
+              logoUpdatedAt={project().logoUpdatedAt}
+              src={`/api/logo/${workspace().slug}/${project().slug}`}
+              onUpload={uploadLogo}
+              onClear={clearLogo}
+              disabled={busy()}
+            />
+            <FieldDescription>{i18n.t("settings.project_logo_saved_hint")}</FieldDescription>
+          </div>
         </SettingsSection>
 
         <SettingsSection

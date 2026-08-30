@@ -10,17 +10,19 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DocsRouteImport } from './routes/docs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
-import { Route as WikiRouteImport } from './routes/wiki'
+import { Route as DocsIndexRouteImport } from './routes/docs.index'
+import { Route as DocsTopicRouteImport } from './routes/docs.$topic'
 import { Route as WWslugRouteImport } from './routes/w.$wslug'
-import { Route as WikiIndexRouteImport } from './routes/wiki.index'
-import { Route as WikiTopicRouteImport } from './routes/wiki.$topic'
 import { Route as WWslugIndexRouteImport } from './routes/w.$wslug.index'
 import { Route as WWslugPslugRouteImport } from './routes/w.$wslug.$pslug'
+import { Route as WWslugEventsRouteImport } from './routes/w.$wslug.events'
 import { Route as WWslugMembersRouteImport } from './routes/w.$wslug.members'
 import { Route as WWslugSettingsRouteImport } from './routes/w.$wslug.settings'
 import { Route as WWslugSourcesRouteImport } from './routes/w.$wslug.sources'
+import { Route as WWslugUsageRouteImport } from './routes/w.$wslug.usage'
 import { Route as WWslugPslugIndexRouteImport } from './routes/w.$wslug.$pslug.index'
 import { Route as WWslugPslugSettingsRouteImport } from './routes/w.$wslug.$pslug.settings'
 import { Route as WWslugPslugSourcesRouteImport } from './routes/w.$wslug.$pslug.sources'
@@ -35,6 +37,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -45,25 +52,20 @@ const NewRoute = NewRouteImport.update({
   path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WikiRoute = WikiRouteImport.update({
-  id: '/wiki',
-  path: '/wiki',
-  getParentRoute: () => rootRouteImport,
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsTopicRoute = DocsTopicRouteImport.update({
+  id: '/$topic',
+  path: '/$topic',
+  getParentRoute: () => DocsRoute,
 } as any)
 const WWslugRoute = WWslugRouteImport.update({
   id: '/w/$wslug',
   path: '/w/$wslug',
   getParentRoute: () => rootRouteImport,
-} as any)
-const WikiIndexRoute = WikiIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WikiRoute,
-} as any)
-const WikiTopicRoute = WikiTopicRouteImport.update({
-  id: '/$topic',
-  path: '/$topic',
-  getParentRoute: () => WikiRoute,
 } as any)
 const WWslugIndexRoute = WWslugIndexRouteImport.update({
   id: '/',
@@ -73,6 +75,11 @@ const WWslugIndexRoute = WWslugIndexRouteImport.update({
 const WWslugPslugRoute = WWslugPslugRouteImport.update({
   id: '/$pslug',
   path: '/$pslug',
+  getParentRoute: () => WWslugRoute,
+} as any)
+const WWslugEventsRoute = WWslugEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
   getParentRoute: () => WWslugRoute,
 } as any)
 const WWslugMembersRoute = WWslugMembersRouteImport.update({
@@ -88,6 +95,11 @@ const WWslugSettingsRoute = WWslugSettingsRouteImport.update({
 const WWslugSourcesRoute = WWslugSourcesRouteImport.update({
   id: '/sources',
   path: '/sources',
+  getParentRoute: () => WWslugRoute,
+} as any)
+const WWslugUsageRoute = WWslugUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
   getParentRoute: () => WWslugRoute,
 } as any)
 const WWslugPslugIndexRoute = WWslugPslugIndexRouteImport.update({
@@ -135,16 +147,18 @@ const WWslugPslugSourcesNewRoute = WWslugPslugSourcesNewRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/docs': typeof DocsRouteWithChildren
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
-  '/wiki': typeof WikiRouteWithChildren
+  '/docs/$topic': typeof DocsTopicRoute
   '/w/$wslug': typeof WWslugRouteWithChildren
-  '/wiki/$topic': typeof WikiTopicRoute
-  '/wiki/': typeof WikiIndexRoute
+  '/docs/': typeof DocsIndexRoute
   '/w/$wslug/$pslug': typeof WWslugPslugRouteWithChildren
+  '/w/$wslug/events': typeof WWslugEventsRoute
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/settings': typeof WWslugSettingsRoute
   '/w/$wslug/sources': typeof WWslugSourcesRoute
+  '/w/$wslug/usage': typeof WWslugUsageRoute
   '/w/$wslug/': typeof WWslugIndexRoute
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRouteWithChildren
@@ -159,11 +173,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
-  '/wiki/$topic': typeof WikiTopicRoute
-  '/wiki': typeof WikiIndexRoute
+  '/docs/$topic': typeof DocsTopicRoute
+  '/docs': typeof DocsIndexRoute
+  '/w/$wslug/events': typeof WWslugEventsRoute
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/settings': typeof WWslugSettingsRoute
   '/w/$wslug/sources': typeof WWslugSourcesRoute
+  '/w/$wslug/usage': typeof WWslugUsageRoute
   '/w/$wslug': typeof WWslugIndexRoute
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/projects/new': typeof WWslugProjectsNewRoute
@@ -176,16 +192,18 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/docs': typeof DocsRouteWithChildren
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
-  '/wiki': typeof WikiRouteWithChildren
+  '/docs/$topic': typeof DocsTopicRoute
   '/w/$wslug': typeof WWslugRouteWithChildren
-  '/wiki/$topic': typeof WikiTopicRoute
-  '/wiki/': typeof WikiIndexRoute
+  '/docs/': typeof DocsIndexRoute
   '/w/$wslug/$pslug': typeof WWslugPslugRouteWithChildren
+  '/w/$wslug/events': typeof WWslugEventsRoute
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/settings': typeof WWslugSettingsRoute
   '/w/$wslug/sources': typeof WWslugSourcesRoute
+  '/w/$wslug/usage': typeof WWslugUsageRoute
   '/w/$wslug/': typeof WWslugIndexRoute
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRouteWithChildren
@@ -200,16 +218,18 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/docs'
     | '/login'
     | '/new'
-    | '/wiki'
+    | '/docs/$topic'
     | '/w/$wslug'
-    | '/wiki/$topic'
-    | '/wiki/'
+    | '/docs/'
     | '/w/$wslug/$pslug'
+    | '/w/$wslug/events'
     | '/w/$wslug/members'
     | '/w/$wslug/settings'
     | '/w/$wslug/sources'
+    | '/w/$wslug/usage'
     | '/w/$wslug/'
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/$pslug/sources'
@@ -224,11 +244,13 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/new'
-    | '/wiki/$topic'
-    | '/wiki'
+    | '/docs/$topic'
+    | '/docs'
+    | '/w/$wslug/events'
     | '/w/$wslug/members'
     | '/w/$wslug/settings'
     | '/w/$wslug/sources'
+    | '/w/$wslug/usage'
     | '/w/$wslug'
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/projects/new'
@@ -240,16 +262,18 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/docs'
     | '/login'
     | '/new'
-    | '/wiki'
+    | '/docs/$topic'
     | '/w/$wslug'
-    | '/wiki/$topic'
-    | '/wiki/'
+    | '/docs/'
     | '/w/$wslug/$pslug'
+    | '/w/$wslug/events'
     | '/w/$wslug/members'
     | '/w/$wslug/settings'
     | '/w/$wslug/sources'
+    | '/w/$wslug/usage'
     | '/w/$wslug/'
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/$pslug/sources'
@@ -263,9 +287,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DocsRoute: typeof DocsRouteWithChildren
   LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
-  WikiRoute: typeof WikiRouteWithChildren
   WWslugRoute: typeof WWslugRouteWithChildren
 }
 
@@ -276,6 +300,13 @@ declare module '@tanstack/solid-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -292,12 +323,19 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/wiki': {
-      id: '/wiki'
-      path: '/wiki'
-      fullPath: '/wiki'
-      preLoaderRoute: typeof WikiRouteImport
-      parentRoute: typeof rootRouteImport
+    '/docs/': {
+      id: '/docs/'
+      path: '/'
+      fullPath: '/docs/'
+      preLoaderRoute: typeof DocsIndexRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/$topic': {
+      id: '/docs/$topic'
+      path: '/$topic'
+      fullPath: '/docs/$topic'
+      preLoaderRoute: typeof DocsTopicRouteImport
+      parentRoute: typeof DocsRoute
     }
     '/w/$wslug': {
       id: '/w/$wslug'
@@ -305,20 +343,6 @@ declare module '@tanstack/solid-router' {
       fullPath: '/w/$wslug'
       preLoaderRoute: typeof WWslugRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/wiki/': {
-      id: '/wiki/'
-      path: '/'
-      fullPath: '/wiki/'
-      preLoaderRoute: typeof WikiIndexRouteImport
-      parentRoute: typeof WikiRoute
-    }
-    '/wiki/$topic': {
-      id: '/wiki/$topic'
-      path: '/$topic'
-      fullPath: '/wiki/$topic'
-      preLoaderRoute: typeof WikiTopicRouteImport
-      parentRoute: typeof WikiRoute
     }
     '/w/$wslug/': {
       id: '/w/$wslug/'
@@ -332,6 +356,13 @@ declare module '@tanstack/solid-router' {
       path: '/$pslug'
       fullPath: '/w/$wslug/$pslug'
       preLoaderRoute: typeof WWslugPslugRouteImport
+      parentRoute: typeof WWslugRoute
+    }
+    '/w/$wslug/events': {
+      id: '/w/$wslug/events'
+      path: '/events'
+      fullPath: '/w/$wslug/events'
+      preLoaderRoute: typeof WWslugEventsRouteImport
       parentRoute: typeof WWslugRoute
     }
     '/w/$wslug/members': {
@@ -353,6 +384,13 @@ declare module '@tanstack/solid-router' {
       path: '/sources'
       fullPath: '/w/$wslug/sources'
       preLoaderRoute: typeof WWslugSourcesRouteImport
+      parentRoute: typeof WWslugRoute
+    }
+    '/w/$wslug/usage': {
+      id: '/w/$wslug/usage'
+      path: '/usage'
+      fullPath: '/w/$wslug/usage'
+      preLoaderRoute: typeof WWslugUsageRouteImport
       parentRoute: typeof WWslugRoute
     }
     '/w/$wslug/$pslug/': {
@@ -414,17 +452,17 @@ declare module '@tanstack/solid-router' {
   }
 }
 
-interface WikiRouteChildren {
-  WikiTopicRoute: typeof WikiTopicRoute
-  WikiIndexRoute: typeof WikiIndexRoute
+interface DocsRouteChildren {
+  DocsTopicRoute: typeof DocsTopicRoute
+  DocsIndexRoute: typeof DocsIndexRoute
 }
 
-const WikiRouteChildren: WikiRouteChildren = {
-  WikiTopicRoute: WikiTopicRoute,
-  WikiIndexRoute: WikiIndexRoute,
+const DocsRouteChildren: DocsRouteChildren = {
+  DocsTopicRoute: DocsTopicRoute,
+  DocsIndexRoute: DocsIndexRoute,
 }
 
-const WikiRouteWithChildren = WikiRoute._addFileChildren(WikiRouteChildren)
+const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
 
 interface WWslugPslugSourcesRouteChildren {
   WWslugPslugSourcesNewRoute: typeof WWslugPslugSourcesNewRoute
@@ -461,18 +499,22 @@ const WWslugPslugRouteWithChildren = WWslugPslugRoute._addFileChildren(
 
 interface WWslugRouteChildren {
   WWslugPslugRoute: typeof WWslugPslugRouteWithChildren
+  WWslugEventsRoute: typeof WWslugEventsRoute
   WWslugMembersRoute: typeof WWslugMembersRoute
   WWslugSettingsRoute: typeof WWslugSettingsRoute
   WWslugSourcesRoute: typeof WWslugSourcesRoute
+  WWslugUsageRoute: typeof WWslugUsageRoute
   WWslugIndexRoute: typeof WWslugIndexRoute
   WWslugProjectsNewRoute: typeof WWslugProjectsNewRoute
 }
 
 const WWslugRouteChildren: WWslugRouteChildren = {
   WWslugPslugRoute: WWslugPslugRouteWithChildren,
+  WWslugEventsRoute: WWslugEventsRoute,
   WWslugMembersRoute: WWslugMembersRoute,
   WWslugSettingsRoute: WWslugSettingsRoute,
   WWslugSourcesRoute: WWslugSourcesRoute,
+  WWslugUsageRoute: WWslugUsageRoute,
   WWslugIndexRoute: WWslugIndexRoute,
   WWslugProjectsNewRoute: WWslugProjectsNewRoute,
 }
@@ -482,9 +524,9 @@ const WWslugRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DocsRoute: DocsRouteWithChildren,
   LoginRoute: LoginRoute,
   NewRoute: NewRoute,
-  WikiRoute: WikiRouteWithChildren,
   WWslugRoute: WWslugRouteWithChildren,
 }
 export const routeTree = rootRouteImport

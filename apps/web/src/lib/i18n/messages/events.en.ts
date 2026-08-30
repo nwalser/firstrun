@@ -1,9 +1,9 @@
 import type { Namespaced } from "./namespace.js";
 
 /**
- * The event log: every entry the workspace has received, newest first.
+ * The event log: every event the workspace has received, newest first.
  *
- * The vocabulary here is deliberately the data model's own. An entry has a
+ * The vocabulary here is deliberately the data model's own. An event has a
  * `time`, a severity on the 1..24 ladder, a name and an attribute map, and this
  * page says exactly that rather than inventing softer words for them: somebody
  * reading a log is about to write a filter against the same four things.
@@ -11,12 +11,12 @@ import type { Namespaced } from "./namespace.js";
 export const events = {
   "events.title": "Events",
   "events.hint":
-    "Every entry this workspace has received, newest first. An error, a page view and a " +
+    "Every event this workspace has received, newest first. An error, a page view and a " +
     "measurement are the same row shape here, because they are the same row shape in the table.",
 
   // The toolbar.
   "events.search_placeholder": "Search name, client id or message…",
-  "events.search_label": "Search entries",
+  "events.search_label": "Search events",
   "events.window_hours": "Last 24 hours",
   "events.window_days": "Last {days} days",
   "events.window_label": "Window",
@@ -31,12 +31,12 @@ export const events = {
    * The live tail.
    *
    * Off by default. A list that reorders itself under a cursor is a list you
-   * cannot read, and the moment somebody is looking at one entry is exactly the
+   * cannot read, and the moment somebody is looking at one event is exactly the
    * moment they do not want thirty more above it.
    */
   "events.live": "Live",
-  "events.live_hint": "Check for new entries every few seconds",
-  "events.live_on": "Live. New entries appear as they arrive.",
+  "events.live_hint": "Check for new events every few seconds",
+  "events.live_on": "Live. New events appear as they arrive.",
 
   // The list.
   "events.col_time": "Time",
@@ -45,23 +45,23 @@ export const events = {
   "events.col_name": "Name",
   "events.col_client": "Client",
   "events.unclassified": "Unclassified",
-  "events.entries_one": "{count} entry",
-  "events.entries_other": "{count} entries",
+  "events.events_one": "{count} event",
+  "events.events_other": "{count} events",
   "events.load_older": "Load older",
   "events.loading": "Loading…",
   "events.none": "Nothing received yet",
   "events.none_hint":
-    "Entries appear here the moment anything sends one. Add a source and install it, and this " +
+    "Events appear here the moment anything sends one. Add a source and install it, and this " +
     "page is where you check that it worked.",
-  "events.no_matches": "No entry in this window matches those filters.",
+  "events.no_matches": "No event in this window matches those filters.",
   "events.widen": "Try a longer window, or clear a filter.",
 
-  // One entry, opened.
-  "events.show_detail": "Show this entry in full",
-  "events.hide_detail": "Hide this entry",
+  // One event, opened.
+  "events.show_detail": "Show this event in full",
+  "events.hide_detail": "Hide this event",
   "events.attributes": "Attributes",
-  "events.no_attributes": "This entry carries no attributes.",
-  "events.entry_id": "Entry id",
+  "events.no_attributes": "This event carries no attributes.",
+  "events.event_id": "Event id",
   "events.client_id": "Client id",
   "events.source_label": "Source",
 
@@ -77,7 +77,7 @@ export const events = {
   "events.received": "Received",
   "events.late_by": "Arrived {delay} late",
   "events.late_hint":
-    "The entry is stamped by the client that wrote it, so a queue replayed after a machine came " +
+    "The event is stamped by the client that wrote it, so a queue replayed after a machine came " +
     "back online lands on the day it happened rather than today.",
 } satisfies Namespaced<"events">;
 

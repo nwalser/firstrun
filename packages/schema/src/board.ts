@@ -4,11 +4,10 @@ import {
   MIN_WIDGET_H,
   MIN_WIDGET_W,
   normaliseRect,
-  snapToGrid,
   type Rect,
 } from "./canvas.js";
 import { Comparison, DateRange } from "./range.js";
-import { ATTR, NAME } from "./conventions.js";
+import { ATTR } from "./conventions.js";
 import { z } from "zod";
 import {
   FilterSchema,
@@ -16,10 +15,9 @@ import {
   Visualisation,
   emptyFilter,
   queryKey,
-  uniquesAggregation,
   type Filter,
-  type Scalar,
 } from "./query.js";
+import { allOf } from "./recipes.js";
 
 /**
  * A board is an arrangement of saved queries.
@@ -44,8 +42,14 @@ import {
 // The widgets
 // ---------------------------------------------------------------------------
 
-/** Bumped when a stored board can no longer be read as it stands. */
-export const BOARD_VERSION = 4;
+/**
+ * Bumped when a stored board can no longer be read as it stands.
+ *
+ * A board that does not carry the current stamp is not read: `parseBoard`
+ * returns an empty one. There is no reader for an older shape, and adding one
+ * is a decision to keep two descriptions of a board alive at once.
+ */
+export const BOARD_VERSION = 1;
 
 /**
  * Where a card sits. Not a setting.
@@ -130,10 +134,10 @@ export const Board = z.object({
    * by accident and would make "this board shows test data" a thing you have to
    * read a filter chip to discover.
    *
-   * Defaulted rather than versioned. Every stored board predates this field and
-   * every one of them meant production, which is exactly what the default says,
-   * so there is nothing for a migration to decide. `BOARD_VERSION` is for a
-   * board that can no longer be READ as it stands; this one still can.
+   * Defaulted rather than versioned. A board that does not say means
+   * production, which is the only thing it could have meant, so there is
+   * nothing for a version bump to decide. `BOARD_VERSION` is for a board that
+   * can no longer be READ as it stands; a board missing this field still can.
    */
   testMode: z.boolean().default(false),
   widgets: z.array(BoardWidget).max(MAX_WIDGETS).default([]),
@@ -160,33 +164,32 @@ export const emptyBoard = (): Board => ({
  * Anything unreadable becomes an empty board rather than an error, and one
  * unreadable card is dropped on its own rather than taking the arrangement with
  * it: a board that will not render because one stored widget lost an argument
- * is a board somebody has to rebuild from memory.
+ * is a board somebody has to rebuild from memory. Each part falls back
+ * separately, so a corrupt range cannot also cost the board its cards.
  *
  * The version stamp is checked FIRST, and that order is load-bearing. Every
- * geometry field has a default, so an older widget validates as a perfectly
- * good placed widget at 0,0 with the default size; trying the current schema
- * first would therefore never fail, never reach the migration, and silently
- * stack every card of a saved board in the top-left corner.
+ * geometry field has a default, so a widget from a shape this file no longer
+ * describes validates as a perfectly good placed widget at 0,0 with the default
+ * size; trying the schema first would therefore never fail and would silently
+ * stack every card of a saved board in the top-left corner. A board that does
+ * not carry the current stamp is not readable, and an empty board somebody can
+ * rebuild beats a plausible-looking one that means something else.
  */
 export function parseBoard(raw: unknown): Board {
-  if (raw && typeof raw === "object") {
-    const stored = raw as Record<string, unknown>;
-    if (stored.version === BOARD_VERSION) {
-      return {
-        version: BOARD_VERSION,
-        range: or(DateRange.safeParse(stored.range), { kind: "last", days: 30 }),
-        comparison: or(Comparison.safeParse(stored.comparison), { kind: "previous" }),
-        filter: or(BoardFilter.safeParse(stored.filter), emptyFilter()),
-        // Anything but a stored `true` is production, which is what a board
-        // written before this field existed meant and what a corrupt value
-        // should fall back to: showing test data to somebody who did not ask
-        // for it is the worse of the two failures.
-        testMode: stored.testMode === true,
-        widgets: readWidgets(stored.widgets),
-      };
-    }
-  }
-  return fromLegacy(raw);
+  if (!raw || typeof raw !== "object") return emptyBoard();
+  const stored = raw as Record<string, unknown>;
+  if (stored.version !== BOARD_VERSION) return emptyBoard();
+
+  return {
+    version: BOARD_VERSION,
+    range: or(DateRange.safeParse(stored.range), { kind: "last", days: 30 }),
+    comparison: or(Comparison.safeParse(stored.comparison), { kind: "previous" }),
+    filter: or(BoardFilter.safeParse(stored.filter), emptyFilter()),
+    // Anything but a stored `true` is production: showing test data to somebody
+    // who did not ask for it is the worse of the two failures.
+    testMode: stored.testMode === true,
+    widgets: readWidgets(stored.widgets),
+  };
 }
 
 const or = <T>(result: z.SafeParseReturnType<unknown, T>, fallback: T): T =>
@@ -204,393 +207,6 @@ function readWidgets(raw: unknown): BoardWidget[] {
 }
 
 const withRect = <T extends BoardWidget>(widget: T, rect: Rect): T => ({ ...widget, ...rect });
-
-// ---------------------------------------------------------------------------
-// The old catalogue, read once
-// ---------------------------------------------------------------------------
-
-/**
- * The stored columns the old breakdown dimensions meant, as attribute paths.
- *
- * They were columns when a board could only group by seven things. They are
- * attributes now, reached by path, and the conventional key for each is what
- * the clients have always written.
- */
-const LEGACY_DIMENSIONS: Record<string, string> = {
-  path: ATTR.URL_PATH,
-  referrer_host: ATTR.REFERRER_HOST,
-  utm_source: ATTR.UTM_SOURCE,
-  utm_campaign: ATTR.UTM_CAMPAIGN,
-  os: ATTR.OS_TYPE,
-  locale: ATTR.BROWSER_LANGUAGE,
-  app_version: ATTR.SERVICE_VERSION,
-};
-
-/**
- * The timezone a migrated bucket is drawn in.
- *
- * UTC rather than the reader's own zone, because a stored board is shared: a
- * migration that stamped whichever browser happened to open it first would give
- * two colleagues two different daily charts of the same data, and neither of
- * them would know why. New buckets pick up the builder's suggestion, which the
- * person choosing it can see.
- */
-const MIGRATED_TZ = "UTC";
-
-const attr = (key: string, as?: "number") => ({ kind: "attribute" as const, path: [key], ...(as ? { as } : {}) });
-
-const nameIs = (name: string): Filter => ({
-  op: "eq",
-  field: { kind: "column", column: "name" },
-  value: name,
-});
-
-const oneOf = (key: string, values: readonly string[]): Filter => ({
-  op: "in",
-  field: attr(key),
-  values: [...values] as Scalar[],
-});
-
-const and = (parts: Filter[]): Filter => ({ op: "and", filters: parts });
-
-/** `events` counts rows, `uniques` counts people. The old two units, as aggregations. */
-const unitAggregation = (unit: string) =>
-  unit === "events" ? ({ fn: "count" } as const) : uniquesAggregation();
-
-const rankByFirst = [{ key: { aggregate: 0 }, direction: "desc" } as const];
-
-/**
- * A stored card from before the query layer, normalised.
- *
- * The old catalogue is deleted, so this is the only description of it left, and
- * it is deliberately loose: every field is read defensively out of whatever
- * JSON is stored, because the thing being read was by definition written by a
- * version of the code that no longer exists.
- */
-interface LegacyWidget {
-  id: string;
-  title?: string;
-  type: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  event: string;
-  unit: "events" | "uniques";
-  chart: Visualisation;
-  dimension: string;
-  limit: number;
-  compare: boolean;
-  sparkline: boolean;
-  body: string;
-}
-
-/**
- * What the old closed metric list meant, as an entry name and a unit.
- *
- * The three nulls had no entry behind them: `quiet_installs` was a negation
- * ("no launch in N days"), `bounce_rate` and `avg_duration` were ratios over
- * `page_leave` attributes. None is a count of an entry, so none survives as
- * one, and those cards are dropped rather than turned into a number that means
- * something else.
- */
-const LEGACY_METRICS: Record<string, { event: string; unit: "events" | "uniques" } | null> = {
-  visited: { event: NAME.PAGE_VIEW, unit: "uniques" },
-  downloaded: { event: "download_started", unit: "uniques" },
-  first_run: { event: NAME.APP_INSTALL, unit: "uniques" },
-  day7: { event: NAME.APP_LAUNCH, unit: "uniques" },
-  paid: { event: "purchase", unit: "uniques" },
-  active_installs: { event: NAME.APP_LAUNCH, unit: "uniques" },
-  quiet_installs: null,
-  page_views: { event: NAME.PAGE_VIEW, unit: "events" },
-  sessions: { event: NAME.SESSION_START, unit: "events" },
-  bounce_rate: null,
-  avg_duration: null,
-};
-
-/** What those cards were called, kept as a title so a migrated board reads the same. */
-const LEGACY_LABELS: Record<string, string> = {
-  visited: "Visited",
-  downloaded: "Downloaded",
-  first_run: "First run",
-  day7: "Day 7",
-  paid: "Paid",
-  active_installs: "Active installs",
-  page_views: "Page views",
-  sessions: "Sessions",
-};
-
-/** Entry names renamed by an earlier pivot. Applied wherever one is stored. */
-const LEGACY_RENAMES: Record<string, string> = { app_first_run: NAME.APP_INSTALL };
-
-const str = (v: unknown, fallback: string): string => (typeof v === "string" && v ? v : fallback);
-
-const num = (v: unknown, fallback: number): number =>
-  typeof v === "number" && Number.isFinite(v) ? v : fallback;
-
-const legacyChart = (v: unknown): Visualisation => (v === "bar" || v === "area" ? v : "line");
-
-/** `people` was the old name for `uniques`. Anything but `events` counts people. */
-const legacyUnit = (v: unknown): "events" | "uniques" => (v === "events" ? "events" : "uniques");
-
-/**
- * One stored card, as a `LegacyWidget`, or null when nothing is left of it.
- *
- * v2 cards named a metric out of a closed list; v3 cards name an entry. Both go
- * down this path, and every step is idempotent, so a v3 card reads as itself
- * rather than through a second code path nobody exercises.
- */
-function readLegacyWidget(input: unknown): LegacyWidget | null {
-  if (!input || typeof input !== "object") return null;
-  const raw = input as Record<string, unknown>;
-  const id = str(raw.id, "");
-  if (!id) return null;
-
-  const type = str(raw.type, "");
-  const rect = normaliseRect({
-    x: num(raw.x, 0),
-    y: num(raw.y, 0),
-    w: num(raw.w, 400),
-    h: num(raw.h, 220),
-  });
-
-  let event = LEGACY_RENAMES[str(raw.event, "")] ?? str(raw.event, "");
-  let unit = legacyUnit(raw.unit);
-  let title = typeof raw.title === "string" && raw.title ? raw.title : undefined;
-
-  if (!event) {
-    const key = str(raw.metric, "") || str(raw.step, "");
-    const target = LEGACY_METRICS[key];
-    if (target) {
-      event = target.event;
-      unit = target.unit;
-      title = title ?? LEGACY_LABELS[key];
-    } else if (type === "metric" || type === "timeseries" || type === "funnel_step") {
-      // A counting card with nothing left to count. `versions`, `web_vitals`
-      // and `text` never named an entry, so they are unaffected.
-      return null;
-    }
-  }
-
-  return {
-    id,
-    title,
-    // A lone funnel step was a count of one entry, which is what a number is.
-    type: type === "funnel_step" ? "metric" : type,
-    ...rect,
-    event: event || NAME.PAGE_VIEW,
-    unit,
-    chart: legacyChart(raw.chart),
-    dimension: str(raw.dimension, "path"),
-    limit: Math.min(50, Math.max(1, Math.round(num(raw.limit, 10)))),
-    compare: raw.compare !== false,
-    sparkline: raw.sparkline !== false,
-    body: typeof raw.body === "string" ? raw.body : "",
-  };
-}
-
-/**
- * One card of the old catalogue, as a query and a visualisation, or null.
- *
- * `funnel` and `retention` return null and their cards are dropped. Neither is
- * expressible in a filter, a group by, an aggregation, a bucket and a limit:
- * both need a self-join on the entries of one unique in a particular order,
- * which is a different shape of question and not one this query layer answers.
- * Turning them into a number that means something else would be worse than
- * losing the card, because nobody would notice.
- */
-function fromLegacyWidget(w: LegacyWidget): BoardWidget | null {
-  const at = { id: w.id, title: w.title, x: w.x, y: w.y, w: w.w, h: w.h };
-
-  switch (w.type) {
-    case "metric":
-      return {
-        ...at,
-        kind: "query",
-        viz: "number",
-        compare: w.compare,
-        sparkline: w.sparkline,
-        query: { filter: nameIs(w.event), aggregations: [unitAggregation(w.unit)] },
-      };
-
-    case "timeseries":
-      return {
-        ...at,
-        kind: "query",
-        viz: w.chart,
-        compare: w.compare,
-        sparkline: false,
-        query: {
-          filter: nameIs(w.event),
-          aggregations: [unitAggregation(w.unit)],
-          bucket: { unit: "day", timezone: MIGRATED_TZ },
-          fill: true,
-        },
-      };
-
-    case "breakdown":
-      return {
-        ...at,
-        kind: "query",
-        viz: "list",
-        compare: false,
-        sparkline: false,
-        query: {
-          filter: nameIs(w.event),
-          groupBy: [attr(LEGACY_DIMENSIONS[w.dimension] ?? ATTR.URL_PATH)],
-          aggregations: [unitAggregation(w.unit)],
-          orderBy: rankByFirst,
-          limit: w.limit,
-          withTotal: true,
-        },
-      };
-
-    // Installs per version was a breakdown with a bespoke query behind it. The
-    // "quiet cohort" half of that card measured silence, which is the absence
-    // of entries and not something a filter over entries can express, so what
-    // survives is the half that was a ranking.
-    case "versions":
-      return {
-        ...at,
-        kind: "query",
-        viz: "list",
-        compare: false,
-        sparkline: false,
-        query: {
-          groupBy: [attr(ATTR.SERVICE_VERSION)],
-          aggregations: [uniquesAggregation()],
-          orderBy: rankByFirst,
-          limit: 20,
-          withTotal: true,
-        },
-      };
-
-    case "web_vitals":
-      return {
-        ...at,
-        kind: "query",
-        viz: "table",
-        compare: false,
-        sparkline: false,
-        query: {
-          filter: nameIs(NAME.WEB_VITAL),
-          groupBy: [attr(ATTR.METRIC)],
-          aggregations: [
-            { fn: "percentile", field: attr(ATTR.VALUE, "number"), p: 0.75 },
-            { fn: "count" },
-          ],
-          orderBy: [{ key: { group: 0 }, direction: "asc" }],
-          limit: 10,
-        },
-      };
-
-    case "text":
-      return { ...at, kind: "note", body: w.body };
-
-    // `funnel`, `retention`, the deleted `join_health` card, and anything a
-    // version we never shipped happened to write.
-    default:
-      return null;
-  }
-}
-
-/** The board's permanent filters, as one filter tree. */
-function fromLegacyFilters(raw: unknown): Filter {
-  const f = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const list = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
-
-  const parts: Filter[] = [];
-  const add = (key: string, values: string[]) => {
-    if (values.length) parts.push(oneOf(key, values));
-  };
-  add(ATTR.SOURCE_ID, list(f.sourceIds));
-  add(ATTR.OS_TYPE, list(f.os));
-  add(ATTR.CHANNEL, list(f.channel));
-  add(ATTR.SERVICE_VERSION, list(f.appVersion));
-  return and(parts);
-}
-
-/**
- * v1 laid cards out in a three-column flow. v2 and v3 place them.
- *
- * The migration reproduces what the flow was already showing (same order, same
- * relative widths, packed into rows of three) so a board somebody arranged does
- * not rearrange itself the first time they open it after a deploy. The column
- * is 400 with a 40px gutter rather than 413 with 20, because three columns and
- * two gaps have to add up to 1280 with all five numbers on the 20px grid, and
- * that is the only division that does.
- */
-function placeV1(widgets: readonly unknown[]): unknown[] {
-  const gap = 40;
-  const col = (CANVAS_WIDTH - gap * 2) / 3;
-  const heightFor = (type: string) =>
-    type === "funnel" ? 200 : type === "metric" || type === "join_health" ? 160 : 300;
-
-  let x = 0;
-  let y = 0;
-  let rowHeight = 0;
-  const placed: unknown[] = [];
-
-  for (const stored of widgets) {
-    const raw = (stored && typeof stored === "object" ? stored : {}) as Record<string, unknown>;
-    const span = Math.min(3, Math.max(1, Math.round(num(raw.width, 1))));
-    const width = snapToGrid(col * span + gap * (span - 1));
-    if (x + width > CANVAS_WIDTH) {
-      x = 0;
-      y += rowHeight + gap;
-      rowHeight = 0;
-    }
-    const height = heightFor(str(raw.type, ""));
-    placed.push({ ...raw, x, y, w: width, h: height });
-    x += width + gap;
-    rowHeight = Math.max(rowHeight, height);
-  }
-  return placed;
-}
-
-/**
- * Everything a stored v1, v2 or v3 board still means.
- *
- * Anything unreadable becomes an empty board rather than an error, and one
- * unreadable card is dropped on its own: a board that will not render because
- * one stored widget lost an argument is a board somebody has to rebuild from
- * memory. Each part of the board falls back separately, so a corrupt range
- * cannot also cost the board its cards.
- */
-function fromLegacy(raw: unknown): Board {
-  const stored = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const isV1 = stored.version === undefined;
-  const storedWidgets = Array.isArray(stored.widgets) ? stored.widgets : [];
-  const placed = isV1 ? placeV1(storedWidgets) : storedWidgets;
-
-  const widgets: BoardWidget[] = [];
-  for (const card of placed) {
-    if (widgets.length >= MAX_WIDGETS) break;
-    const legacy = readLegacyWidget(card);
-    if (!legacy) continue;
-    const migrated = fromLegacyWidget(legacy);
-    if (!migrated) continue;
-    const parsed = BoardWidget.safeParse(withRect(migrated, normaliseRect(migrated)));
-    if (parsed.success) widgets.push(parsed.data);
-  }
-
-  // A v1 board carried its window as a day count and its one filter as a
-  // source id.
-  const v1Days = Math.min(365, Math.max(1, Math.round(num(stored.rangeDays, 30))));
-  const v1Source = typeof stored.sourceId === "string" ? [stored.sourceId] : [];
-
-  return {
-    version: BOARD_VERSION,
-    range: or(DateRange.safeParse(stored.range), { kind: "last", days: v1Days }),
-    comparison: or(Comparison.safeParse(stored.comparison), { kind: "previous" }),
-    filter: isV1 ? fromLegacyFilters({ sourceIds: v1Source }) : fromLegacyFilters(stored.filters),
-    // No board old enough to reach this function has ever seen test data:
-    // nothing was writing the attribute when they were saved.
-    testMode: false,
-    widgets,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // What a board asks
@@ -647,8 +263,18 @@ export function effectiveQuery(board: BoardFrame, widget: QueryWidget): LogQuery
   if (hasConstraint(board.filter)) parts.push(board.filter!);
   const own = widget.query.filter;
   if (hasConstraint(own)) parts.push(own!);
-  return { ...widget.query, filter: parts.length === 1 ? parts[0]! : and(parts) };
+  return { ...widget.query, filter: parts.length === 1 ? parts[0]! : allOf(parts) };
 }
+
+/**
+ * The zone a derived series is bucketed in. Fixed, and shared, on purpose.
+ *
+ * A sparkline is not a chart somebody built, so nobody chose a zone for it. It
+ * has to be the same one on both sides of the wire and the same one for two
+ * colleagues, or the key derived from it stops matching and one question
+ * becomes two answers.
+ */
+const SPARKLINE_TZ = "UTC";
 
 /**
  * The daily series behind a single number.
@@ -669,7 +295,7 @@ export function effectiveQuery(board: BoardFrame, widget: QueryWidget): LogQuery
  */
 export function sparklineQuery(query: LogQuery): LogQuery {
   const { withTotal: _total, ...rest } = query;
-  return { ...rest, bucket: { unit: "day", timezone: MIGRATED_TZ }, fill: true };
+  return { ...rest, bucket: { unit: "day", timezone: SPARKLINE_TZ }, fill: true };
 }
 
 export interface BoardRequest {

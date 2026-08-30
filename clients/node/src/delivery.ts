@@ -168,14 +168,6 @@ export function clampInt(
 export interface DeliveryInput {
   delivery?: DeliveryOptions;
   maxQueueEntries: number;
-  /** Legacy flat options, kept working. `delivery.*` wins where both are set. */
-  legacy: {
-    flushIntervalMs?: number;
-    maxBatchEntries?: number;
-    flushAt?: number;
-    flushTimeoutMs?: number;
-    registerShutdownHooks?: boolean;
-  };
 }
 
 type Report = (message: string, detail?: Record<string, unknown>) => void;
@@ -187,7 +179,6 @@ type Report = (message: string, detail?: Record<string, unknown>) => void;
  */
 export function resolveDelivery(input: DeliveryInput, report: Report): ResolvedDelivery {
   const d = input.delivery ?? {};
-  const legacy = input.legacy;
 
   let mode = DELIVERY_DEFAULTS.mode as DeliveryMode;
   if (d.mode !== undefined) {
@@ -212,7 +203,7 @@ export function resolveDelivery(input: DeliveryInput, report: Report): ResolvedD
     );
   }
 
-  const requestedBatch = d.maxBatch ?? legacy.maxBatchEntries;
+  const requestedBatch = d.maxBatch;
   const maxBatch = clampInt(requestedBatch, DELIVERY_DEFAULTS.maxBatch, 1, MAX_ENTRIES_PER_BATCH);
   if (typeof requestedBatch === "number" && requestedBatch > MAX_ENTRIES_PER_BATCH) {
     // Left unclamped this is total silence, not a slow drain: the edge rejects
@@ -224,8 +215,8 @@ export function resolveDelivery(input: DeliveryInput, report: Report): ResolvedD
     );
   }
 
-  const every = clampInt(d.every ?? legacy.flushIntervalMs, DELIVERY_DEFAULTS.every, 50, 3_600_000);
-  const flushAt = clampInt(d.flushAt ?? legacy.flushAt, maxBatch, 1, 1_000_000);
+  const every = clampInt(d.every, DELIVERY_DEFAULTS.every, 50, 3_600_000);
+  const flushAt = clampInt(d.flushAt, maxBatch, 1, 1_000_000);
   const coalesceMs = clampInt(d.coalesceMs, DELIVERY_DEFAULTS.coalesceMs, 0, 60_000);
   const maxDiskEntries = clampInt(d.maxDiskEntries, input.maxQueueEntries, 1, 1_000_000);
   const maxDiskBytes = clampInt(
@@ -236,7 +227,7 @@ export function resolveDelivery(input: DeliveryInput, report: Report): ResolvedD
   );
 
   const flushTimeoutMs = clampInt(
-    d.flushTimeoutMs ?? legacy.flushTimeoutMs,
+    d.flushTimeoutMs,
     DELIVERY_DEFAULTS.flushTimeoutMs,
     1,
     600_000
@@ -247,7 +238,7 @@ export function resolveDelivery(input: DeliveryInput, report: Report): ResolvedD
   // is lost by not sending: the queue is on disk, which is why this mode
   // requires it.
   const exitDefault = mode === "startup" ? false : DELIVERY_DEFAULTS.flushOnExit;
-  const flushOnExit = d.flushOnExit ?? legacy.registerShutdownHooks ?? exitDefault;
+  const flushOnExit = d.flushOnExit ?? exitDefault;
 
   return {
     mode,

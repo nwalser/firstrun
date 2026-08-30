@@ -5,6 +5,7 @@ import { common } from "./messages/common.en.js";
 import { dashboard } from "./messages/dashboard.en.js";
 import { explore } from "./messages/explore.en.js";
 import { events } from "./messages/events.en.js";
+import { usage } from "./messages/usage.en.js";
 import { locale } from "./messages/locale.en.js";
 import { members } from "./messages/members.en.js";
 import { project } from "./messages/project.en.js";
@@ -13,7 +14,7 @@ import { shell } from "./messages/shell.en.js";
 import { sources } from "./messages/sources.en.js";
 import { templates } from "./messages/templates.en.js";
 import { ui } from "./messages/ui.en.js";
-import { wiki } from "./messages/wiki.en.js";
+import { docs } from "./messages/docs.en.js";
 import { workspace } from "./messages/workspace.en.js";
 
 /**
@@ -65,9 +66,10 @@ export const en = {
   ...dashboard,
   ...explore,
   ...events,
+  ...usage,
 
   ...ui,
-  ...wiki,
+  ...docs,
 };
 
 export type Messages = typeof en;

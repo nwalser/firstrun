@@ -5,6 +5,7 @@ import Bell from "lucide-solid/icons/bell";
 import BookOpen from "lucide-solid/icons/book-open";
 import ChevronDown from "lucide-solid/icons/chevron-down";
 import ChevronLeft from "lucide-solid/icons/chevron-left";
+import CircleGauge from "lucide-solid/icons/circle-gauge";
 import Copy from "lucide-solid/icons/copy";
 import Ellipsis from "lucide-solid/icons/ellipsis";
 import Gauge from "lucide-solid/icons/gauge";
@@ -13,6 +14,7 @@ import LifeBuoy from "lucide-solid/icons/life-buoy";
 import LogOut from "lucide-solid/icons/log-out";
 import Pencil from "lucide-solid/icons/pencil";
 import Plus from "lucide-solid/icons/plus";
+import ScrollText from "lucide-solid/icons/scroll-text";
 import Search from "lucide-solid/icons/search";
 import Settings from "lucide-solid/icons/settings";
 import Trash2 from "lucide-solid/icons/trash-2";
@@ -31,6 +33,13 @@ import {
   type JSX,
 } from "solid-js";
 import { cn } from "../lib/cn.js";
+import {
+  scopeHref,
+  scopeTarget,
+  sectionOf,
+  type ScopeSection,
+  type ScopeTarget,
+} from "../lib/scope.js";
 import { useI18n } from "../lib/i18n/index.js";
 import {
   deleteDashboardFn,
@@ -107,7 +116,7 @@ import {
  *
  * Everything in here is chrome, which in this design system means 14px on a
  * 20px line and controls on the 32/36/40 height rhythm. 16px is prose, and the
- * only place the app renders prose is the wiki.
+ * only place the app renders prose is the documentation.
  *
  * Surfaces: the sidebar and the topbar both sit on the PAGE colour, not on a
  * tint of their own, and are cut off by a one-device-pixel hairline. That
@@ -118,6 +127,25 @@ import {
  * the content pane scrolls inside it. A dashboard whose chrome slides away when
  * you scroll a table is a dashboard you have to scroll back up to navigate.
  */
+
+/**
+ * What a control in the shell eases when it changes state.
+ *
+ * The same property list `button.tsx` puts on every button, and therefore the
+ * one every sidebar row already uses, because a row IS a button. Stated once
+ * here because the shell also has half a dozen controls that are NOT buttons --
+ * the two scope links, the two chevrons, the find row, the account pill, the
+ * bell -- and each of them had reached for a shorter list of its own.
+ *
+ * Box-shadow is the part that matters and the part a plain colour transition
+ * misses: focus in this system is a two-stop ring drawn as a box-shadow, so a
+ * control easing only its colours snapped its focus ring while the row beside
+ * it eased both. Duration is left at the Tailwind default, which is what every
+ * other control in the app runs at; the shell's two longer motions -- the
+ * 200ms pane swap and the 200ms collapse -- are structural and deliberately
+ * slower than a hover.
+ */
+const HOVER_TRANSITION = "transition-[color,background-color,box-shadow]";
 
 export interface AppShellProps {
   session: SessionInfo;
@@ -548,7 +576,13 @@ function ScopeChevron(props: { label: string; children: JSX.Element }) {
       aria-label={props.label}
       class={cn(
         "flex h-8 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md",
-        "text-muted-foreground transition-colors hover:text-foreground",
+        "text-muted-foreground hover:text-foreground",
+        // The house property list, which is `button.tsx`'s and therefore every
+        // sidebar row's. Tailwind's shorthand for animating colours leaves
+        // box-shadow out, and the focus ring here IS a box-shadow: a control
+        // using the shorthand eased its hover and snapped its focus, sitting
+        // next to rows that eased both.
+        HOVER_TRANSITION,
         "focus-ring outline-none"
       )}
     >
@@ -564,7 +598,12 @@ function ScopeChevron(props: { label: string; children: JSX.Element }) {
  * the label and the chevron go and the avatar alone remains, which is why the
  * avatar is first.
  */
-function WorkspaceSwitcher(props: { session: SessionInfo; workspace: WorkspaceSummary }) {
+function WorkspaceSwitcher(props: {
+  session: SessionInfo;
+  workspace: WorkspaceSummary;
+  /** Which section is open, so a switch stays on it. */
+  section: ScopeSection;
+}) {
   const { state } = useSidebar();
   const i18n = useI18n();
 
@@ -577,10 +616,14 @@ function WorkspaceSwitcher(props: { session: SessionInfo; workspace: WorkspaceSu
         label: ws.name,
         media: () => <WorkspaceLogo workspace={ws} class="size-4 rounded-sm" />,
         current: ws.slug === props.workspace.slug,
+        // The same SECTION, at the other workspace's own scope. A project slug
+        // does not survive the move -- it names a project in this workspace --
+        // so this always lands at workspace scope.
+        //
         // A full load on purpose, and unchanged from before this port: the
         // session, the project list and the member count all belong to the
         // workspace, and every one of them is loader data one level above here.
-        href: `/w/${ws.slug}`,
+        href: scopeHref(scopeTarget(props.section, ws.slug, null)),
       })),
     },
   ];
@@ -603,7 +646,8 @@ function WorkspaceSwitcher(props: { session: SessionInfo; workspace: WorkspaceSu
           params={{ wslug: props.workspace.slug }}
           class={cn(
             "focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 pr-1 pl-2.5",
-            "text-body font-medium outline-none transition-colors hover:bg-sidebar-accent"
+            "text-body font-medium outline-none hover:bg-sidebar-accent",
+            HOVER_TRANSITION
           )}
         >
           <WorkspaceLogo workspace={props.workspace} />
@@ -634,32 +678,36 @@ function ProjectSwitcher(props: {
   workspace: WorkspaceSummary;
   projects: ProjectSummary[];
   project: ProjectSummary | null;
+  /** Which section is open, so a switch stays on it. */
+  section: ScopeSection;
 }) {
   const navigate = useNavigate();
   const i18n = useI18n();
-  const base = () => `/w/${props.workspace.slug}`;
 
   const current = () => props.project;
+
+  /** The same page, one scope over. See `lib/scope.ts` for what that means. */
+  const target = (project: string | null): ScopeTarget =>
+    scopeTarget(props.section, props.workspace.slug, project);
 
   const groups = (): ScopeGroup[] => [
     {
       key: "projects",
       label: i18n.t("shell.projects"),
-      items: props.projects.map((project) => ({
-        key: project.id,
-        label: project.name,
-        media: () => <ProjectLogo name={project.name} />,
-        current: project.slug === props.project?.slug,
-        href: `${base()}/${project.slug}`,
-        // Client-side, unchanged from before this port: everything a project
-        // page needs is loaded below the shell, so a full document load here
-        // would re-fetch the workspace to show the same sidebar.
-        go: () =>
-          navigate({
-            to: "/w/$wslug/$pslug",
-            params: { wslug: props.workspace.slug, pslug: project.slug },
-          }),
-      })),
+      items: props.projects.map((project) => {
+        const to = target(project.slug);
+        return {
+          key: project.id,
+          label: project.name,
+          media: () => <ProjectLogo name={project.name} />,
+          current: project.slug === props.project?.slug,
+          href: scopeHref(to),
+          // Client-side, unchanged from before this port: everything a project
+          // page needs is loaded below the shell, so a full document load here
+          // would re-fetch the workspace to show the same sidebar.
+          go: () => navigate(to),
+        };
+      }),
     },
   ];
 
@@ -673,7 +721,7 @@ function ProjectSwitcher(props: {
         props.workspace.role === "admin"
           ? {
               label: i18n.t("shell.new_project"),
-              href: `${base()}/projects/new`,
+              href: `/w/${props.workspace.slug}/projects/new`,
               go: () =>
                 navigate({
                   to: "/w/$wslug/projects/new",
@@ -693,11 +741,11 @@ function ProjectSwitcher(props: {
       >
         {(project) => (
           <Link
-            to="/w/$wslug/$pslug"
-            params={{ wslug: props.workspace.slug, pslug: project().slug }}
+            {...target(project().slug)}
             class={cn(
               "focus-ring flex min-w-0 items-center gap-2 rounded-md py-2 pr-1 pl-2",
-              "text-body font-medium outline-none transition-colors hover:bg-accent"
+              "text-body font-medium outline-none hover:bg-accent",
+              HOVER_TRANSITION
             )}
           >
             <ProjectLogo name={project().name} />
@@ -718,14 +766,20 @@ function ProjectSwitcher(props: {
           )}
         >
           <span aria-hidden="true" class="mr-1 ml-2 h-6 w-px shrink-0 bg-border" />
+          {/* Out of the project, and onto the same page one scope up. */}
           <Link
-            to="/w/$wslug"
-            params={{ wslug: props.workspace.slug }}
+            {...target(null)}
             aria-label={i18n.t("shell.back_to_workspace")}
             title={i18n.t("shell.back_to_workspace")}
             class={cn(
               "focus-ring flex h-8 w-7 shrink-0 items-center justify-center rounded-md",
-              "text-muted-foreground outline-none"
+              // Identical to the chevron 28x32 sitting immediately beside it,
+              // hover included. It had none: the one control in the topbar
+              // that said nothing back when the pointer was on it, in a row
+              // where its neighbour brightens.
+              "text-muted-foreground hover:text-foreground",
+              HOVER_TRANSITION,
+              "outline-none"
             )}
           >
             <ChevronLeft class="size-4" />
@@ -794,14 +848,48 @@ function FindPalette(props: {
 }) {
   const i18n = useI18n();
   const navigate = useNavigate();
-  const { state } = useSidebar();
+  const { state, isMobile } = useSidebar();
   const [open, setOpen] = createSignal(false);
   const [query, setQuery] = createSignal("");
   const [selected, setSelected] = createSignal(0);
+  /**
+   * Whether hydration is behind us, which is what gates the scrim's portal.
+   *
+   * The scrim has to stay mounted to fade out (see the note on it), and a
+   * portal that is mounted during hydration is a shape this file has been badly
+   * bitten by: the server renders a portal as the empty string, so there is
+   * nothing on the page for the client's marker node to line up against.
+   * Mounting it one tick later sidesteps the question entirely -- the server
+   * still emits nothing, and nobody can press a scrim that has not been
+   * rendered yet anyway.
+   */
+  const [hydrated, setHydrated] = createSignal(false);
   let input: HTMLInputElement | undefined;
   let list: HTMLDivElement | undefined;
 
   const base = () => `/w/${props.workspace.slug}`;
+
+  /**
+   * The palette EXPANDS THE ROW, it does not hang off it.
+   *
+   * The measured position is x 4, y 50, against a find row that occupies y 52
+   * to 88 -- so the panel's top edge lands two pixels ABOVE the top of the row
+   * it replaces, and its 48px input sits where the 36px row was. Anchored to
+   * the row with a downward gutter it instead appeared 40px lower, as a
+   * dropdown under a button, which is the shape the reference deliberately
+   * replaced when it deleted the centred modal palette.
+   *
+   * The arithmetic: bottom-start puts the top edge at the anchor's bottom plus
+   * the gutter, the anchor is the 36px row, and the panel wants to start 2px
+   * above it. Hence one row's height plus that overlap, negative.
+   *
+   * Left alone below `md`, where the panel is a full-screen sheet rather than a
+   * panel over a row and pulling it up by a row's height would only push it off
+   * the top of the screen.
+   */
+  const FIND_ROW_HEIGHT = 36;
+  const FIND_OVERLAP = 2;
+  const gutter = () => (isMobile() ? FIND_OVERLAP : -(FIND_ROW_HEIGHT + FIND_OVERLAP));
 
   /**
    * Every destination the shell can reach, flat.
@@ -854,6 +942,30 @@ function FindPalette(props: {
     }
 
     rows.push(
+      // Both of these are workspace-wide and both exist at every scope, so they
+      // are listed once with the workspace as their subtitle rather than being
+      // swapped for the project-scoped rows above.
+      {
+        key: "workspace-sources",
+        title: i18n.t("shell.sources"),
+        subtitle: props.workspace.name,
+        media: () => <Antenna class="size-4" />,
+        href: `${base()}/sources`,
+      },
+      {
+        key: "events",
+        title: i18n.t("shell.events"),
+        subtitle: props.workspace.name,
+        media: () => <ScrollText class="size-4" />,
+        href: `${base()}/events`,
+      },
+      {
+        key: "usage",
+        title: i18n.t("shell.usage"),
+        subtitle: props.workspace.name,
+        media: () => <CircleGauge class="size-4" />,
+        href: `${base()}/usage`,
+      },
       {
         key: "people",
         title: i18n.t("shell.people"),
@@ -873,7 +985,7 @@ function FindPalette(props: {
         title: i18n.t("shell.documentation"),
         subtitle: "firstrun",
         media: () => <BookOpen class="size-4" />,
-        href: "/wiki",
+        href: "/docs",
       }
     );
 
@@ -927,6 +1039,7 @@ function FindPalette(props: {
    * no shortcut at all.
    */
   onMount(() => {
+    setHydrated(true);
     const onWindowKey = (e: KeyboardEvent) => {
       if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
@@ -952,7 +1065,18 @@ function FindPalette(props: {
         }
       }}
       placement="bottom-start"
-      gutter={2}
+      gutter={gutter()}
+      /*
+        Find is the one popover here that is a MODE, not a menu.
+
+        It draws a scrim over the whole product, and a scrim over a page that is
+        still scrollable, still tabbable and still exposed to a screen reader is
+        a lie told in pixels: it says nothing else is live while everything
+        behind it still is. `modal` is what makes the dim true. Every other
+        popover in the shell stays non-modal on purpose, because a scope
+        switcher is a menu and a menu does not take the page hostage.
+      */
+      modal
     >
       <PopoverAnchor class="px-2">
         {/*
@@ -966,7 +1090,12 @@ function FindPalette(props: {
           class={cn(
             "focus-ring flex h-9 w-full cursor-pointer items-center rounded-md pr-2",
             "bg-card text-body text-muted-foreground shadow-xs outline-none",
-            "transition-colors hover:text-foreground"
+            "hover:text-foreground",
+            // The row carries a resting ring AND a focus ring, both
+            // box-shadows, so leaving box-shadow off the list here was the most
+            // visible instance of the problem: the ring snapped on and off a
+            // control sitting directly under a scope row that eased it.
+            HOVER_TRANSITION
           )}
         >
           <span class="flex size-9 shrink-0 items-center justify-center">
@@ -987,23 +1116,37 @@ function FindPalette(props: {
         The dim behind it.
 
         Find is the one popover in the shell that is a MODE rather than a menu:
-        it covers the whole product, and the reference dims the page under it so
-        the palette is the only live thing on screen. Kobalte's popover in this
-        version has neither a `modal` prop nor an overlay part, so the scrim is
-        ours to draw, in its own portal at its own step of the ladder: under the
-        palette, over everything else.
+        it covers the whole product, so the page under it is dimmed and the
+        palette is the only live thing on screen. That is OUR decision, not a
+        measurement -- `docs/vercel-structure.md` records the palette's geometry
+        and its behaviour and says nothing about a scrim either way. An earlier
+        version of this note credited the reference for it; it should not have.
+
+        Kobalte's popover in this version has neither a `modal` prop nor an
+        overlay part, so the scrim is ours to draw, in its own portal at its own
+        step of the ladder: under the palette, over everything else.
 
         It closes on press. The palette sits above it, so a press that lands
         here is a press that missed the palette on purpose.
+
+        MOUNTED WHETHER OR NOT IT IS OPEN, and driven by opacity rather than by
+        presence. Gated on `open` it faded in and then vanished in one frame,
+        because a removed node has nothing left to animate: the dim outran the
+        panel, which does animate out. Two states of one property transition
+        both ways for free, and the reduced-motion gate then covers the exit as
+        well as the arrival instead of only the arrival.
       */}
-      <Show when={open()}>
+      <Show when={hydrated()}>
         <Portal>
           <div
             aria-hidden="true"
+            data-open={open() ? "" : undefined}
             onPointerDown={() => setOpen(false)}
             class={cn(
-              "fixed inset-0 z-scrim bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
-              "motion-safe:animate-in motion-safe:fade-in"
+              "pointer-events-none fixed inset-0 z-scrim opacity-0",
+              "bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+              "motion-safe:transition-opacity",
+              "data-[open]:pointer-events-auto data-[open]:opacity-100"
             )}
           />
         </Portal>
@@ -1016,7 +1159,11 @@ function FindPalette(props: {
           input?.focus();
         }}
       >
-        <div class="flex h-[49px] items-center border-b">
+        {/* gray-300, the same rule the scope popover's header draws and the
+            same one the reference measures under both. This was the default
+            hairline, which is a different step: two panels with the identical
+            geometry disagreeing about one line. */}
+        <div class="flex h-[49px] items-center border-b border-[color:var(--gray-300)]">
           <span class="flex size-12 shrink-0 items-center justify-center text-muted-foreground">
             <Search class="size-4" />
           </span>
@@ -1114,10 +1261,13 @@ function pageIdentity(
   const seg = path.replace(/\/+$/, "").split("/").filter(Boolean);
   const label = (key: string) => t(key as never);
 
-  if (seg[0] === "wiki") return { icon: BookOpen, title: label("shell.documentation") };
+  if (seg[0] === "documentation") return { icon: BookOpen, title: label("shell.documentation") };
 
   if (seg[0] === "w") {
     if (seg.length <= 2) return { icon: LayoutGrid, title: label("shell.projects") };
+    if (seg[2] === "sources") return { icon: Antenna, title: label("shell.sources") };
+    if (seg[2] === "events") return { icon: ScrollText, title: label("shell.events") };
+    if (seg[2] === "usage") return { icon: CircleGauge, title: label("shell.usage") };
     if (seg[2] === "members") return { icon: Users, title: label("shell.people") };
     if (seg[2] === "settings") return { icon: Settings, title: label("shell.settings") };
     if (seg[2] === "projects") return { icon: Plus, title: label("shell.new_project") };
@@ -1175,14 +1325,28 @@ function PageBreadcrumb(props: { path: string }) {
           <path d="M4.5 13.5L11.5 2.5" stroke="currentColor" stroke-width="1.5" />
         </svg>
       </span>
-      <span
-        class={cn(
-          "truncate font-medium tracking-snug text-foreground",
-          "motion-safe:animate-in motion-safe:fade-in"
+      {/*
+        Keyed, so the enter animation actually happens.
+
+        `animate-in` runs once, when its element is created. With the title as a
+        text node inside a permanent span, that creation was the shell's first
+        render and nothing after it: every navigation from then on swapped the
+        characters in place with no animation at all, while the class sat there
+        claiming otherwise. Keying on the title rebuilds the span whenever the
+        page changes, so every title arrives the way the first one did.
+      */}
+      <Show when={page().title} keyed>
+        {(title) => (
+          <span
+            class={cn(
+              "truncate font-medium tracking-snug text-foreground",
+              "motion-safe:animate-in motion-safe:fade-in"
+            )}
+          >
+            {title}
+          </span>
         )}
-      >
-        {page().title}
-      </span>
+      </Show>
     </nav>
   );
 }
@@ -1511,7 +1675,11 @@ function BoardActions(props: {
           aria-label={i18n.t("shell.board_options", { name: props.board.name })}
           class={cn(
             "absolute top-1/2 right-1 -translate-y-1/2 cursor-pointer rounded-sm p-1",
-            "text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground",
+            "text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground",
+            // Opacity AND the house list: it declared only opacity, so the
+            // control faded in smoothly and then snapped to its hover fill,
+            // sitting on top of a row whose own fill eases.
+            "transition-[color,background-color,box-shadow,opacity]",
             "focus-visible:opacity-100 group-hover/board:opacity-100 data-[expanded]:opacity-100",
             // There is no room for it beside a 36px icon, and no hover target
             // that is not the row itself.
@@ -1597,7 +1765,8 @@ function NotificationBell() {
           class={cn(
             "focus-ring flex size-6 shrink-0 cursor-pointer items-center justify-center",
             "rounded-full text-muted-foreground shadow-xs outline-none",
-            "transition-colors hover:text-foreground"
+            "hover:text-foreground",
+            HOVER_TRANSITION
           )}
         >
           <Bell class="size-3.5" />
@@ -1612,9 +1781,9 @@ function NotificationBell() {
   );
 }
 
-/** The wiki topic the Support row lands on. Named so the two rows agree. */
+/** The documentation topic the Support row lands on. Named so the two rows agree. */
 const SUPPORT_TOPIC = "troubleshooting";
-const SUPPORT_PATH = `/wiki/${SUPPORT_TOPIC}`;
+const SUPPORT_PATH = `/docs/${SUPPORT_TOPIC}`;
 
 function RootNav(props: {
   workspace: WorkspaceSummary;
@@ -1712,16 +1881,37 @@ function RootNav(props: {
           and the row under the rule meant two different things depending on
           where you were standing.
 
-          Sources is the one row that is genuinely project-scoped, because a
-          source belongs to a project and there is no workspace-wide union view
-          to point a workspace href at. So it is added at project scope rather
-          than swapped in, and People stays put at both: membership is per
-          workspace, so its href is the same either way.
+          Every row here now exists at both scopes and only its destination
+          moves. Sources points at the workspace-wide list or at one project's;
+          Events is one workspace-wide page that a project scope narrows with a
+          search param; People is the same href either way, because membership
+          is per workspace.
         */}
         <SidebarMenu>
-          <Show when={props.project}>
-            {(project) => (
-              <SidebarMenuItem>
+          {/*
+            Sources RENAMES its destination rather than appearing and
+            disappearing: the workspace-wide list at workspace scope, this
+            project's list at project scope. It used to exist only at project
+            scope, on the grounds that there was no workspace-wide union view to
+            point at. There is one now.
+          */}
+          <SidebarMenuItem>
+            <Show
+              when={props.project}
+              fallback={
+                <SidebarMenuButton
+                  as={Link}
+                  to="/w/$wslug/sources"
+                  params={{ wslug: props.workspace.slug }}
+                  tooltip={i18n.t("shell.sources")}
+                  isActive={isActive(`${base()}/sources`)}
+                >
+                  <Antenna />
+                  <SidebarLabel>{i18n.t("shell.sources")}</SidebarLabel>
+                </SidebarMenuButton>
+              }
+            >
+              {(project) => (
                 <SidebarMenuButton
                   as={Link}
                   to="/w/$wslug/$pslug/sources"
@@ -1732,9 +1922,29 @@ function RootNav(props: {
                   <Antenna />
                   <SidebarLabel>{i18n.t("shell.sources")}</SidebarLabel>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
-          </Show>
+              )}
+            </Show>
+          </SidebarMenuItem>
+
+          {/*
+            The log. One address at both scopes, because the log IS
+            workspace-wide: entering a project narrows it with a filter in the
+            URL rather than moving it somewhere else. That keeps a link somebody
+            shares meaning what it said, and keeps the row in the same place.
+          */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              as={Link}
+              to="/w/$wslug/events"
+              params={{ wslug: props.workspace.slug }}
+              search={props.project ? { project: props.project.slug } : {}}
+              tooltip={i18n.t("shell.events")}
+              isActive={isActive(`${base()}/events`)}
+            >
+              <ScrollText />
+              <SidebarLabel>{i18n.t("shell.events")}</SidebarLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
 
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -1791,7 +2001,7 @@ function RootNav(props: {
           </Show>
 
           {/*
-            The wiki is not part of this workspace -- it is the same pages for
+            The documentation is not part of this workspace -- it is the same pages for
             everyone and reads fine with no session at all -- but it is still an
             account-level destination, which is the group the reference puts
             Support and Settings in.
@@ -1799,15 +2009,35 @@ function RootNav(props: {
           <SidebarMenuItem>
             <SidebarMenuButton
               as={Link}
-              to="/wiki"
+              to="/docs"
               tooltip={i18n.t("shell.documentation")}
               isActive={
                 props.path !== SUPPORT_PATH &&
-                (props.path === "/wiki" || props.path.startsWith("/wiki/"))
+                (props.path === "/docs" || props.path.startsWith("/docs/"))
               }
             >
               <BookOpen />
               <SidebarLabel>{i18n.t("shell.documentation")}</SidebarLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          {/*
+            Usage. The reference's account group has it and this did not,
+            because there was no data model behind it; there is now, and it is
+            the same one everything else here reads. Workspace-wide, narrowed by
+            a search param at project scope, exactly like Events.
+          */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              as={Link}
+              to="/w/$wslug/usage"
+              params={{ wslug: props.workspace.slug }}
+              search={props.project ? { project: props.project.slug } : {}}
+              tooltip={i18n.t("shell.usage")}
+              isActive={isActive(`${base()}/usage`)}
+            >
+              <CircleGauge />
+              <SidebarLabel>{i18n.t("shell.usage")}</SidebarLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
 
@@ -1817,13 +2047,12 @@ function RootNav(props: {
             It points at the troubleshooting topic rather than at a contact form
             we do not have: a row that goes nowhere is worse than a missing one,
             and the page it lands on is genuinely what somebody clicking Support
-            is looking for. The group's other reference item, Usage, has no data
-            model behind it here and is deliberately absent rather than stubbed.
+            is looking for.
           */}
           <SidebarMenuItem>
             <SidebarMenuButton
               as={Link}
-              to="/wiki/$topic"
+              to="/docs/$topic"
               params={{ topic: SUPPORT_TOPIC }}
               tooltip={i18n.t("shell.support")}
               isActive={props.path === SUPPORT_PATH}
@@ -1940,17 +2169,46 @@ export function AppShell(props: AppShellProps) {
   const [sections, setSections] = createSignal<SettingsSectionLink[]>([]);
   const base = () => `/w/${props.workspace.slug}`;
 
+  const slugs = () => props.projects.map((p) => p.slug);
+
+  /**
+   * Which section is on screen, scope-independent.
+   *
+   * Read from the path against the loaded projects, and handed to both
+   * switchers so that switching scope keeps you on the page you were reading.
+   */
+  const section = () => sectionOf(path(), slugs());
+
   /**
    * Which project the URL is inside, or none.
    *
    * Matched against the loaded projects rather than parsed out of the path:
    * `/w/acme/members` and `/w/acme/projects/new` have the same shape as a
    * project URL, and only the list can tell them apart.
+   *
+   * The search param is the second half of the same question. Events and Usage
+   * are ONE workspace-wide page that narrows to a project through `?project=`
+   * (see `lib/scope.ts`), and a page narrowed to one project IS at project
+   * scope: the switcher has to say so, the sidebar's other rows have to follow
+   * it, and the back arrow has to lead out of it. Deriving the scope only from
+   * the path left the topbar reading "All projects" over a page showing one.
+   *
+   * Only on those two sections, so a `?project=` that means something else
+   * somewhere else cannot move the scope. And still from the URL rather than
+   * from a signal, so the server and the first client render agree.
    */
-  const project = () =>
-    props.projects.find(
+  const project = () => {
+    const inPath = props.projects.find(
       (p) => path() === `${base()}/${p.slug}` || path().startsWith(`${base()}/${p.slug}/`)
-    ) ?? null;
+    );
+    if (inPath) return inPath;
+
+    if (section() !== "events" && section() !== "usage") return null;
+    const narrowed = (routerState().location.search as { project?: unknown }).project;
+    return typeof narrowed === "string"
+      ? (props.projects.find((p) => p.slug === narrowed) ?? null)
+      : null;
+  };
 
   /** Settings is the one route that pushes a pane and narrows the content. */
   const onSettings = () =>
@@ -1963,7 +2221,11 @@ export function AppShell(props: AppShellProps) {
       <SidebarProvider>
         <Sidebar>
           <SidebarHeader>
-            <WorkspaceSwitcher session={props.session} workspace={props.workspace} />
+            <WorkspaceSwitcher
+              session={props.session}
+              workspace={props.workspace}
+              section={section()}
+            />
             {/* The second header row, which is what makes the header the
                 measured 92 rather than 52. */}
             <FindPalette workspace={props.workspace} projects={props.projects} nav={nav()} />
@@ -2048,6 +2310,7 @@ export function AppShell(props: AppShellProps) {
                 workspace={props.workspace}
                 projects={props.projects}
                 project={project()}
+                section={section()}
               />
             </div>
 
@@ -2093,7 +2356,7 @@ export function AppShell(props: AppShellProps) {
  * throughout -- a permanent toggle for a panel that is visibly already open is
  * a control whose state you have to read the rest of the screen to know.
  *
- * Exported because the wiki draws the same topbar. It reads nothing but the
+ * Exported because the documentation draws the same topbar. It reads nothing but the
  * sidebar context, so it works in any shell that has one.
  */
 export function ExpandSidebar() {
@@ -2126,7 +2389,8 @@ export function UserMenu(props: { session: SessionInfo }) {
         as="button"
         class={cn(
           "flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md pr-2 pl-2.5",
-          "text-body text-left transition-colors hover:bg-sidebar-accent",
+          "text-body text-left hover:bg-sidebar-accent",
+          HOVER_TRANSITION,
           "focus-ring outline-none",
           state() === "collapsed" && "w-9 flex-none justify-center px-0"
         )}

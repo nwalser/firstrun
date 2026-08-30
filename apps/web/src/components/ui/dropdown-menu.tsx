@@ -21,8 +21,14 @@ export function DropdownMenuContent(
         class={cn(
           "bg-popover text-popover-foreground z-overlay min-w-[10rem] overflow-hidden",
           "rounded-md p-1 shadow-menu",
-          "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
-          "data-[closed]:animate-out data-[closed]:fade-out-0",
+          // The house overlay gesture, written up in `popover.tsx`: 150ms in
+          // and out, the exit mirroring the enter, and nothing animating for a
+          // reader who has asked the system for less motion.
+          "duration-150",
+          "motion-safe:data-[expanded]:animate-in",
+          "data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
+          "motion-safe:data-[closed]:animate-out",
+          "data-[closed]:fade-out-0 data-[closed]:zoom-out-95",
           local.class
         )}
         {...rest}

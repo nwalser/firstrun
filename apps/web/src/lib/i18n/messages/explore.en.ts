@@ -28,7 +28,7 @@ export const explore = {
   "explore.limit": "Limit",
   "explore.attribute_placeholder": "Attribute or column…",
 
-  "explore.no_results": "No entries match this query",
+  "explore.no_results": "No events match this query",
   "explore.results_one": "{count} group",
   "explore.results_other": "{count} groups",
   "explore.save_as_widget": "Save as widget",
@@ -38,7 +38,7 @@ export const explore = {
   "explore.column_name": "Name",
   "explore.column_severity": "Severity",
   "explore.column_distinct_id": "Client id",
-  "explore.column_entry_id": "Entry id",
+  "explore.column_event_id": "Event id",
   "explore.column_ingested_at": "Received at",
 
   "explore.field_unique": "Unique",
@@ -48,7 +48,7 @@ export const explore = {
   "explore.field_custom": "Another attribute…",
 
   // What an aggregation is called once it has a field in it.
-  "explore.agg_entries": "Entries",
+  "explore.agg_events": "Events",
   "explore.agg_uniques": "Uniques",
   "explore.agg_distinct_of": "Distinct {field}",
   "explore.agg_percentile_of": "p{p} {field}",
@@ -58,7 +58,7 @@ export const explore = {
   "explore.agg_max_of": "Maximum of {field}",
 
   // The aggregation as a choice in a picker, before it has a field.
-  "explore.fn_count": "Count of entries",
+  "explore.fn_count": "Count of events",
   "explore.fn_count_distinct": "Count of distinct",
   "explore.fn_sum": "Sum",
   "explore.fn_avg": "Average",
@@ -126,12 +126,12 @@ export const explore = {
   "explore.section_viz": "Draw it as",
   "explore.section_measure": "Measure",
   "explore.section_measure_hint":
-    "Count of entries, count of distinct uniques, or a number out of an attribute.",
+    "Count of events, count of distinct uniques, or a number out of an attribute.",
   "explore.section_filter_hint": "Empty means no constraint, never nothing.",
   "explore.section_group_hint":
     "A column or an attribute path. Each one splits the answer further.",
   "explore.section_bucket_hint":
-    "Always on when the entry happened, never on when it arrived.",
+    "Always on when the event happened, never on when it arrived.",
   "explore.section_limit_hint": "How many groups come back. The ranking decides which.",
 
   "explore.aggregation_label": "Aggregation",
@@ -147,12 +147,12 @@ export const explore = {
 
   "explore.nothing_title": "Nothing has arrived yet",
   "explore.nothing_body":
-    "There are no entries in this window, so there is nothing to discover and nothing to " +
-    "filter on. Every client has the same five calls, and one of them is enough: an entry is " +
+    "There are no events in this window, so there is nothing to discover and nothing to " +
+    "filter on. Every client has the same five calls, and one of them is enough: an event is " +
     "a name, a severity and an attribute map, and it is queryable the moment it lands.",
-  "explore.nothing_cta": "How to send a first entry",
+  "explore.nothing_cta": "How to send a first event",
   "explore.nothing_widen":
-    "Widen the range too: entries are stamped by the client, and an app that was offline " +
+    "Widen the range too: events are stamped by the client, and an app that was offline " +
     "reports days it has already lived through.",
 } satisfies Namespaced<"explore">;
 

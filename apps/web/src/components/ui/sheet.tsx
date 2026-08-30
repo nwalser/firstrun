@@ -33,11 +33,13 @@ export function SheetContent(
 
   return (
     <Dialog.Portal>
+      {/* The house scrim at the scrim step of the ladder. See `dialog.tsx`. */}
       <Dialog.Overlay
         class={cn(
-          "fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
-          "data-[expanded]:animate-in data-[expanded]:fade-in-0",
-          "data-[closed]:animate-out data-[closed]:fade-out-0"
+          "fixed inset-0 z-scrim bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+          "duration-150",
+          "motion-safe:data-[expanded]:animate-in data-[expanded]:fade-in-0",
+          "motion-safe:data-[closed]:animate-out data-[closed]:fade-out-0"
         )}
       />
       <Dialog.Content
@@ -46,8 +48,16 @@ export function SheetContent(
           "border-l border-border shadow-lift-md outline-none",
           "top-0 sm:max-w-sm",
           side() === "right" ? "right-0" : "left-0 border-l-0 border-r border-border",
-          "data-[expanded]:animate-in data-[expanded]:duration-200",
-          "data-[closed]:animate-out data-[closed]:duration-150",
+          //
+          // A drawer SLIDES where a modal zooms, because it comes from an edge
+          // and the edge is the point. What it does not get is its own clock:
+          // this used to open over 200ms and close over 150, which is one
+          // gesture keeping two times and reads as the drawer being heavier to
+          // open than to shut. It runs at the house 150 in both directions now,
+          // in step with its own scrim, which was already at 150 and therefore
+          // finished a frame and a half before the panel it belongs to.
+          "duration-150",
+          "motion-safe:data-[expanded]:animate-in motion-safe:data-[closed]:animate-out",
           side() === "right"
             ? "data-[expanded]:slide-in-from-right data-[closed]:slide-out-to-right"
             : "data-[expanded]:slide-in-from-left data-[closed]:slide-out-to-left",

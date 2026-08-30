@@ -38,6 +38,7 @@ import { FilterEditor } from "./explore/builder.js";
 import { ExplorePanel } from "./explore/panel.js";
 import {
   PRESETS,
+  presetContext,
   presetHint,
   presetLabel,
   presetsFor,
@@ -55,6 +56,7 @@ import {
 } from "@firstrun/schema/query";
 import { useI18n } from "../lib/i18n/index.js";
 import { queryLabels } from "./query-labels.js";
+import { RefreshButton } from "./refresh-button.js";
 import { TimeRangePicker } from "./time-range.js";
 import {
   Badge,
@@ -263,7 +265,9 @@ export function Dashboard(props: DashboardProps) {
   function add(preset: Preset) {
     const at = findFreeSlot(occupied(), preset.size);
     const widget = {
-      ...preset.build(),
+      // What the project has actually sent, so a "count one event" card lands
+      // on a name that exists here rather than on one we guessed.
+      ...preset.build(presetContext(props.discovery)),
       id: newId(preset.key),
       ...at,
       ...preset.size,
@@ -416,6 +420,17 @@ export function Dashboard(props: DashboardProps) {
             </span>
           </Show>
 
+          {/*
+            Re-measures the board without navigating.
+
+            A board left open on a screen is measuring a rolling window, so its
+            numbers go stale where nothing on the page says they have. This
+            re-runs the route's loader, which re-runs `measureBoard` -- one call
+            for every card, deduplicated as always -- while the arrangement,
+            the open drawer and the edit mode all stay exactly as they were.
+          */}
+          <RefreshButton />
+
           <Show when={props.canEdit}>
             <ModeToggle
               arranging={editing()}
@@ -539,7 +554,12 @@ export function Dashboard(props: DashboardProps) {
                 "sticky top-2 flex max-h-[calc(100vh-8rem)] w-80 shrink-0 flex-col",
                 // The raised surface: the ring and its 1px lift, no border.
                 "rounded-md bg-card shadow-sm",
-                "@xl-page/page:w-[404px]"
+                "@xl-page/page:w-[404px]",
+                // The same arrival as the sheet form of this palette, at the
+                // same duration and from the same side. One surface that slides
+                // in on a narrow pane and snaps into place on a wide one reads
+                // as two different things happening.
+                "animate-in fade-in-0 slide-in-from-right-4 duration-200"
               )}
             >
               <div class="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
@@ -782,7 +802,11 @@ function PresetList(props: { presets: Preset[]; onPick: (preset: Preset) => void
             class={cn(
               "focus-ring flex h-popover-row w-full cursor-pointer items-center gap-3",
               "rounded-md px-2 text-left text-body text-foreground",
-              "outline-none transition-colors hover:bg-accent"
+              // The highlight every other row of this shape carries: the full
+              // accent fill AND its foreground, which is what the select and
+              // the menu draw. Half of the pair is a row that changes colour
+              // underneath text that does not.
+              "outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
             )}
           >
             <span class="min-w-0 flex-1 truncate">{presetLabel(i18n, preset)}</span>
@@ -850,6 +874,8 @@ function BoardCard(props: {
   onDuplicate: () => void;
   onBringToFront: () => void;
   onRemove: () => void;
+  /** Null on a note: there is no query behind it and so no rows to show. */
+  onDrill: (() => void) | null;
 }) {
   const i18n = useI18n();
   const id = () => props.widget.id;
@@ -889,8 +915,14 @@ function BoardCard(props: {
           // and the card has no border to style, so a dashed border here would
           // set a style on a zero-width edge and draw nothing. An outline is
           // also outside the box, so arrange mode does not move anything.
+          //
+          // The outline colour is transitioned because the control strip in the
+          // same corner fades rather than appearing, and a frame that snaps
+          // while the buttons on top of it fade reads as two separate answers
+          // to one hover. Tailwind v4 carries the outline colour in its colour
+          // transition list, so no extra property has to be named.
           props.arranging &&
-            "outline-1 outline-dashed outline-offset-0 outline-border hover:outline-ring"
+            "outline-1 outline-dashed outline-offset-0 outline-border transition-colors hover:outline-ring"
         )}
       >
         <Show when={showHeader()}>
@@ -907,6 +939,29 @@ function BoardCard(props: {
           <WidgetBody board={props.board} widget={props.widget} snapshot={props.snapshot} />
         </CardContent>
       </Card>
+
+      {/*
+        Looking, not arranging: the one action that belongs to a card you are
+        only reading. "How many" is the card; "which ones" is a click away, and
+        making somebody enter arrange mode to check a number would be asking
+        them to pick the board up in order to read it.
+      */}
+      <Show when={!props.arranging && props.onDrill}>
+        {(drill) => (
+          <div
+            class={cn(
+              "absolute right-2.5 top-2.5 z-30 flex items-center gap-0.5 rounded-md",
+              "bg-card/95 p-0.5 shadow-sm backdrop-blur-[1px]",
+              "opacity-0 transition-opacity",
+              "group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+            )}
+          >
+            <CardAction label={i18n.t("dashboard.view_entries")} onClick={drill()}>
+              <ScrollText size={13} />
+            </CardAction>
+          </div>
+        )}
+      </Show>
 
       <Show when={props.arranging}>
         <div
@@ -931,6 +986,13 @@ function BoardCard(props: {
             <CardAction label={i18n.t("dashboard.duplicate")} onClick={props.onDuplicate}>
               <Copy size={13} />
             </CardAction>
+          </Show>
+          <Show when={tier() >= 3 && props.onDrill}>
+            {(drill) => (
+              <CardAction label={i18n.t("dashboard.view_entries")} onClick={drill()}>
+                <ScrollText size={13} />
+              </CardAction>
+            )}
           </Show>
           <CardAction label={i18n.t("dashboard.card_settings")} onClick={props.onConfigure}>
             <SlidersHorizontal size={13} />

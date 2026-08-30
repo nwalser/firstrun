@@ -58,7 +58,7 @@ import type { Queryable } from "./client.js";
  *
  * `jsonb_path_ops` would make the containment cases smaller and faster and
  * would drop `?` and `?|` entirely. See the index comment in
- * migrations/0004_log_entries.sql for why that trade went the other way.
+ * migrations/0000_initial.sql for why that trade went the other way.
  */
 
 // ---------------------------------------------------------------------------
@@ -286,9 +286,38 @@ export class QueryError extends Error {
 class Params {
   readonly values: unknown[] = [];
 
+  /**
+   * What every column reference in this statement is prefixed with.
+   *
+   * Empty for the query compiler's own statements, which select from
+   * `log_entries` and nothing else, so a bare `"name"` is unambiguous. The log
+   * view joins `projects` -- which has a `name` column of its own -- so a
+   * fragment spliced into that statement has to say which `name` it means.
+   * Postgres does not guess, and a filter that resolved to the wrong table
+   * would be worse than one that failed to parse.
+   *
+   * A table NAME, not caller text: it is quoted here and nothing else about the
+   * fragment is built by concatenation.
+   */
+  readonly qualify: string;
+
+  constructor(table?: string) {
+    this.qualify = table ? `"${table}".` : "";
+  }
+
   bind(value: unknown, cast = ""): string {
     this.values.push(value);
     return `$${this.values.length}${cast}`;
+  }
+
+  /** One promoted column, qualified for the statement being built. */
+  col(column: EntryColumn): string {
+    return `${this.qualify}${COLUMN_SQL[column]}`;
+  }
+
+  /** The attribute map, qualified likewise. */
+  get attributes(): string {
+    return `${this.qualify}"attributes"`;
   }
 }
 
@@ -363,11 +392,11 @@ function textExpr(field: Field, p: Params): string {
       // `::text` on every column, including the timestamps: a group by has to
       // produce one comparable type, and a caller that wanted an instant asked
       // for a bucket instead.
-      return `${COLUMN_SQL[field.column]}::text`;
+      return `${p.col(field.column)}::text`;
     case "attribute":
-      return `"attributes" #>> ${p.bind(field.path, "::text[]")}`;
+      return `${p.attributes} #>> ${p.bind(field.path, "::text[]")}`;
     case "unique":
-      return `coalesce("attributes" ->> ${p.bind(USER_ID_ATTR)}, "distinct_id")`;
+      return `coalesce(${p.attributes} ->> ${p.bind(USER_ID_ATTR)}, ${p.col("distinct_id")})`;
   }
 }
 
@@ -387,15 +416,15 @@ function textExpr(field: Field, p: Params): string {
 function numberExpr(field: Field, p: Params): string {
   switch (field.kind) {
     case "column":
-      if (field.column === "severity") return `"severity"::numeric`;
+      if (field.column === "severity") return `${p.col("severity")}::numeric`;
       if (field.column === "time" || field.column === "ingested_at") {
-        return `(extract(epoch from ${COLUMN_SQL[field.column]}) * 1000)`;
+        return `(extract(epoch from ${p.col(field.column)}) * 1000)`;
       }
       throw new QueryError(`column ${field.column} is not numeric`);
     case "attribute": {
       const path = p.bind(field.path, "::text[]");
-      return `(CASE WHEN jsonb_typeof("attributes" #> ${path}) = 'number'
-                    THEN ("attributes" #> ${path})::numeric END)`;
+      return `(CASE WHEN jsonb_typeof(${p.attributes} #> ${path}) = 'number'
+                    THEN (${p.attributes} #> ${path})::numeric END)`;
     }
     case "unique":
       throw new QueryError("the unique key is not numeric");
@@ -487,7 +516,7 @@ function compileFilter(filter: Filter, p: Params, depth = 0): string {
       // Ordering on the promoted columns keeps the column's own type, so the
       // btree can be used. Everything else extracts first and cannot.
       if (field.kind === "column") {
-        return `(${COLUMN_SQL[field.column]} ${sqlOp} ${p.bind(columnValue(field.column, filter.value))})`;
+        return `(${p.col(field.column)} ${sqlOp} ${p.bind(columnValue(field.column, filter.value))})`;
       }
       if (isNumericField(field)) {
         return `(${numberExpr(field, p)} ${sqlOp} ${p.bind(filter.value)}::numeric)`;
@@ -535,11 +564,11 @@ function compileFilter(filter: Filter, p: Params, depth = 0): string {
  */
 function eqExpr(field: Field, value: Scalar, p: Params): string {
   if (field.kind === "attribute" && field.as !== "number" && containable(field.path)) {
-    return `("attributes" @> ${p.bind(JSON.stringify(nest(field.path, value)), "::jsonb")})`;
+    return `(${p.attributes} @> ${p.bind(JSON.stringify(nest(field.path, value)), "::jsonb")})`;
   }
   if (value === null) return `(${valueExpr(field, p)} IS NULL)`;
   if (field.kind === "column") {
-    return `(${COLUMN_SQL[field.column]} = ${p.bind(columnValue(field.column, value))})`;
+    return `(${p.col(field.column)} = ${p.bind(columnValue(field.column, value))})`;
   }
   if (isNumericField(field)) {
     return `(${numberExpr(field, p)} = ${p.bind(value)}::numeric)`;
@@ -557,7 +586,7 @@ function eqExpr(field: Field, value: Scalar, p: Params): string {
 function inExpr(field: Field, values: readonly Scalar[], p: Params): string {
   if (field.kind === "column") {
     const bound = values.map((v) => columnValue(field.column, v));
-    return `(${COLUMN_SQL[field.column]} = ANY(${p.bind(bound)}))`;
+    return `(${p.col(field.column)} = ANY(${p.bind(bound)}))`;
   }
   return `(${values.map((v) => eqExpr(field, v, p)).join(" OR ")})`;
 }
@@ -575,9 +604,9 @@ function inExpr(field: Field, values: readonly Scalar[], p: Params): string {
 function existsExpr(field: Field, p: Params): string {
   if (field.kind === "attribute") {
     if (field.path.length === 1) {
-      return `("attributes" ? ${p.bind(field.path[0])})`;
+      return `(${p.attributes} ? ${p.bind(field.path[0])})`;
     }
-    return `("attributes" #> ${p.bind(field.path, "::text[]")} IS NOT NULL)`;
+    return `(${p.attributes} #> ${p.bind(field.path, "::text[]")} IS NOT NULL)`;
   }
   return `(${textExpr(field, p)} IS NOT NULL)`;
 }
@@ -681,7 +710,7 @@ function bucketExpr(bucket: Bucket, p: Params): string {
   }
   const unit = p.bind(bucket.unit);
   const tz = p.bind(bucket.timezone);
-  return `(date_trunc(${unit}, "time" AT TIME ZONE ${tz}) AT TIME ZONE ${tz})`;
+  return `(date_trunc(${unit}, ${p.col("time")} AT TIME ZONE ${tz}) AT TIME ZONE ${tz})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -909,6 +938,26 @@ function decode(raw: Record<string, unknown>, query: LogQuery): QueryRow {
   };
   if (query.withTotal) row.total = numeric(raw.total);
   return row;
+}
+
+/**
+ * One filter, compiled on its own, for a statement this file does not build.
+ *
+ * The log view asks a different question -- rows, not numbers -- and the query
+ * layer is deliberately not reachable from it. What the two DO share is what a
+ * condition means: "url.path starts with /pricing" has to select the same
+ * entries whether it is narrowing a card or narrowing a page of the log, and
+ * two compilers would be two chances for it not to.
+ *
+ * So the filter half is exported and the rest is not. The caller passes the
+ * table its statement selects from, splices the text into its own WHERE, and
+ * renumbers the placeholders against its own parameter list. Every value is
+ * still bound: `params` is the whole of what the caller's data becomes, and
+ * `text` contains no literal `$` other than the placeholders that index it.
+ */
+export function compileFilterFragment(filter: Filter, table?: string): CompiledQuery {
+  const p = new Params(table);
+  return { text: compileFilter(filter, p), params: p.values };
 }
 
 export async function runQuery(

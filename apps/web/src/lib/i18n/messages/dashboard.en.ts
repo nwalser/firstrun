@@ -21,7 +21,7 @@ export const dashboard = {
   "dashboard.filters_one": "{count} filter",
   "dashboard.filters_other": "{count} filters",
 
-  "dashboard.entries": "Entries",
+  "dashboard.events": "Events",
   "dashboard.uniques": "Uniques",
 
   // The range picker. `describeRange` and `RANGE_PRESETS` in
@@ -47,8 +47,8 @@ export const dashboard = {
   // The toolbar above the board.
   "dashboard.filter_none": "Filter",
   "dashboard.test_mode": "Test data",
-  "dashboard.test_mode_off": "Showing production data. Switch to entries your development builds sent.",
-  "dashboard.test_mode_on": "Showing test data only. Production entries are hidden.",
+  "dashboard.test_mode_off": "Showing production data. Switch to events your development builds sent.",
+  "dashboard.test_mode_on": "Showing test data only. Production events are hidden.",
   "dashboard.test_banner": "Test data",
   "dashboard.window_and_baseline": "{range} · compared with {baseline}",
   "dashboard.saved": "Saved",
@@ -95,31 +95,54 @@ export const dashboard = {
   // What a card says when it has an answer, and when it has none.
   "dashboard.not_set": "(not set)",
   "dashboard.nothing_measured": "Nothing measured in this window.",
-  "dashboard.no_entries": "No entries in this window.",
+  "dashboard.no_events": "No events in this window.",
   "dashboard.empty_note": "An empty note. Its text lives in the card's settings.",
   "dashboard.note_title": "Note",
   "dashboard.peak": "peak",
-  "dashboard.all_entries": "All entries",
+  "dashboard.all_events": "All events",
   "dashboard.more_one": "+{count} more",
   "dashboard.more_other": "+{count} more",
 
+  // The rows behind one number. The card says how many; this says which ones.
+  "dashboard.view_entries": "View entries",
+  "dashboard.drill_title": "Entries behind {card}",
+  "dashboard.drill_window": "Everything this card was measured over: {window}.",
+  "dashboard.drill_none": "No entries match this card",
+  "dashboard.drill_none_hint":
+    "The card counts what this filter selects, and nothing in the window does. That is the " +
+    "same answer the number is showing.",
+  "dashboard.drill_failed": "Could not load these entries",
+  "dashboard.drill_failed_hint": "The board is unaffected. Close this and try again.",
+
   // The starting points in the palette. The title is what the row reads; the
   // description is its `title` attribute, because a 36px row has no second line.
+  "dashboard.preset_event_count": "Count one event",
+  "dashboard.preset_event_count_hint":
+    "How many times one named event happened, with the change since last. Lands on the " +
+    "name this project sends most; change it in the builder.",
+  "dashboard.preset_event_uniques": "One event, by person",
+  "dashboard.preset_event_uniques_hint":
+    "How many distinct people or installs sent one named event, counted once each however " +
+    "often they sent it.",
   "dashboard.preset_uniques": "Single number",
   "dashboard.preset_uniques_hint":
     "How many distinct people or installs sent anything, with the change since last.",
   "dashboard.preset_over_time": "Over time",
   "dashboard.preset_over_time_hint":
-    "Entries per day, bucketed on when they happened rather than when they arrived.",
+    "Events per day, bucketed on when they happened rather than when they arrived.",
   "dashboard.preset_names": "What is being sent",
   "dashboard.preset_names_hint":
-    "Every entry name in the window, ranked. The first thing to look at on a new project.",
+    "Every event name in the window, ranked. The first thing to look at on a new project.",
   "dashboard.preset_errors": "Errors over time",
   "dashboard.preset_errors_hint":
-    "Entries at ERROR or worse, per day. Severity is a number, so this is one filter.",
+    "Events at ERROR or worse, per day. Severity is a number, so this is one filter.",
   "dashboard.preset_exceptions": "Top exceptions",
   "dashboard.preset_exceptions_hint":
     "Which exception type is thrown most, and how many people it reached.",
+  "dashboard.preset_exception_messages": "Top exception messages",
+  "dashboard.preset_exception_messages_hint":
+    "Exceptions grouped by their message, so the same failure lands on one row. The closest " +
+    "thing here to a list of issues.",
   "dashboard.preset_pages": "Top pages",
   "dashboard.preset_pages_hint":
     "Page views grouped by path, ranked by how many people saw each one.",

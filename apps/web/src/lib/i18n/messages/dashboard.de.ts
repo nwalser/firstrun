@@ -36,7 +36,7 @@ export const dashboard: DashboardMessages = {
   "dashboard.filters_one": "{count} Filter",
   "dashboard.filters_other": "{count} Filter",
 
-  "dashboard.entries": "Einträge",
+  "dashboard.events": "Events",
   "dashboard.uniques": "Uniques",
 
   "dashboard.range_last_24h": "Letzte 24 Stunden",
@@ -56,8 +56,8 @@ export const dashboard: DashboardMessages = {
 
   "dashboard.filter_none": "Filter",
   "dashboard.test_mode": "Testdaten",
-  "dashboard.test_mode_off": "Produktionsdaten werden angezeigt. Zu den Einträgen der Entwicklungs-Builds wechseln.",
-  "dashboard.test_mode_on": "Nur Testdaten werden angezeigt. Produktionseinträge sind ausgeblendet.",
+  "dashboard.test_mode_off": "Produktionsdaten werden angezeigt. Zu den Events der Entwicklungs-Builds wechseln.",
+  "dashboard.test_mode_on": "Nur Testdaten werden angezeigt. Produktions-Events sind ausgeblendet.",
   "dashboard.test_banner": "Testdaten",
   "dashboard.window_and_baseline": "{range} · verglichen mit {baseline}",
   "dashboard.saved": "Gespeichert",
@@ -104,32 +104,56 @@ export const dashboard: DashboardMessages = {
 
   "dashboard.not_set": "(nicht gesetzt)",
   "dashboard.nothing_measured": "In diesem Zeitraum wurde nichts gemessen.",
-  "dashboard.no_entries": "Keine Einträge in diesem Zeitraum.",
+  "dashboard.no_events": "Keine Events in diesem Zeitraum.",
   "dashboard.empty_note": "Eine leere Notiz. Ihr Text steht in den Einstellungen der Karte.",
   "dashboard.note_title": "Notiz",
   "dashboard.peak": "Spitze",
-  "dashboard.all_entries": "Alle Einträge",
+  "dashboard.all_events": "Alle Events",
   "dashboard.more_one": "+{count} weitere",
   "dashboard.more_other": "+{count} weitere",
 
+  "dashboard.view_entries": "Einträge ansehen",
+  "dashboard.drill_title": "Einträge hinter {card}",
+  "dashboard.drill_window": "Alles, worüber diese Karte gemessen wurde: {window}.",
+  "dashboard.drill_none": "Keine Einträge passen zu dieser Karte",
+  "dashboard.drill_none_hint":
+    "Die Karte zählt, was dieser Filter auswählt, und im Zeitraum passt nichts darauf. Das " +
+    "ist dieselbe Antwort, die die Zahl zeigt.",
+  "dashboard.drill_failed": "Diese Einträge konnten nicht geladen werden",
+  "dashboard.drill_failed_hint":
+    "Das Board ist davon nicht betroffen. Schließen und erneut versuchen.",
+
+  "dashboard.preset_event_count": "Ein Event zählen",
+  "dashboard.preset_event_count_hint":
+    "Wie oft ein benanntes Event passiert ist, mit der Veränderung seit dem letzten " +
+    "Zeitraum. Startet mit dem Namen, den dieses Projekt am häufigsten sendet; im Builder " +
+    "änderbar.",
+  "dashboard.preset_event_uniques": "Ein Event, nach Personen",
+  "dashboard.preset_event_uniques_hint":
+    "Wie viele verschiedene Personen oder Installationen ein benanntes Event gesendet " +
+    "haben, jede einmal gezählt, egal wie oft sie es gesendet hat.",
   "dashboard.preset_uniques": "Einzelne Zahl",
   "dashboard.preset_uniques_hint":
     "Wie viele verschiedene Personen oder Installationen etwas gesendet haben, mit der " +
     "Veränderung seit dem letzten Zeitraum.",
   "dashboard.preset_over_time": "Im Zeitverlauf",
   "dashboard.preset_over_time_hint":
-    "Einträge pro Tag, gerastert danach, wann sie passiert sind, nicht wann sie ankamen.",
+    "Events pro Tag, gerastert danach, wann sie passiert sind, nicht wann sie ankamen.",
   "dashboard.preset_names": "Was gesendet wird",
   "dashboard.preset_names_hint":
-    "Jeder Eintragsname im Zeitraum, nach Rang. Das Erste, was man in einem neuen Projekt " +
+    "Jeder Eventname im Zeitraum, nach Rang. Das Erste, was man in einem neuen Projekt " +
     "ansieht.",
   "dashboard.preset_errors": "Fehler im Zeitverlauf",
   "dashboard.preset_errors_hint":
-    "Einträge ab ERROR oder schlimmer, pro Tag. Severity ist eine Zahl, also ist das ein " +
+    "Events ab ERROR oder schlimmer, pro Tag. Severity ist eine Zahl, also ist das ein " +
     "einziger Filter.",
   "dashboard.preset_exceptions": "Häufigste Exceptions",
   "dashboard.preset_exceptions_hint":
     "Welcher Exception-Typ am häufigsten geworfen wird und wie viele Personen er erreicht hat.",
+  "dashboard.preset_exception_messages": "Häufigste Exception-Meldungen",
+  "dashboard.preset_exception_messages_hint":
+    "Exceptions nach ihrer Meldung gruppiert, damit derselbe Fehler in einer Zeile landet. " +
+    "Das, was hier einer Liste von Issues am nächsten kommt.",
   "dashboard.preset_pages": "Häufigste Seiten",
   "dashboard.preset_pages_hint":
     "Seitenaufrufe nach Pfad gruppiert, sortiert danach, wie viele Personen sie gesehen haben.",

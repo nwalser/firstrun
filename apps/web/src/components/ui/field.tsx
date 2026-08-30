@@ -133,7 +133,7 @@ export function Field(props: FieldProps) {
         page rendered a second time. Reading the prop twice (once to test, once
         to render) builds a second copy on top of that. Each one is read here
         exactly once, in the element that holds it. Same rule as
-        `components/wiki/snippet.tsx`.
+        `components/docs/snippet.tsx`.
       */}
       <div class={cn("flex flex-col gap-2", props.class)}>
         <FieldLabel class="empty:hidden">{props.label}</FieldLabel>

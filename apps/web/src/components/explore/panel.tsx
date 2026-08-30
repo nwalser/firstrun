@@ -64,16 +64,27 @@ export function QueryPreview(props: {
     clearTimeout(timer);
     setRunning(true);
     timer = setTimeout(async () => {
-      const answer = await runQueryFn({
-        data: { workspace: props.workspace, project: props.project, query, range },
-      });
-      if (wanted !== key) return;
-      setRunning(false);
-      if (answer.ok) {
-        setResult(answer.result);
-        setError(null);
-      } else {
-        setError(answer.error);
+      try {
+        const answer = await runQueryFn({
+          data: { workspace: props.workspace, project: props.project, query, range },
+        });
+        if (wanted !== key) return;
+        setRunning(false);
+        if (answer.ok) {
+          setResult(answer.result);
+          setError(null);
+        } else {
+          setError(answer.error);
+        }
+      } catch (cause) {
+        // A server function REJECTS when the request never lands -- a dropped
+        // connection, a reload mid-flight -- rather than answering `ok: false`.
+        // Left uncaught, the spinner spun forever over a stale chart and the
+        // builder looked like it was still thinking about an edit nobody was
+        // going to get an answer to.
+        if (wanted !== key) return;
+        setRunning(false);
+        setError(cause instanceof Error ? cause.message : String(cause));
       }
     }, PREVIEW_DEBOUNCE_MS);
   });
@@ -135,7 +146,7 @@ export function NothingSentYet(props: { sourceId?: string | null; class?: string
         {i18n.t("explore.nothing_body")}
       </p>
       <Link
-        to="/wiki/$topic"
+        to="/docs/$topic"
         params={{ topic: "log-entries" }}
         search={props.sourceId ? { source: props.sourceId } : {}}
         class={cn(buttonVariants({ size: "sm" }), "mt-3.5")}

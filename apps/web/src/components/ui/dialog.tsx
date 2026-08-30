@@ -19,11 +19,24 @@ export function DialogContent(props: ComponentProps<typeof KDialog.Content> & { 
   const [local, rest] = splitProps(props, ["class", "children"]);
   return (
     <KDialog.Portal>
+      {/*
+        The house scrim: black at 40%, one pixel of blur, 60% in dark. The same
+        three numbers the sidebar's phone drawer and the find palette draw, so
+        every dim in the product is one dim.
+
+        It sits at the SCRIM step of the ladder in `styles.css` and not at the
+        overlay step. The two steps exist to answer exactly this: a scrim is
+        under the thing it is dimming for and over everything else, and a scrim
+        sharing a number with its own panel makes the ordering depend on which
+        one the portal happened to append last.
+      */}
       <KDialog.Overlay
         class={cn(
-          "fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
-          "data-[expanded]:animate-in data-[expanded]:fade-in-0",
-          "data-[closed]:animate-out data-[closed]:fade-out-0"
+          "fixed inset-0 z-scrim bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+          // The house overlay gesture, written up in `popover.tsx`.
+          "duration-150",
+          "motion-safe:data-[expanded]:animate-in data-[expanded]:fade-in-0",
+          "motion-safe:data-[closed]:animate-out data-[closed]:fade-out-0"
         )}
       />
       <div class="fixed inset-0 z-overlay flex items-center justify-center p-4">
@@ -31,8 +44,11 @@ export function DialogContent(props: ComponentProps<typeof KDialog.Content> & { 
           class={cn(
             "bg-popover text-popover-foreground w-full max-w-lg rounded-md",
             "shadow-modal outline-none",
-            "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
-            "data-[closed]:animate-out data-[closed]:fade-out-0 data-[closed]:zoom-out-95",
+            "duration-150",
+            "motion-safe:data-[expanded]:animate-in",
+            "data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
+            "motion-safe:data-[closed]:animate-out",
+            "data-[closed]:fade-out-0 data-[closed]:zoom-out-95",
             local.class
           )}
           {...rest}

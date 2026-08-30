@@ -53,12 +53,12 @@ export const workspace: WorkspaceMessages = {
   "workspace.projects_one": "{count} Projekt",
   "workspace.projects_other": "{count} Projekte",
 
-  // "Std." rather than "Stunde": this sits under a name in a row and the
-  // abbreviation is what a German reader expects in a caption that tight.
-  "workspace.per_hour": "{rate} Einträge/Std.",
+  // "Std." rather than "Stunde": this is a caption under a figure, and the
+  // abbreviation is what a German reader expects in one that tight.
+  "workspace.per_hour_unit": "Events/Std.",
 
-  "workspace.ingest_30d_one": "{count} Eintrag in den letzten 30 Tagen",
-  "workspace.ingest_30d_other": "{count} Einträge in den letzten 30 Tagen",
+  "workspace.ingest_30d_one": "{count} Event in den letzten 30 Tagen",
+  "workspace.ingest_30d_other": "{count} Events in den letzten 30 Tagen",
 
   "workspace.activity": "Aktivität",
   "workspace.people": "Personen",

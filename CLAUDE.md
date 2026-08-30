@@ -272,11 +272,12 @@ see what they are doing. `findFreeSlot` is only for placing a new card.
 
 `parseBoard` (`packages/schema/src/board.ts`) never throws and never loses a mappable card.
 Unmappable cards are dropped individually, and a corrupt `range`, `comparison` or `filter` falls
-back on its own without taking the widgets with it. v1, v2 and v3 boards all flow through the
-same migration because every step is idempotent; there is no "already current" fast path to rot.
-A funnel or a retention card from the old catalogue is dropped rather than rewritten, because
-neither is expressible in the five parts and a number that means something else is worse than a
-missing card.
+back on its own without taking the widgets with it. There is exactly one board shape and one
+reader for it: a board that does not carry the current `BOARD_VERSION` is not read, it is
+replaced by an empty one. The version stamp is checked FIRST, because every geometry field has a
+default and a widget of some other shape would otherwise validate as a placed widget at 0,0 and
+collapse the board into the top-left corner. Do not add a reader for an older shape; bumping
+`BOARD_VERSION` is how a board that can no longer be read is retired.
 
 ### One project, many boards
 
@@ -381,10 +382,11 @@ disagree, those files are right. Use the existing tokens. Do not change token va
   exact versions. Do not float them independently. Its RC line needs Solid 2.0, which
   `vite-plugin-solid` does not support yet (`solid-js/web` moved to `@solidjs/web`), so it will
   not even boot.
-- **An older layout parses cleanly as the current one, and that is a trap.** Every geometry field
-  has a default, so a stored v1 widget `{id, type, width}` validates as a v3 widget at 0,0 with
-  the default size: the whole board silently collapses into the top-left corner and the migration
-  never runs. `parseBoard` checks the `version` stamp FIRST for that reason. Do not reorder it.
+- **A widget of some other shape parses cleanly as a current one, and that is a trap.** Every
+  geometry field has a default, so a stored `{id, type, width}` validates as a placed widget at
+  0,0 with the default size and the whole board silently collapses into the top-left corner
+  instead of being rejected. `parseBoard` checks the `version` stamp FIRST for that reason. Do
+  not reorder it.
 - **A value import from `@firstrun/db` in a component puts Postgres in the browser.** A widget
   that imported a helper from the db package pulled `pg`, `drizzle-orm`, `node:fs` and
   `node:crypto` into the client graph, Vite served them as `__vite-browser-external` stubs, and
@@ -418,7 +420,7 @@ disagree, those files are right. Use the existing tokens. Do not change token va
 ```
 apps/web/           TanStack Start (Solid): UI, auth, and the ingest routes
   components/ui/    shadcn components, owned here, built on Kobalte
-  components/wiki/  the customer-facing documentation, as Solid pages
+  components/docs/  the customer-facing documentation, as Solid pages
 packages/schema/    the contract: log entry, severity, attributes, conventions, query AST, board
 packages/ingest/    ingest handlers as plain Request -> Response
 packages/web-tag/   the browser tag, vanilla TS, esbuild, 4KB gzipped budget

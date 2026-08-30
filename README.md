@@ -112,7 +112,7 @@ written in the visible range. There is no schema to register.
 ## Layout
 
 ```
-apps/web/           UI, auth, the wiki, and the ingest endpoints
+apps/web/           UI, auth, the documentation, and the ingest endpoints
 packages/schema/    log entry, severity, attributes, conventions, query and snapshot shapes
 packages/ingest/    ingest handlers as plain Request -> Response
 packages/web-tag/   the browser tag

@@ -23,6 +23,7 @@ export const shell = {
   "shell.breadcrumb": "Breadcrumb",
   "shell.sources": "Sources",
   "shell.events": "Events",
+  "shell.usage": "Usage",
   "shell.boards": "Boards",
   "shell.new_board": "New board",
   "shell.reorder_hint": "Alt+Up / Alt+Down to reorder",
@@ -33,7 +34,7 @@ export const shell = {
    * These say "board" and belong to the sidebar rather than to the `boards`
    * namespace, which another area owns. A shared string that is not in the
    * frozen `common` namespace goes in the namespace of whoever renders it: two
-   * catalogue entries reading "Board löschen" cost nothing.
+   * catalogue events reading "Board löschen" cost nothing.
    */
   "shell.duplicate": "Duplicate",
   "shell.board_options": "{name} options",

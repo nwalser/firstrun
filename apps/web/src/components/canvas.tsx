@@ -2,6 +2,7 @@ import {
   CANVAS_MIN_HEIGHT,
   CANVAS_WIDTH,
   GRID,
+  MAX_WIDGETS,
   MIN_WIDGET_H,
   MIN_WIDGET_W,
   normaliseRect,
@@ -176,9 +177,12 @@ export const moveBy = (r: Rect, dx: number, dy: number): Rect => ({
  *
  * The opposite edge is the anchor: dragging the west edge moves `x` and grows
  * `w` by the same amount, so the right hand side of the card does not creep.
- * Both minimum size and the canvas bounds are enforced here rather than left to
- * `normaliseRect`, because clamping a width after the fact would let a card
- * slide sideways once it hit its minimum.
+ *
+ * The west and north edges clamp to the minimum HERE rather than leaving it to
+ * `normaliseRect`, because those are the two that move the origin: clamping a
+ * width after the fact would let a card slide sideways once it hit its minimum.
+ * East and south leave the origin alone, so the later clamp reaches the same
+ * answer and both directions stop dead at the minimum instead of jumping.
  *
  * Cells, like everything else on this side of the file. `MIN_WIDGET_W` and
  * `MIN_WIDGET_H` are the smallest CELL, so the smallest card is two gutters
@@ -400,6 +404,44 @@ const CURSORS: Record<ResizeEdge, string> = {
 const NO_GESTURE: GestureProps = { onPointerDown: () => {}, style: {} };
 
 /**
+ * A lifted card sits above every resting one, and below the chrome.
+ *
+ * A resting card's stacking order IS its render order, so the top card on a
+ * full board is at `MAX_WIDGETS - 1`. A fixed lift below that number puts the
+ * card you are dragging underneath the last few cards on a busy board, which
+ * reads as the drag having been dropped. The chrome layer starts at 50, so this
+ * has to stay under it: a card dragged past the top of the viewport must go
+ * behind the topbar rather than over it.
+ *
+ * The `dragging` utility names a stacking step of its own, and this beats it:
+ * a resting card writes its order as an inline style, so the lift has to be
+ * written the same way or it would lose to the very cards it is meant to clear.
+ */
+const LIFTED_Z = MAX_WIDGETS;
+
+/**
+ * The cursor for a running gesture, stated on the document as well as the card.
+ *
+ * The same rule the sidebar's resize handle follows, and for the same reason:
+ * the pointer leaves the thing it is dragging the moment that thing stops
+ * following it -- a card clamped against the canvas edge, an edge held past its
+ * minimum -- and the cursor flicking back to an arrow reads as the gesture
+ * having ended. `cursor` inherits, so one declaration on the root reaches the
+ * empty canvas, the page around it and every card that has not stated its own.
+ *
+ * The cards state theirs from the same value (see the `GestureProps` below),
+ * because a declared cursor beats an inherited one however important the
+ * inherited one is -- and while a card is being RESIZED the lift utility is
+ * declaring the grab cursor on it, which is the wrong one.
+ */
+function setDocumentCursor(value: string | null) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (value) root.style.setProperty("cursor", value, "important");
+  else root.style.removeProperty("cursor");
+}
+
+/**
  * A drag that crossed the threshold ends with a click nobody asked for.
  *
  * The pointer went down on the card and came up somewhere else entirely, and
@@ -419,6 +461,8 @@ function swallowNextClick() {
 export function createCanvas(options: CanvasOptions): CanvasController {
   const [active, setActive] = createSignal<{ id: string; mode: GestureMode } | null>(null);
   const [guides, setGuides] = createSignal<Guide[]>([]);
+  /** The one cursor everything shows while a gesture runs. Null between them. */
+  const [cursor, setCursor] = createSignal<string | null>(null);
 
   // A gesture outlives the handler that started it, so the way to abort one is
   // a reference to its own teardown. Registered here, in component scope, where
@@ -472,6 +516,9 @@ export function createCanvas(options: CanvasOptions): CanvasController {
         if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
         live = true;
         setActive({ id, mode });
+        const held = mode === "move" ? "grabbing" : CURSORS[edge!]!;
+        setCursor(held);
+        setDocumentCursor(held);
         // Capture keeps the gesture coming even when the pointer leaves the
         // window. It throws on a pointer id that is not active -- a synthetic
         // event, a pointer already released -- and that is not a reason to
@@ -516,6 +563,8 @@ export function createCanvas(options: CanvasOptions): CanvasController {
       window.removeEventListener("keydown", onKey, true);
       setActive(null);
       setGuides([]);
+      setCursor(null);
+      setDocumentCursor(null);
 
       if (!live) return;
       swallowNextClick();
@@ -575,7 +624,10 @@ export function createCanvas(options: CanvasOptions): CanvasController {
               // Only ever set while arranging, so a table inside a card still
               // scrolls under a finger the rest of the time.
               "touch-action": "none",
-              cursor: active()?.id === id ? "grabbing" : "grab",
+              // The gesture's cursor while one runs, on EVERY card and not just
+              // the one being dragged: a card that says `grab` while another is
+              // passing over it is the flicker this exists to stop.
+              cursor: cursor() ?? "grab",
             },
           },
 
@@ -584,7 +636,7 @@ export function createCanvas(options: CanvasOptions): CanvasController {
         ? NO_GESTURE
         : {
             onPointerDown: (e) => begin(id, "resize", edge, e),
-            style: { "touch-action": "none", cursor: CURSORS[edge] },
+            style: { "touch-action": "none", cursor: cursor() ?? CURSORS[edge] },
           },
 
     focusProps: (id) => ({
@@ -762,7 +814,7 @@ export function CanvasItem(
           top: `${card().y}px`,
           width: `${card().w}px`,
           height: `${card().h}px`,
-          "z-index": local.active ? 40 : (local.z ?? 0),
+          "z-index": local.active ? LIFTED_Z : (local.z ?? 0),
           "container-type": "size",
           "container-name": CARD_CONTAINER,
           "--card-w": `${card().w}px`,

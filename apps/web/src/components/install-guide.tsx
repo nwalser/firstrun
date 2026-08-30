@@ -7,24 +7,24 @@ import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
 import { buttonVariants } from "./ui/index.js";
 
 /**
- * The way into the install guides, which now live in the wiki.
+ * The way into the install guides, which now live in the documentation.
  *
  * This file used to be the guide itself, duplicated onto two pages behind the
  * app's login. That was the wrong home for it twice over: the person deciding
  * whether to adopt firstrun cannot read anything behind a session, and a guide
  * that only exists on the page that created a source is a guide nobody can
- * link a colleague to. They are all under `/wiki` now, public, one per client.
+ * link a colleague to. They are all under `/documentation` now, public, one per client.
  *
  * What stays here is the handoff. The reader is on a page that already knows
  * which source they mean, so the link carries that source's id as `?source=`
- * and the wiki adopts it on arrival -- the `/wiki` layout route validates the
- * parameter and `WikiShell` applies it. A link that dropped it would land
+ * and the documentation adopts it on arrival -- the `/documentation` layout route validates the
+ * parameter and `DocsShell` applies it. A link that dropped it would land
  * somebody on a generic page and ask them to pick, out of a list, the thing
  * they were already looking at.
  */
 
 /**
- * The wiki page to open first for a source of this surface.
+ * The documentation page to open first for a source of this surface.
  *
  * One landing page per surface, not the whole list: a surface now has several
  * install pages (web alone has five) and the reader has to be put on one of
@@ -63,7 +63,7 @@ const SUMMARY: Record<Surface, SimpleKey> = {
 
 export function InstallGuideLink(props: {
   kind: Surface;
-  /** Preselected in the wiki, so every snippet arrives carrying this key. */
+  /** Preselected in the documentation, so every snippet arrives carrying this key. */
   sourceId: string;
   class?: string;
 }) {
@@ -86,12 +86,12 @@ export function InstallGuideLink(props: {
 
       {/*
         The id travels in the query string, so the link survives being pasted
-        to a colleague: the wiki reads it on arrival and remembers it from
+        to a colleague: the documentation reads it on arrival and remembers it from
         there. Nothing is written to storage here -- a click that never becomes
-        a navigation should not change what the wiki shows next time.
+        a navigation should not change what the documentation shows next time.
       */}
       <Link
-        to="/wiki/$topic"
+        to="/docs/$topic"
         params={{ topic: installTopicFor(props.kind) }}
         search={{ source: props.sourceId }}
         class={cn(buttonVariants({ size: "sm" }), "mt-4")}

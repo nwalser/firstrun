@@ -13,6 +13,7 @@ import {
   FieldLabel,
   Input,
   Select,
+  Spinner,
   Table,
   TableBody,
   TableCell,
@@ -22,7 +23,12 @@ import {
   initials,
   toast,
 } from "../components/ui/index.js";
-import { SettingsSection, SettingsShell } from "../components/settings-shell.js";
+import {
+  SettingsPending,
+  SettingsSection,
+  SettingsShell,
+} from "../components/settings-shell.js";
+import { RefreshButton } from "../components/refresh-button.js";
 import { useI18n, type TranslationKey } from "../lib/i18n/index.js";
 import {
   addMemberFn,
@@ -55,6 +61,7 @@ export const Route = createFileRoute("/w/$wslug/members")({
     return view;
   },
   component: Members,
+  pendingComponent: SettingsPending,
 });
 
 /*
@@ -110,15 +117,34 @@ function Members() {
         ]
       : [{ id: "members", label: i18n.t("members.title") }];
 
-  async function run(action: () => Promise<{ ok: boolean; error?: string }>, done: string) {
+  /**
+   * Run one mutation, and put its failure where the reader can act on it.
+   *
+   * `inline` is what makes the two halves of this page behave differently, and
+   * they have to. The invite form has a field, so its failures belong under
+   * that field. A role change and a removal happen in a table row that has
+   * nowhere to put a sentence -- a message in a cell wraps and takes the row's
+   * height with it -- so those get the toast and nothing else.
+   *
+   * They used to share one `error` signal, which meant a role change that the
+   * server refused printed its reason at the BOTTOM of the page, under the
+   * username input of a form the reader was not filling in, about a control
+   * they were not touching. The toast said it too, so the visible effect was a
+   * stale sentence left behind under an unrelated field.
+   */
+  async function run(
+    action: () => Promise<{ ok: boolean; error?: string }>,
+    done: string,
+    inline = false
+  ) {
     setBusy(true);
-    setError(null);
+    if (inline) setError(null);
     const result = await action();
     setBusy(false);
     if (!result.ok) {
       const message = result.error ?? i18n.t("members.failed");
-      setError(message);
-      toast.error(message);
+      if (inline) setError(message);
+      else toast.error(message);
       return;
     }
     toast.success(done);
@@ -129,13 +155,17 @@ function Members() {
     event.preventDefault();
     const handle = login().trim();
     if (!handle) return;
-    return run(async () => {
-      const result = await addMemberFn({
-        data: { workspace: view().workspace.slug, login: handle, role: role() },
-      });
-      if (result.ok) setLogin("");
-      return result;
-    }, i18n.t("members.added", { name: handle }));
+    return run(
+      async () => {
+        const result = await addMemberFn({
+          data: { workspace: view().workspace.slug, login: handle, role: role() },
+        });
+        if (result.ok) setLogin("");
+        return result;
+      },
+      i18n.t("members.added", { name: handle }),
+      true
+    );
   };
 
   return (
@@ -145,6 +175,10 @@ function Members() {
       title={i18n.t("shell.people")}
       description={i18n.t("members.description")}
       sections={sections()}
+      // Somebody else adding a member does not change this page under you, so
+      // the list is only ever as current as the last navigation. This is how
+      // you ask again.
+      actions={<RefreshButton />}
     >
       <SettingsSection
         id="members"
@@ -285,7 +319,13 @@ function Members() {
           title={i18n.t("members.add")}
           description={i18n.t("members.add_hint")}
           footer={
+            /* Spinner and the changed word, the treatment `ConfirmDelete`
+                already uses: a disabled button reading "Adding" is
+                indistinguishable from a disabled button that has stopped. */
             <Button type="submit" form="add-member" disabled={busy() || !login().trim()}>
+              <Show when={busy()}>
+                <Spinner />
+              </Show>
               {busy() ? i18n.t("common.adding") : i18n.t("common.add")}
             </Button>
           }

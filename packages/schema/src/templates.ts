@@ -1,16 +1,20 @@
 import { ATTR, NAME } from "./conventions.js";
-import { SEVERITY } from "./severity.js";
 import type { Surface } from "./surface.js";
 import { BOARD_VERSION, type Board, type BoardWidget } from "./board.js";
+import { emptyFilter, type LogQuery, type Visualisation } from "./query.js";
 import {
-  emptyFilter,
-  uniquesAggregation,
-  type Field,
-  type Filter,
-  type LogQuery,
-  type Scalar,
-  type Visualisation,
-} from "./query.js";
+  UNIQUES,
+  atLeast,
+  attr,
+  dailyIn,
+  nameIn,
+  nameIs,
+  rankingQuery,
+  seriesQuery,
+  totalQuery,
+  vitalsQuery,
+  type Unit,
+} from "./recipes.js";
 
 /**
  * A board somebody can use before they have arranged anything.
@@ -27,10 +31,9 @@ import {
  * can do.
  *
  * Templates live next to the board contract rather than in the contract
- * package because they PRODUCE a board: a template that built the old closed
- * layout would have its cards silently dropped by the migration on the very
- * first read, which is exactly what used to happen to the funnel and retention
- * cards below.
+ * package because they PRODUCE a board: a template builds the same shape
+ * `parseBoard` reads, so a card a template cannot express is a card the
+ * customer could not have built either.
  */
 
 /**
@@ -44,26 +47,7 @@ import {
  */
 const TEMPLATE_TZ = "UTC";
 
-const attr = (key: string, as?: "number"): Field => ({
-  kind: "attribute",
-  path: [key],
-  ...(as ? { as } : {}),
-});
-
-const nameIs = (name: string): Filter => ({
-  op: "eq",
-  field: { kind: "column", column: "name" },
-  value: name,
-});
-
-const nameIn = (names: readonly string[]): Filter => ({
-  op: "in",
-  field: { kind: "column", column: "name" },
-  values: [...names] as Scalar[],
-});
-
-const daily = { unit: "day" as const, timezone: TEMPLATE_TZ };
-const rankByFirst = [{ key: { aggregate: 0 }, direction: "desc" } as const];
+const daily = dailyIn(TEMPLATE_TZ);
 
 interface Placement {
   id: string;
@@ -89,27 +73,16 @@ const card = (
 });
 
 /** A single number counting one conventional name, with its own daily sparkline. */
-const counter = (at: Placement, name: string, of: "entries" | "uniques"): BoardWidget =>
-  card(
-    at,
-    "number",
-    {
-      filter: nameIs(name),
-      aggregations: [of === "entries" ? { fn: "count" } : uniquesAggregation()],
-    },
-    { compare: true, sparkline: true }
-  );
+const counter = (at: Placement, name: string, of: Unit): BoardWidget =>
+  card(at, "number", totalQuery(of, nameIs(name)), { compare: true, sparkline: true });
 
 /** A ranked list of one attribute, over one name. */
 const ranking = (at: Placement, name: string | null, key: string, limit: number): BoardWidget =>
-  card(at, "list", {
-    ...(name ? { filter: nameIs(name) } : {}),
-    groupBy: [attr(key)],
-    aggregations: [uniquesAggregation()],
-    orderBy: rankByFirst,
-    limit,
-    withTotal: true,
-  });
+  card(
+    at,
+    "list",
+    rankingQuery({ by: attr(key), ...(name ? { filter: nameIs(name) } : {}), limit })
+  );
 
 const board = (widgets: BoardWidget[]): Board => ({
   version: BOARD_VERSION,
@@ -131,7 +104,7 @@ function overviewBoard(): Board {
     card(
       { id: "series", title: "Visitors per day", x: 0, y: 180, w: 620, h: 300 },
       "bar",
-      { filter: nameIs(NAME.PAGE_VIEW), aggregations: [uniquesAggregation()], bucket: daily, fill: true },
+      seriesQuery("uniques", TEMPLATE_TZ, nameIs(NAME.PAGE_VIEW)),
       { compare: true }
     ),
 
@@ -142,7 +115,7 @@ function overviewBoard(): Board {
     card({ id: "journey", title: "Visits, installs and launches", x: 640, y: 180, w: 640, h: 300 }, "line", {
       filter: nameIn([NAME.PAGE_VIEW, NAME.APP_INSTALL, NAME.APP_LAUNCH]),
       groupBy: [{ kind: "column", column: "name" }],
-      aggregations: [uniquesAggregation()],
+      aggregations: [UNIQUES()],
       bucket: daily,
       limit: 200,
     }),
@@ -162,7 +135,7 @@ function webBoard(): Board {
     card(
       { id: "series", title: "Page views per day", x: 0, y: 180, w: 1280, h: 280 },
       "area",
-      { filter: nameIs(NAME.PAGE_VIEW), aggregations: [{ fn: "count" }], bucket: daily, fill: true },
+      seriesQuery("entries", TEMPLATE_TZ, nameIs(NAME.PAGE_VIEW)),
       { compare: true }
     ),
 
@@ -170,16 +143,11 @@ function webBoard(): Board {
     ranking({ id: "refs", title: "Referrers", x: 440, y: 480, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
     ranking({ id: "camps", title: "Campaigns", x: 880, y: 480, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.UTM_CAMPAIGN, 10),
 
-    card({ id: "vitals", title: "Web vitals", x: 0, y: 820, w: 620, h: 220 }, "table", {
-      filter: nameIs(NAME.WEB_VITAL),
-      groupBy: [attr(ATTR.METRIC)],
-      aggregations: [
-        { fn: "percentile", field: attr(ATTR.VALUE, "number"), p: 0.75 },
-        { fn: "count" },
-      ],
-      orderBy: [{ key: { group: 0 }, direction: "asc" }],
-      limit: 10,
-    }),
+    card(
+      { id: "vitals", title: "Web vitals", x: 0, y: 820, w: 620, h: 220 },
+      "table",
+      vitalsQuery(NAME.WEB_VITAL)
+    ),
 
     ranking({ id: "files", title: "Downloads", x: 640, y: 820, w: 640, h: 220 }, NAME.FILE_DOWNLOAD, ATTR.URL_PATH, 8),
   ]);
@@ -202,18 +170,17 @@ function appBoard(): Board {
     card(
       { id: "active", title: "Active installs per day", x: 660, y: 180, w: 620, h: 320 },
       "line",
-      { filter: nameIs(NAME.APP_LAUNCH), aggregations: [uniquesAggregation()], bucket: daily, fill: true },
+      seriesQuery("uniques", TEMPLATE_TZ, nameIs(NAME.APP_LAUNCH)),
       { compare: true }
     ),
 
     ranking({ id: "os", title: "Operating systems", x: 0, y: 520, w: 620, h: 280 }, NAME.APP_INSTALL, ATTR.OS_TYPE, 8),
 
-    card({ id: "faults", title: "Errors per day", x: 660, y: 520, w: 620, h: 280 }, "bar", {
-      filter: { op: "gte", field: { kind: "column", column: "severity" }, value: SEVERITY.ERROR },
-      aggregations: [{ fn: "count" }],
-      bucket: daily,
-      fill: true,
-    }),
+    card(
+      { id: "faults", title: "Errors per day", x: 660, y: 520, w: 620, h: 280 },
+      "bar",
+      seriesQuery("entries", TEMPLATE_TZ, atLeast("ERROR"))
+    ),
   ]);
 }
 

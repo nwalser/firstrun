@@ -44,11 +44,16 @@ export function AlertDialogContent(
   return (
     <RegisterCancel.Provider value={(el) => (cancel = el)}>
       <KAlertDialog.Portal>
+        {/* The house scrim at the scrim step of the ladder, and the house
+            overlay gesture. Both are written up in `dialog.tsx`, which this is
+            the interrupting twin of: the two modals differ in role and in what
+            takes focus, never in how they arrive. */}
         <KAlertDialog.Overlay
           class={cn(
-            "fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
-            "data-[expanded]:animate-in data-[expanded]:fade-in-0",
-            "data-[closed]:animate-out data-[closed]:fade-out-0"
+            "fixed inset-0 z-scrim bg-black/40 backdrop-blur-[1px] dark:bg-black/60",
+            "duration-150",
+            "motion-safe:data-[expanded]:animate-in data-[expanded]:fade-in-0",
+            "motion-safe:data-[closed]:animate-out data-[closed]:fade-out-0"
           )}
         />
         <div class="fixed inset-0 z-overlay flex items-center justify-center p-4">
@@ -65,8 +70,11 @@ export function AlertDialogContent(
               // border here, or the hairline doubles and the panel shifts.
               "bg-popover text-popover-foreground w-full max-w-md rounded-md",
               "shadow-modal outline-none",
-              "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
-              "data-[closed]:animate-out data-[closed]:fade-out-0 data-[closed]:zoom-out-95",
+              "duration-150",
+              "motion-safe:data-[expanded]:animate-in",
+              "data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
+              "motion-safe:data-[closed]:animate-out",
+              "data-[closed]:fade-out-0 data-[closed]:zoom-out-95",
               local.class
             )}
             {...rest}

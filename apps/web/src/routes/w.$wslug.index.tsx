@@ -9,7 +9,9 @@ import ListFilter from "lucide-solid/icons/list-filter";
 import Search from "lucide-solid/icons/search";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
-import { PageHeader } from "../components/page-header.js";
+import { IngestHistogram, ingestTotal } from "../components/ingest-histogram.js";
+import { PageHeader, ROW_INTERACTION } from "../components/page-header.js";
+import { RefreshButton } from "../components/refresh-button.js";
 import {
   Avatar,
   AvatarFallback,
@@ -32,6 +34,7 @@ import {
   buttonVariants,
   initials,
 } from "../components/ui/index.js";
+import { NUM } from "../components/format.js";
 import { cn } from "../lib/cn.js";
 import type { MemberSummary, ProjectListItem } from "../lib/api.js";
 import { useI18n, type SimpleKey } from "../lib/i18n/index.js";
@@ -97,12 +100,12 @@ interface Facet {
 /**
  * What the filter row can narrow the list by.
  *
- * These used to be read off the two captions a row printed. The row prints a
- * rate and a chart now, so the chips are the ONLY way left to ask these two
- * questions, which is a reason to keep them rather than to drop them: a project
- * with sources and nothing received is the interesting failure, and "Sources:
- * Connected" plus "Activity: Nothing yet" is how you ask for exactly that set.
- * No amount of reading rows finds it.
+ * A row shows its source count, so the sources facet narrows on something the
+ * reader can then see in the rows it kept. Activity does not: the row draws a
+ * rate and a month, and neither says when the last event actually landed. That
+ * chip is the only way to ask, which is why it stays: a project with sources
+ * and nothing received is the interesting failure, and "Sources: Connected"
+ * plus "Activity: Nothing yet" asks for exactly that set.
  */
 const FACETS: Array<{
   key: FacetKey;
@@ -456,6 +459,8 @@ function WorkspaceProjects() {
               </ViewButton>
             </div>
 
+            <RefreshButton />
+
             <Show when={isAdmin()}>
               <Link
                 to="/w/$wslug/projects/new"
@@ -500,7 +505,16 @@ function WorkspaceProjects() {
                       the reference's card-style list, and the reason the list
                       reads as one object while the grid reads as many.
                     */
-                    <Card class="overflow-hidden">
+                    /*
+                      No `overflow-hidden`. The clip used to be what kept the
+                      first row's hover fill off the card's rounded corners, and
+                      it also cropped the focus ring: a two-stop ring spreads
+                      4px outside the row, so on a clipped list it rendered as
+                      two blue bars above and below rather than as a ring. The
+                      rows round their own outer corners instead, which is one
+                      class and leaves the ring intact.
+                    */
+                    <Card>
                       <ul class="divide-y">
                         <For each={shown()}>
                           {(project) => (
@@ -529,11 +543,14 @@ function WorkspaceProjects() {
                   <ul class="divide-y">
                     <For each={recent()}>
                       {(project) => (
-                        <li>
+                        <li class="first:rounded-t-md last:rounded-b-md">
                           <Link
                             to="/w/$wslug/$pslug"
                             params={{ wslug: workspace().slug, pslug: project.slug }}
-                            class={cn(ROW_INTERACTION, "flex items-center gap-3 px-4 py-2.5")}
+                            class={cn(
+                              ROW_INTERACTION,
+                              "flex items-center gap-3 rounded-[inherit] px-4 py-2.5"
+                            )}
                           >
                             <ProjectLogo
                               workspace={workspace().slug}
@@ -567,7 +584,13 @@ function WorkspaceProjects() {
                       <Link
                         to="/w/$wslug/members"
                         params={{ wslug: workspace().slug }}
-                        class="ml-3 text-caption text-muted-foreground hover:text-foreground"
+                        // An inline word, so it takes the outline form of the
+                        // focus ring: a box-shadow on an inline box paints
+                        // around the line box and lands in the wrong place.
+                        class={cn(
+                          "focus-outline ml-3 rounded-sm text-caption text-muted-foreground",
+                          "transition-colors hover:text-foreground"
+                        )}
                       >
                         {i18n.t("workspace.manage")}
                       </Link>
@@ -684,17 +707,26 @@ function ProjectLogo(props: {
 }
 
 /**
- * What a project row says under its name: how much it is receiving, per hour.
+ * How much a project is taking in, as a headline figure beside its chart.
  *
- * One rate rather than the source count and the last entry time this used to
- * carry. Those two were facts about configuration and about a single moment; a
- * rate is the size of the thing, and it is the number the bars beside it draw.
- * Both are the same window, so the sentence and the chart cannot disagree.
+ * The rate is the number this page is about, so it is set at the size of one
+ * rather than folded into a caption: the bars say what the month LOOKED like
+ * and this says how big it is, and the two are read together.
+ *
+ * Mono and tabular, like every other figure in the product (`NUM`), so a column
+ * of these down a list lines up on the decimal point instead of dancing.
  *
  * The digits follow the magnitude, like `formatPercent` does: 240/hour does not
  * want a decimal place and 0.04/hour is nothing without two.
+ *
+ * Two arrangements, because the two views give it different room. In a row the
+ * unit sits UNDER the number: a four-digit rate and a one-digit rate would
+ * otherwise put the words in two different places down a list, where stacked
+ * they are a column. In a tile the two sit on one baseline, above a chart that
+ * then keeps the card's whole width -- a tile can be 175px across, and thirty
+ * bars in what is left after a column beside them is a texture, not a shape.
  */
-function ProjectRate(props: { perHour: number; class?: string }) {
+function ProjectPerHour(props: { perHour: number; inline?: boolean; class?: string }) {
   const i18n = useI18n();
 
   const rate = () => {
@@ -704,73 +736,63 @@ function ProjectRate(props: { perHour: number; class?: string }) {
   };
 
   return (
-    <div class={cn("truncate text-caption text-muted-foreground", props.class)}>
-      {i18n.t("workspace.per_hour", { rate: rate() })}
+    <div
+      class={cn(
+        "shrink-0",
+        props.inline ? "flex items-baseline gap-1.5" : "text-right",
+        props.class
+      )}
+    >
+      <div class={cn("truncate text-2xl leading-none font-semibold text-foreground", NUM)}>
+        {rate()}
+      </div>
+      <div class={cn("truncate text-caption text-muted-foreground", props.inline ? "" : "mt-1")}>
+        {i18n.t("workspace.per_hour_unit")}
+      </div>
     </div>
   );
 }
 
 /**
- * Thirty days of ingest, as one bar per day.
+ * The subtitle under a project's name: how many sources report into it.
  *
- * The shape of the last month is the fact the two captions beside it cannot
- * carry: "last entry 2 hours ago" says nothing about whether this project has
- * been quietly dying for a fortnight, and a bar per day says it at a glance.
+ * A fact about configuration rather than about volume, which is why it sits
+ * here and the rate sits by the chart. "Three sources and a flat month" is a
+ * different problem from "no sources at all", and the two lines say which.
  *
- * Drawn in viewBox units with `preserveAspectRatio="none"`, so the same
- * component fills a 120px column in a row and a whole tile in the grid without
- * anything measuring it. Bars are rectangles: stretching one horizontally
- * distorts nothing a reader could misread, which is what makes the cheap answer
- * the right one here. A card on a board, which has an axis to keep square,
- * measures its box instead.
- *
- * The viewBox is 32 tall and the element is 32px tall, so a bar's minimum
- * height lands on a real pixel rather than a fraction of one.
- *
- * A day with nothing gets a one-unit stub rather than nothing at all: thirty
- * bars with gaps in them reads as thirty days, and thirty bars with days
- * missing reads as a shorter window.
+ * The count goes through the plural family rather than an `=== 1` check.
+ * `Intl.PluralRules` picks the form, and the count is run through the active
+ * locale on the way into the sentence.
  */
-function ProjectHistogram(props: { daily: number[]; class?: string }) {
+function ProjectSources(props: { count: number; class?: string }) {
   const i18n = useI18n();
-
-  const total = createMemo(() => props.daily.reduce((sum, n) => sum + n, 0));
-  // At least 1, so a project that has sent nothing divides by one rather than
-  // by zero and draws thirty stubs.
-  const max = createMemo(() => Math.max(1, ...props.daily));
-  const width = createMemo(() => Math.max(1, props.daily.length * BAR_PITCH - BAR_GAP));
-
   return (
-    <svg
-      class={cn("block h-8 w-full", props.class)}
-      viewBox={`0 0 ${width()} ${BAR_SPACE}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={i18n.t("workspace.ingest_30d", { count: total() })}
-    >
-      <For each={props.daily}>
-        {(value, i) => {
-          const height = () =>
-            value > 0 ? Math.max(2, (value / max()) * BAR_SPACE) : 1;
-          return (
-            <rect
-              class={value > 0 ? "fill-chart-1" : "fill-border"}
-              x={i() * BAR_PITCH}
-              y={BAR_SPACE - height()}
-              width={BAR_PITCH - BAR_GAP}
-              height={height()}
-            />
-          );
-        }}
-      </For>
-    </svg>
+    <div class={cn("truncate text-caption text-muted-foreground", props.class)}>
+      {i18n.t("workspace.sources", { count: props.count })}
+    </div>
   );
 }
 
-/** The histogram's own units: a 3-wide bar every 4, in a 32-tall box. */
-const BAR_PITCH = 4;
-const BAR_GAP = 1;
-const BAR_SPACE = 32;
+/**
+ * The project histogram, with the sentence this page puts on it.
+ *
+ * The drawing lives in `components/ingest-histogram.tsx` because the sources
+ * list draws the identical chart over the identical window, and two copies
+ * would be two things to keep in step. The LABEL stays here: the bars mean
+ * "this project's entries" on this page and "this source's entries" on that
+ * one, and a shared component reaching into somebody else's catalogue for a
+ * string is how one page ends up describing another page's numbers.
+ */
+function ProjectHistogram(props: { daily: number[]; class?: string }) {
+  const i18n = useI18n();
+  return (
+    <IngestHistogram
+      daily={props.daily}
+      label={i18n.t("workspace.ingest_30d", { count: ingestTotal(props.daily) })}
+      class={props.class}
+    />
+  );
+}
 
 /**
  * A row of the list view: the reference's 75px project row.
@@ -781,11 +803,18 @@ const BAR_SPACE = 32;
  */
 function ProjectRow(props: { workspace: string; project: ProjectListItem }) {
   return (
-    <li>
+    /*
+      The corner radius is stated on the ROW and inherited by the link inside
+      it, rather than clipped off by the container. `first:`/`last:` read the
+      element's own position among its siblings, so they only mean anything
+      here, on the item: on the link they would match every row, because a link
+      is the only child of its own item.
+    */
+    <li class="first:rounded-t-md last:rounded-b-md">
       <Link
         to="/w/$wslug/$pslug"
         params={{ wslug: props.workspace, pslug: props.project.slug }}
-        class="relative flex items-center gap-3 p-4 transition-colors hover:bg-accent"
+        class={cn(ROW_INTERACTION, "relative flex items-center gap-3 rounded-[inherit] p-4")}
       >
         {/*
           The reference splits this row at its own extra-large pane step. We
@@ -803,9 +832,12 @@ function ProjectRow(props: { workspace: string; project: ProjectListItem }) {
           />
           <div class="min-w-0">
             <div class="truncate text-body font-medium">{props.project.name}</div>
-            <ProjectRate perHour={props.project.perHour} />
+            <ProjectSources count={props.project.sourceCount} />
           </div>
         </div>
+
+        {/* The figure, then the shape it came from: how big, then what it did. */}
+        <ProjectPerHour perHour={props.project.perHour} class="hidden @md-page/page:block" />
 
         {/*
           The chart takes the whole rest of the row rather than a fixed column.
@@ -829,10 +861,7 @@ function ProjectTile(props: { workspace: string; project: ProjectListItem }) {
     <Link
       to="/w/$wslug/$pslug"
       params={{ wslug: props.workspace, pslug: props.project.slug }}
-      class={cn(
-        "group flex flex-col gap-4 rounded-md bg-card p-4 shadow-sm",
-        "transition-colors hover:bg-accent"
-      )}
+      class={cn(ROW_INTERACTION, "group flex flex-col gap-4 rounded-md bg-card p-4 shadow-sm")}
     >
       <div class="flex items-center gap-3">
         <ProjectLogo
@@ -844,13 +873,20 @@ function ProjectTile(props: { workspace: string; project: ProjectListItem }) {
         />
         <div class="min-w-0 flex-1">
           <div class="truncate text-body font-medium">{props.project.name}</div>
-          <ProjectRate perHour={props.project.perHour} />
+          <ProjectSources count={props.project.sourceCount} />
         </div>
         <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
       </div>
-      {/* Last, and the full width of the card: a tile has room to draw the
-          month at a size where one bad day is visible, where the row does not. */}
-      <ProjectHistogram daily={props.project.daily} class="h-12" />
+
+      {/*
+        The figure on its own line, then the month at the card's full width. The
+        row puts these side by side because a row is wide; a tile in a three
+        column grid is not, and the chart is the thing that suffers first.
+      */}
+      <div class="flex flex-col gap-2">
+        <ProjectPerHour perHour={props.project.perHour} inline />
+        <ProjectHistogram daily={props.project.daily} class="h-12" />
+      </div>
     </Link>
   );
 }

@@ -38,21 +38,21 @@ export const project = {
   "project.open_board": "Open {name}",
 
   // Nothing reporting yet.
-  "project.no_sources": "Nothing is sending entries yet",
+  "project.no_sources": "Nothing is sending events yet",
   "project.no_sources_hint":
     "A source is one thing that reports in: your site, your app, or your backend. They all " +
     "belong in this project, so their numbers sit side by side.",
   "project.add_source": "Add a source",
 
   // The seven cards.
-  "project.card_entries": "Entries",
+  "project.card_events": "Events",
   "project.card_status": "Status",
   "project.card_uniques": "Uniques",
   "project.card_uniques_hint": "One id space per surface. Never summed across them.",
   "project.card_errors": "Errors",
-  "project.card_errors_hint": "Entries at severity 17 and above.",
+  "project.card_errors_hint": "Events at severity 17 and above.",
   "project.card_names": "What is being sent",
-  "project.card_names_hint": "By entry name, most first.",
+  "project.card_names_hint": "By event name, most first.",
   "project.card_sources": "Sources",
   "project.card_sources_hint": "Each one is its own anonymous id space.",
   "project.card_boards": "Boards",
@@ -64,7 +64,7 @@ export const project = {
 
   // The status card. "Is this thing alive", in four facts.
   "project.fact_reporting": "Reporting",
-  "project.fact_last_entry": "Last entry",
+  "project.fact_last_event": "Last event",
   "project.fact_sources": "Sources",
   "project.fact_boards": "Boards",
   "project.status_silent": "Nothing received",
@@ -72,10 +72,10 @@ export const project = {
   "project.status_receiving": "Receiving",
 
   "project.open": "Open project",
-  "project.no_entries": "No entries yet",
-  "project.no_entries_hint": "Add a source and send your first entry.",
-  "project.entries_one": "{count} entry",
-  "project.entries_other": "{count} entries",
+  "project.no_events": "No events yet",
+  "project.no_events_hint": "Add a source and send your first event.",
+  "project.events_one": "{count} event",
+  "project.events_other": "{count} events",
 } satisfies Namespaced<"project">;
 
 export type ProjectMessages = typeof project;

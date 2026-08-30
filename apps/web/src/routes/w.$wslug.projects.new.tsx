@@ -14,6 +14,7 @@ import {
   Card,
   Field,
   Input,
+  Spinner,
   buttonVariants,
 } from "../components/ui/index.js";
 import { createProjectFn } from "../lib/api.js";
@@ -151,8 +152,15 @@ function NewProject() {
             >
               {i18n.t("common.cancel")}
             </Link>
-            {/* Kobalte renders type="button" unless told otherwise. */}
+            {/* Kobalte renders type="button" unless told otherwise.
+
+                Spinner and the changed word, the treatment `ConfirmDelete`
+                already uses: a disabled button reading "Creating" is
+                indistinguishable from a disabled button that has stopped. */}
             <Button type="submit" disabled={busy() || !name().trim()}>
+              <Show when={busy()}>
+                <Spinner />
+              </Show>
               {busy() ? i18n.t("common.creating") : i18n.t("project.create")}
             </Button>
           </div>

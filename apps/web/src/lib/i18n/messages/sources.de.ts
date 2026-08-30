@@ -59,13 +59,13 @@ export const sources: SourcesMessages = {
   "sources.project_label": "Projekt",
   "sources.all_projects": "Alle Projekte",
   "sources.sort_volume": "Volumen",
-  "sources.ingest_30d_one": "{count} Eintrag in den letzten 30 Tagen",
-  "sources.ingest_30d_other": "{count} Einträge in den letzten 30 Tagen",
+  "sources.ingest_30d_one": "{count} Event in den letzten 30 Tagen",
+  "sources.ingest_30d_other": "{count} Events in den letzten 30 Tagen",
   "sources.thirty_days": "30 Tage",
   "sources.open_project": "{name} öffnen",
   "sources.none_in_workspace": "Keine Quellen in diesem Workspace",
   "sources.none_in_workspace_hint":
-    "Eine Quelle ist eine Sache, die Einträge schreibt: eine Website, eine App, ein Server. " +
+    "Eine Quelle ist eine Sache, die Events schreibt: eine Website, eine App, ein Server. " +
     "Öffne ein Projekt, um eine anzulegen; sie meldet, sobald sie installiert ist.",
   "sources.open_projects": "Projekte öffnen",
 
@@ -77,7 +77,7 @@ export const sources: SourcesMessages = {
   "sources.option_desktop_title": "Desktop-App",
   "sources.option_desktop_body":
     "Versionen, Retention und was Menschen tun, sobald sie läuft. Die Queue liegt auf der " +
-    "Festplatte, deshalb kommen offline geschriebene Einträge beim nächsten Start an.",
+    "Festplatte, deshalb kommen offline geschriebene Events beim nächsten Start an.",
   "sources.option_desktop_action": "Desktop-App hinzufügen",
 
   "sources.how_to_install": "{name} installieren",
@@ -87,7 +87,7 @@ export const sources: SourcesMessages = {
   "sources.remove_confirm_title": "{name} entfernen?",
   "sources.remove_confirm_hint":
     "Ihr Key wird sofort nicht mehr akzeptiert, alles, was noch damit läuft, verstummt also. " +
-    "Die bereits gesendeten Einträge bleiben: Sie gehören zum Projekt.",
+    "Die bereits gesendeten Events bleiben: Sie gehören zum Projekt.",
   "sources.remove_action": "Quelle entfernen",
   "sources.clipboard_failed":
     "Zwischenablage nicht erreichbar. Markieren Sie den Key und kopieren Sie ihn.",
@@ -130,7 +130,7 @@ export const sources: SourcesMessages = {
   "sources.ready": "{name} ist bereit",
   "sources.ready_hint":
     "Es kommt nichts an, bevor etwas sendet. Als Nächstes: installieren, in fünf Schritten im " +
-    "Wiki, mit diesem Key bereits in jedem Snippet eingesetzt.",
+    "Documentation, mit diesem Key bereits in jedem Snippet eingesetzt.",
 
   "sources.install_guide": "Installationsanleitung",
   "sources.install_title": "So installieren Sie es",

@@ -33,6 +33,7 @@ import { useI18n, type I18n } from "../lib/i18n/index.js";
 import { NUM } from "./format.js";
 import { queryLabels } from "./query-labels.js";
 import {
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -143,6 +144,20 @@ function Empty(props: { children: JSX.Element }) {
       <span class="line-clamp-4 break-words text-xs text-muted-foreground">{props.children}</span>
     </div>
   );
+}
+
+/**
+ * A card whose answer has not arrived yet.
+ *
+ * One shape for every visualisation, on purpose. A card cannot know what its
+ * answer will look like before it has one, so a skeleton drawn in the shape of
+ * a chart is a promise about a number nobody has counted, and four different
+ * waiting states across four kinds of card is four things to recognise instead
+ * of one.
+ */
+function Pending() {
+  const i18n = useI18n();
+  return <Skeleton class="h-full w-full opacity-60" aria-label={i18n.t("explore.running")} />;
 }
 
 /**
@@ -523,7 +538,7 @@ export function ChartView(props: {
   const label = () => labels.aggregation(props.query.aggregations[0] ?? { fn: "count" });
 
   return (
-    <Show when={!empty()} fallback={<Empty>{i18n.t("dashboard.no_entries")}</Empty>}>
+    <Show when={!empty()} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
       <div class="flex h-full min-h-0 flex-col">
         <Measured class="min-h-[32px] flex-1">
           {(box) => (
@@ -674,7 +689,11 @@ function SeriesChart(props: {
               Math.max(point.value > 0 ? 1.5 : 0, (point.value / props.max) * props.h);
             return (
               <rect
-                class="fill-chart-1 opacity-90 hover:opacity-100"
+                // The bar brightens to say which one the native tooltip is
+                // about, and it transitions because every other thing on a card
+                // that answers a hover does. Opacity is not in Tailwind's
+                // colour transition list, so it is named.
+                class="fill-chart-1 opacity-90 transition-opacity hover:opacity-100"
                 x={i() * barWidth()}
                 y={props.h - height()}
                 width={Math.max(1, barWidth() - 1.5)}
@@ -752,7 +771,9 @@ function CategoryChart(props: {
             Math.max(rank.value > 0 ? 1.5 : 0, (rank.value / props.max) * props.h);
           return (
             <rect
-              class="fill-chart-1 opacity-90 hover:opacity-100"
+              // Same treatment as the bucketed bars: they are the same mark
+              // answering the same hover.
+              class="fill-chart-1 opacity-90 transition-opacity hover:opacity-100"
               x={i() * barWidth()}
               y={props.h - height()}
               width={Math.max(1, barWidth() - 2)}
@@ -802,7 +823,7 @@ export function ListView(props: {
   const hasShare = () => ranks().some((r) => r.share !== null);
 
   return (
-    <Show when={ranks().length > 0} fallback={<Empty>{i18n.t("dashboard.no_entries")}</Empty>}>
+    <Show when={ranks().length > 0} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
       <div class="flex h-full min-h-0 flex-col">
         <Show when={atLeast(props.tier, "medium")}>
           <div
@@ -813,7 +834,7 @@ export function ListView(props: {
           >
             <span class="min-w-0 truncate font-medium">
               {i18n.list((props.query.groupBy ?? []).map(labels.field)) ||
-                i18n.t("dashboard.all_entries")}
+                i18n.t("dashboard.all_events")}
             </span>
             <span class="shrink-0">
               {labels.aggregation(props.query.aggregations[0] ?? { fn: "count" })}
@@ -907,7 +928,7 @@ export function TableView(props: { rows: readonly QueryRow[]; query: LogQuery; t
   const notSet = () => i18n.t("dashboard.not_set");
 
   return (
-    <Show when={props.rows.length > 0} fallback={<Empty>{i18n.t("dashboard.no_entries")}</Empty>}>
+    <Show when={props.rows.length > 0} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
       <div class="h-full min-h-0 overflow-auto">
         {/*
           32px rows, not the 48px measured LIST row.
@@ -1088,22 +1109,39 @@ export function WidgetBody(props: {
           {(widget) => {
             const key = () => widgetKey(props.board, widget());
             const sparkKey = () => widgetSparklineKey(props.board, widget());
+            /**
+             * A key the snapshot has never carried is a question nobody has
+             * asked yet, and that is not the same answer as none.
+             *
+             * `rowsAt` says the empty array to both, so a card added a moment
+             * ago -- or one whose query was just edited in the drawer -- printed
+             * "no entries" over a query still in flight, which is the card
+             * asserting something it does not know. The board refetches on
+             * exactly those two edits, so this is the gap between the edit and
+             * the answer and nothing else.
+             *
+             * Only the main key. A sparkline that has not arrived draws no
+             * sparkline, which is already what an empty series does.
+             */
+            const pending = () => !(key() in props.snapshot.results);
             return (
-              <VisualisationBody
-                viz={widget().viz}
-                query={effectiveQuery(props.board, widget())}
-                rows={rowsAt(props.snapshot.results, key())}
-                previous={
-                  widget().compare && props.snapshot.previous
-                    ? rowsAt(props.snapshot.previous, key())
-                    : null
-                }
-                compare={widget().compare ? props.snapshot.compare : null}
-                sparkline={
-                  sparkKey() ? rowsAt(props.snapshot.results, sparkKey()!) : []
-                }
-                tier={tier()}
-              />
+              <Show when={!pending()} fallback={<Pending />}>
+                <VisualisationBody
+                  viz={widget().viz}
+                  query={effectiveQuery(props.board, widget())}
+                  rows={rowsAt(props.snapshot.results, key())}
+                  previous={
+                    widget().compare && props.snapshot.previous
+                      ? rowsAt(props.snapshot.previous, key())
+                      : null
+                  }
+                  compare={widget().compare ? props.snapshot.compare : null}
+                  sparkline={
+                    sparkKey() ? rowsAt(props.snapshot.results, sparkKey()!) : []
+                  }
+                  tier={tier()}
+                />
+              </Show>
             );
           }}
         </Show>

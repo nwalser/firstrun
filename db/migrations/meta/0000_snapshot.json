@@ -1,5 +1,5 @@
 {
-  "id": "0cc10415-e4a6-4b6f-a7e6-774de0f4bd3b",
+  "id": "64739844-d59b-4579-b6c0-92e8f56345e6",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -28,6 +28,19 @@
           "notNull": true,
           "default": "'Overview'"
         },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "layout": {
           "name": "layout",
           "type": "jsonb",
@@ -51,6 +64,27 @@
         }
       },
       "indexes": {
+        "dashboards_project_slug_key": {
+          "name": "dashboards_project_slug_key",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "dashboards_project_idx": {
           "name": "dashboards_project_idx",
           "columns": [
@@ -88,687 +122,34 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.download_hints": {
-      "name": "download_hints",
+    "public.log_entries": {
+      "name": "log_entries",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
         "project_id": {
           "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "web_visitor_id": {
-          "name": "web_visitor_id",
-          "type": "text",
+        "time": {
+          "name": "time",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
         },
-        "ip_hash": {
-          "name": "ip_hash",
-          "type": "text",
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "os": {
-          "name": "os",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
+        "ingested_at": {
+          "name": "ingested_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        }
-      },
-      "indexes": {
-        "download_hints_lookup_idx": {
-          "name": "download_hints_lookup_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ip_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "download_hints_project_id_projects_id_fk": {
-          "name": "download_hints_project_id_projects_id_fk",
-          "tableFrom": "download_hints",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.download_tokens": {
-      "name": "download_tokens",
-      "schema": "",
-      "columns": {
-        "token": {
-          "name": "token",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "web_visitor_id": {
-          "name": "web_visitor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "asset": {
-          "name": "asset",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "download_tokens_visitor_idx": {
-          "name": "download_tokens_visitor_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "web_visitor_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "download_tokens_expiry_idx": {
-          "name": "download_tokens_expiry_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "download_tokens_project_id_projects_id_fk": {
-          "name": "download_tokens_project_id_projects_id_fk",
-          "tableFrom": "download_tokens",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "download_tokens_source_id_sources_id_fk": {
-          "name": "download_tokens_source_id_sources_id_fk",
-          "tableFrom": "download_tokens",
-          "tableTo": "sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.events": {
-      "name": "events",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "event_id": {
-          "name": "event_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "event_name": {
-          "name": "event_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "event_time": {
-          "name": "event_time",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ingest_time": {
-          "name": "ingest_time",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "surface": {
-          "name": "surface",
-          "type": "surface",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "person_id": {
-          "name": "person_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "web_visitor_id": {
-          "name": "web_visitor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "install_id": {
-          "name": "install_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "app_version": {
-          "name": "app_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "channel": {
-          "name": "channel",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "os": {
-          "name": "os",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "arch": {
-          "name": "arch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "locale": {
-          "name": "locale",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "referrer": {
-          "name": "referrer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "utm_source": {
-          "name": "utm_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "utm_medium": {
-          "name": "utm_medium",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "utm_campaign": {
-          "name": "utm_campaign",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "props": {
-          "name": "props",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        }
-      },
-      "indexes": {
-        "events_time_idx": {
-          "name": "events_time_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "event_time",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "events_person_idx": {
-          "name": "events_person_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "person_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "events_name_time_idx": {
-          "name": "events_name_time_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "event_name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "event_time",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "events_install_idx": {
-          "name": "events_install_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "install_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "events_visitor_idx": {
-          "name": "events_visitor_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "web_visitor_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "events_project_id_projects_id_fk": {
-          "name": "events_project_id_projects_id_fk",
-          "tableFrom": "events",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "events_source_id_sources_id_fk": {
-          "name": "events_source_id_sources_id_fk",
-          "tableFrom": "events",
-          "tableTo": "sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "events_project_id_event_id_pk": {
-          "name": "events_project_id_event_id_pk",
-          "columns": [
-            "project_id",
-            "event_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.identity_edges": {
-      "name": "identity_edges",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_type": {
-          "name": "from_type",
-          "type": "distinct_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_id": {
-          "name": "from_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_type": {
-          "name": "to_type",
-          "type": "distinct_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_id": {
-          "name": "to_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "method": {
-          "name": "method",
-          "type": "edge_method",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "confidence": {
-          "name": "confidence",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "edges_from_idx": {
-          "name": "edges_from_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "from_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "from_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "edges_to_idx": {
-          "name": "edges_to_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "to_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "to_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "identity_edges_project_id_projects_id_fk": {
-          "name": "identity_edges_project_id_projects_id_fk",
-          "tableFrom": "identity_edges",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "identity_edges_project_id_method_from_type_from_id_to_type_to_id_pk": {
-          "name": "identity_edges_project_id_method_from_type_from_id_to_type_to_id_pk",
-          "columns": [
-            "project_id",
-            "method",
-            "from_type",
-            "from_id",
-            "to_type",
-            "to_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.person_overrides": {
-      "name": "person_overrides",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "distinct_type": {
-          "name": "distinct_type",
-          "type": "distinct_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
         },
         "distinct_id": {
           "name": "distinct_id",
@@ -776,42 +157,132 @@
           "primaryKey": false,
           "notNull": true
         },
-        "person_id": {
-          "name": "person_id",
-          "type": "uuid",
+        "severity": {
+          "name": "severity",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "version": {
-          "name": "version",
-          "type": "bigint",
+        "attributes": {
+          "name": "attributes",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'{}'::jsonb"
         }
       },
-      "indexes": {},
-      "foreignKeys": {
-        "person_overrides_project_id_projects_id_fk": {
-          "name": "person_overrides_project_id_projects_id_fk",
-          "tableFrom": "person_overrides",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
+      "indexes": {
+        "log_entries_name_time_idx": {
+          "name": "log_entries_name_time_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "time",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
           ],
-          "columnsTo": [
-            "id"
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_entries_severity_time_idx": {
+          "name": "log_entries_severity_time_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "severity",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "time",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_entries_distinct_time_idx": {
+          "name": "log_entries_distinct_time_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "distinct_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "time",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_entries_attributes_idx": {
+          "name": "log_entries_attributes_idx",
+          "columns": [
+            {
+              "expression": "attributes",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
         }
       },
+      "foreignKeys": {},
       "compositePrimaryKeys": {
-        "person_overrides_project_id_distinct_type_distinct_id_pk": {
-          "name": "person_overrides_project_id_distinct_type_distinct_id_pk",
+        "log_entries_project_id_time_entry_id_pk": {
+          "name": "log_entries_project_id_time_entry_id_pk",
           "columns": [
             "project_id",
-            "distinct_type",
-            "distinct_id"
+            "time",
+            "entry_id"
           ]
         }
       },
@@ -848,6 +319,24 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "logo": {
+          "name": "logo",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_mime_type": {
+          "name": "logo_mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_updated_at": {
+          "name": "logo_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1289,6 +778,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "logo": {
+          "name": "logo",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_mime_type": {
+          "name": "logo_mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logo_updated_at": {
+          "name": "logo_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1323,24 +830,6 @@
     }
   },
   "enums": {
-    "public.distinct_type": {
-      "name": "distinct_type",
-      "schema": "public",
-      "values": [
-        "web_visitor",
-        "install",
-        "account"
-      ]
-    },
-    "public.edge_method": {
-      "name": "edge_method",
-      "schema": "public",
-      "values": [
-        "token",
-        "account",
-        "estimate"
-      ]
-    },
     "public.member_role": {
       "name": "member_role",
       "schema": "public",
@@ -1354,15 +843,10 @@
       "schema": "public",
       "values": [
         "web",
-        "desktop"
-      ]
-    },
-    "public.surface": {
-      "name": "surface",
-      "schema": "public",
-      "values": [
-        "web",
-        "app"
+        "desktop",
+        "mobile",
+        "server",
+        "other"
       ]
     }
   },

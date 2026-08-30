@@ -217,11 +217,32 @@ export function Sidebar(props: { class?: string; children: JSX.Element }) {
           an eighth of the viewport and reads nothing. */}
       <Dialog open={isMobile() && openMobile()} onOpenChange={setOpenMobile}>
         <Dialog.Portal>
-          <Dialog.Overlay class="fixed inset-0 z-overlay bg-black/40 backdrop-blur-[1px] md:hidden dark:bg-black/60" />
+          {/* The same enter and exit `sheet.tsx` gives every other drawer in
+              the app, which is the house 150 in both directions and no longer
+              the split clock this copy was first written against. This one used
+              to appear and vanish in a single frame while its sibling on the
+              same screen slid, which reads as the drawer having been there all
+              along and the page having jumped. */}
+          <Dialog.Overlay
+            class={cn(
+              "fixed inset-0 z-scrim bg-black/40 backdrop-blur-[1px] md:hidden dark:bg-black/60",
+              "duration-150",
+              "motion-safe:data-[expanded]:animate-in data-[expanded]:fade-in-0",
+              "motion-safe:data-[closed]:animate-out data-[closed]:fade-out-0"
+            )}
+          />
           <Dialog.Content
             class={cn(
               "fixed inset-y-0 left-0 z-overlay flex flex-col bg-sidebar text-sidebar-foreground md:hidden",
-              hairlineRight
+              hairlineRight,
+              // One clock, matching `sheet.tsx`, rather than the 200 in and 150
+              // out this used to keep. A sheet can be open over this drawer on
+              // the same phone screen, so it is the one place two drawers
+              // disagreeing about how long a drawer takes is visible side by
+              // side.
+              "duration-150",
+              "motion-safe:data-[expanded]:animate-in motion-safe:data-[closed]:animate-out",
+              "data-[expanded]:slide-in-from-left data-[closed]:slide-out-to-left"
             )}
             style={{ width: SIDEBAR_WIDTH_MOBILE }}
           >
@@ -349,6 +370,13 @@ export function SidebarPane(props: {
       inert={props.active ? undefined : true}
       class={cn(
         "flex flex-col transition-[transform,translate,opacity,filter] duration-200 ease-[ease]",
+        // The swap is the largest piece of motion in the shell -- a whole
+        // column travelling, blurring and fading -- so it is the one that has
+        // to stand down when the reader has asked for less. The panes still
+        // swap; they just arrive rather than travelling. The scrim behind Find
+        // and the breadcrumb's fade are gated the same way, and this was the
+        // one that was not.
+        "motion-reduce:transition-none",
         props.active
           ? "static opacity-100"
           : [
@@ -627,10 +655,19 @@ export function SidebarRail() {
   /** One arrow press moves the edge by a row's height, so it feels quantised. */
   const KEY_STEP = 36;
 
+  // Mirrored into a signal purely so the separator can report `aria-valuenow`.
+  // The width itself lives on the document element, not here: see the note in
+  // `styles.css` about keeping it out of the markup.
+  const [width, setWidth] = createSignal(SIDEBAR_WIDTH_DEFAULT);
+  onMount(() => setWidth(currentSidebarWidth()));
+
   let startX = 0;
   let startWidth = 0;
   let pressing = false;
   let dragged = false;
+
+  /** Apply, and keep the reported value in step with what is on screen. */
+  const resizeTo = (px: number) => setWidth(applySidebarWidth(px));
 
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0) return;
@@ -667,7 +704,7 @@ export function SidebarRail() {
       // A press that became a drag may have started a text selection first.
       document.getSelection()?.removeAllRanges();
     }
-    applySidebarWidth(startWidth + delta);
+    resizeTo(startWidth + delta);
   }
 
   function onPointerUp(event: PointerEvent) {
@@ -686,18 +723,29 @@ export function SidebarRail() {
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    // The toggle half of the gesture, from the keyboard. A release without
+    // movement collapses for a pointer, and the equivalent for a focused
+    // control is Enter -- Space too, because anything that takes focus and
+    // reacts to a press is something people try Space on. Ahead of the
+    // collapsed guard below on purpose: reopening from the edge is the one
+    // thing the rail must still do while collapsed.
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+      return;
+    }
     if (state() === "collapsed") return;
     const step =
       event.key === "ArrowLeft" ? -KEY_STEP : event.key === "ArrowRight" ? KEY_STEP : 0;
     if (step) {
       event.preventDefault();
-      storeSidebarWidth(applySidebarWidth(currentSidebarWidth() + step));
+      storeSidebarWidth(resizeTo(currentSidebarWidth() + step));
       return;
     }
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
       const limit = event.key === "Home" ? SIDEBAR_WIDTH_MIN : SIDEBAR_WIDTH_MAX;
-      storeSidebarWidth(applySidebarWidth(limit));
+      storeSidebarWidth(resizeTo(limit));
     }
   }
 
@@ -708,6 +756,7 @@ export function SidebarRail() {
       aria-label="Resize sidebar"
       aria-valuemin={SIDEBAR_WIDTH_MIN}
       aria-valuemax={SIDEBAR_WIDTH_MAX}
+      aria-valuenow={width()}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -715,7 +764,7 @@ export function SidebarRail() {
       onPointerCancel={onPointerUp}
       // Back to the measured width, which is the only way out of a column
       // dragged somewhere unusable without hunting for the exact pixel.
-      onDblClick={() => storeSidebarWidth(applySidebarWidth(SIDEBAR_WIDTH_DEFAULT))}
+      onDblClick={() => storeSidebarWidth(resizeTo(SIDEBAR_WIDTH_DEFAULT))}
       onKeyDown={onKeyDown}
       class={cn(
         "absolute inset-y-0 right-0 z-20 hidden w-4 translate-x-1/2 md:block",
@@ -726,7 +775,11 @@ export function SidebarRail() {
         // second border down the side of the column.
         "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2",
         "after:bg-transparent after:transition-colors",
-        "hover:after:bg-sidebar-ring focus-visible:after:bg-sidebar-ring"
+        "hover:after:bg-sidebar-ring",
+        // Focus is the two-stop blue every other control uses, not a brighter
+        // hover. Drawn on the line itself rather than as a ring around a 16px
+        // hit area, which would paint a blue band down the side of the column.
+        "focus-visible:after:w-0.5 focus-visible:after:bg-ring"
       )}
     />
   );

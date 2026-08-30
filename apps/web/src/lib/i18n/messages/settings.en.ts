@@ -109,14 +109,20 @@ export const settings = {
     "Everything keyed to this project goes with it: its events, its dashboards, and its {count} " +
     "sources. A source added later starts empty. None of it can be rebuilt from anything we keep.",
 
-  // The logo field. Shared by the workspace page and nothing else yet, but its
-  // strings belong to settings rather than to a namespace of its own.
+  // The logo field. Shared by the workspace page and the project page, but its
+  // strings belong to settings rather than to a namespace of its own. Only the
+  // "where does this show up" sentence differs between the two.
   "settings.logo": "Logo",
   "settings.logo_hint": "PNG, JPEG or WebP. Resized to {size}px before it is uploaded.",
   "settings.logo_saved_hint":
     "Saved as soon as you choose one. Save below is for the name. Shown in the sidebar and the " +
     "workspace switcher, and stored in the database rather than on disk: deploys replace the " +
     "filesystem, and a logo that vanishes on the next release is worse than no logo.",
+  "settings.project_logo": "Project image",
+  "settings.project_logo_saved_hint":
+    "Saved as soon as you choose one. Save above is for the name. Shown wherever this project " +
+    "is listed, and stored in the database rather than on disk, for the same reason a workspace " +
+    "logo is: deploys replace the filesystem.",
   "settings.logo_alt": "{name} logo",
   "settings.logo_drop": "Drop an image, or click to choose",
   "settings.logo_drop_replacement": "Drop a replacement, or click to choose",

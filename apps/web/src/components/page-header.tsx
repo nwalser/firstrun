@@ -2,6 +2,38 @@ import { Show, onCleanup, onMount, type JSX } from "solid-js";
 import { Badge } from "./ui/index.js";
 
 /**
+ * What a clickable row or tile does when you touch it, decided once.
+ *
+ * Every list in the product used to spell its own: the project list faded to
+ * the accent fill, the documentation's topic list faded to half of it, the boards card
+ * did nothing at all, and none of them drew a focus ring, so a keyboard reader
+ * got whatever the browser felt like. Four lists, four answers to the same
+ * question.
+ *
+ * The three parts, and why each is the one it is:
+ *
+ *   - `transition-colors`, which is the row convention (the sidebar rows, the
+ *     tabs and the table rows already use it) rather than the control
+ *     convention in `ui/button.tsx`. A control transitions its box-shadow too,
+ *     because its ring is part of its resting look. A row's box-shadow is only
+ *     ever the FOCUS ring, and a focus ring that fades in is a focus ring that
+ *     arrives after the keypress.
+ *   - `hover:bg-accent`, the accent step at full strength. It is
+ *     `gray-alpha-200`, so it composites over whatever the row sits on and a
+ *     divided card list does not need a second fill for its hairlines.
+ *   - `focus-ring`, the two-stop blue from `styles.css`. It replaces the
+ *     outline rather than sitting beside it, which is why `outline-none` is
+ *     part of the same string and not something a call site has to remember.
+ *
+ * This lives here, next to the heading block, because this file is already the
+ * one place a page's shared furniture is decided instead of re-guessed per
+ * route. It belongs on something a reader can actually activate: a row that is
+ * only a container for its own buttons must NOT take it, or the whole row
+ * lights up for a target that is 32px wide.
+ */
+export const ROW_INTERACTION = "outline-none transition-colors hover:bg-accent focus-ring";
+
+/**
  * Tell the chrome whether this page's own heading is on screen.
  *
  * The topbar breadcrumb shows its icon and slash only once the `h1` has
@@ -75,7 +107,7 @@ export function PageHeader(props: {
             and Solid throws a hydration mismatch whose own error path cannot
             print itself: the console says `template2 is not a function` and the
             page renders twice. Reading it again to render it builds a second
-            copy. Same rule as `components/wiki/snippet.tsx`.
+            copy. Same rule as `components/docs/snippet.tsx`.
           */}
           <div class="flex shrink-0 items-center gap-2 empty:hidden">{props.actions}</div>
         </div>

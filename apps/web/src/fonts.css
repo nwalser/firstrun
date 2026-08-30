@@ -3,7 +3,7 @@
 
   Self-hosted rather than linked from Google Fonts, and that is not a taste
   preference. This product is self-hosted, privacy-first analytics, and its own
-  wiki carries a page promising that nothing about a customer's visitors leaves
+  documentation carries a page promising that nothing about a customer's visitors leaves
   their infrastructure. A dashboard that fetches its typeface from
   fonts.gstatic.com sends every operator's IP address and referer to Google on
   every page load. That contradicts the promise made in the product's own

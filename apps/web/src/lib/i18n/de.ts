@@ -5,6 +5,7 @@ import { common } from "./messages/common.de.js";
 import { dashboard } from "./messages/dashboard.de.js";
 import { explore } from "./messages/explore.de.js";
 import { events } from "./messages/events.de.js";
+import { usage } from "./messages/usage.de.js";
 import { locale } from "./messages/locale.de.js";
 import { members } from "./messages/members.de.js";
 import { project } from "./messages/project.de.js";
@@ -13,7 +14,7 @@ import { shell } from "./messages/shell.de.js";
 import { sources } from "./messages/sources.de.js";
 import { templates } from "./messages/templates.de.js";
 import { ui } from "./messages/ui.de.js";
-import { wiki } from "./messages/wiki.de.js";
+import { docs } from "./messages/docs.de.js";
 import { workspace } from "./messages/workspace.de.js";
 import type { Messages } from "./en.js";
 
@@ -49,7 +50,8 @@ export const de: Messages = {
   ...dashboard,
   ...explore,
   ...events,
+  ...usage,
 
   ...ui,
-  ...wiki,
+  ...docs,
 };

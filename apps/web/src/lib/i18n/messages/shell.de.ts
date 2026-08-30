@@ -23,6 +23,7 @@ export const shell: ShellMessages = {
   "shell.breadcrumb": "Navigationspfad",
   "shell.sources": "Quellen",
   "shell.events": "Events",
+  "shell.usage": "Usage",
   "shell.boards": "Boards",
   "shell.new_board": "Neues Board",
   "shell.reorder_hint": "Alt+Auf / Alt+Ab zum Umsortieren",

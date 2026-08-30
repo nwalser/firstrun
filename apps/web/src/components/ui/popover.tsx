@@ -77,8 +77,31 @@ export function PopoverContent(props: ComponentProps<typeof KPopover.Content> & 
           // The menu stack. It already contains its 1px ring, so no border.
           "rounded-md p-3 shadow-menu outline-none",
           "invisible data-[placed]:visible",
-          "data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
-          "data-[closed]:animate-out data-[closed]:fade-out-0",
+          //
+          // THE HOUSE OVERLAY GESTURE. Every overlay in this folder repeats it.
+          //
+          // 150ms, the animation library's plain default curve, in AND out,
+          // with the exit mirroring the enter rather than trailing off as a
+          // bare fade. 150 is the library's own default, so every animated
+          // overlay here bar the drawer was already running at it. It is
+          // written out rather than inherited because the drawer proves a call
+          // site can quietly disagree: it opened over 200 and shut over 150,
+          // one gesture keeping two clocks, and nothing on screen said so.
+          //
+          // `docs/vercel-structure.md` measured no overlay curve at all. The
+          // one motion it did measure is the sidebar's settings pane swap, at
+          // 200ms, and that is a pane swapping inside a column rather than a
+          // surface arriving over the page, so it is not borrowed here.
+          //
+          // The enter waits for placement as well as for the open state. The
+          // panel is held hidden until the popper's transform lands (see
+          // above), and an entrance that starts at mount would spend most of
+          // itself behind that guard and then snap into view part-finished.
+          "duration-150",
+          "motion-safe:data-[expanded]:data-[placed]:animate-in",
+          "data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95",
+          "motion-safe:data-[closed]:animate-out",
+          "data-[closed]:fade-out-0 data-[closed]:zoom-out-95",
           local.class
         )}
         {...rest}

@@ -15,6 +15,7 @@ import {
   Input,
   RadioCard,
   RadioGroup,
+  Spinner,
   Switch,
   buttonVariants,
 } from "../components/ui/index.js";
@@ -145,9 +146,18 @@ function NewSource() {
             <For each={STEP_KEYS}>
               {(labelKey, i) => (
                 <li class="flex items-center gap-2">
+                  {/*
+                    The marker and its label move between three states as the
+                    reader steps, and they used to snap while every control on
+                    the page beneath them faded. `transition-colors` rather than
+                    the control convention: nothing here spends a box-shadow,
+                    and the weight change on the label cannot be tweened
+                    anyway.
+                  */}
                   <span
                     class={cn(
                       "flex size-6 items-center justify-center rounded-full border text-caption font-medium",
+                      "transition-colors",
                       i() === step() && "border-primary bg-primary text-primary-foreground",
                       i() < step() && "border-primary/40 text-primary",
                       i() > step() && "text-muted-foreground"
@@ -155,7 +165,12 @@ function NewSource() {
                   >
                     {i() + 1}
                   </span>
-                  <span class={cn(i() === step() ? "font-medium" : "text-muted-foreground")}>
+                  <span
+                    class={cn(
+                      "transition-colors",
+                      i() === step() ? "font-medium" : "text-muted-foreground"
+                    )}
+                  >
                     {i18n.t(labelKey)}
                   </span>
                   <Show when={i() < STEP_KEYS.length - 1}>
@@ -323,8 +338,17 @@ function NewSource() {
                   </Button>
                 </Show>
 
-                {/* Kobalte renders type="button" unless told otherwise. */}
+                {/* Kobalte renders type="button" unless told otherwise.
+
+                    Spinner and the changed word, the treatment `ConfirmDelete`
+                    already uses: a disabled button reading "Creating" is
+                    indistinguishable from a disabled button that has stopped.
+                    Only the last step can be busy -- the first two are a step
+                    counter, not a request. */}
                 <Button type="submit" disabled={busy() || (step() === 1 && !name().trim())}>
+                  <Show when={busy()}>
+                    <Spinner />
+                  </Show>
                   {step() < 2
                     ? i18n.t("sources.continue")
                     : busy()

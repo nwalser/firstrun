@@ -35,21 +35,21 @@ export const project: ProjectMessages = {
   "project.sources": "Quellen",
   "project.open_board": "{name} öffnen",
 
-  "project.no_sources": "Noch sendet nichts Einträge",
+  "project.no_sources": "Noch sendet nichts Events",
   "project.no_sources_hint":
     "Eine Quelle ist eine Sache, die meldet: Ihre Website, Ihre App oder Ihr Backend. Sie alle " +
     "gehören in dieses Projekt, damit ihre Zahlen nebeneinanderstehen.",
   "project.add_source": "Quelle hinzufügen",
 
-  "project.card_entries": "Einträge",
+  "project.card_events": "Events",
   "project.card_status": "Status",
   "project.card_uniques": "Uniques",
   "project.card_uniques_hint":
     "Ein ID-Raum pro Surface. Wird nie über Surfaces hinweg summiert.",
   "project.card_errors": "Fehler",
-  "project.card_errors_hint": "Einträge mit Severity 17 und höher.",
+  "project.card_errors_hint": "Events mit Severity 17 und höher.",
   "project.card_names": "Was gesendet wird",
-  "project.card_names_hint": "Nach Name des Eintrags, häufigste zuerst.",
+  "project.card_names_hint": "Nach Name des Events, häufigste zuerst.",
   "project.card_sources": "Quellen",
   "project.card_sources_hint": "Jede ist ihr eigener anonymer ID-Raum.",
   "project.card_boards": "Boards",
@@ -61,7 +61,7 @@ export const project: ProjectMessages = {
     "ersten Mal öffnet.",
 
   "project.fact_reporting": "Meldet",
-  "project.fact_last_entry": "Letzter Eintrag",
+  "project.fact_last_event": "Letztes Event",
   "project.fact_sources": "Quellen",
   "project.fact_boards": "Boards",
   "project.status_silent": "Nichts empfangen",
@@ -69,8 +69,8 @@ export const project: ProjectMessages = {
   "project.status_receiving": "Empfängt",
 
   "project.open": "Projekt öffnen",
-  "project.no_entries": "Noch keine Einträge",
-  "project.no_entries_hint": "Fügen Sie eine Quelle hinzu und senden Sie Ihren ersten Eintrag.",
-  "project.entries_one": "{count} Eintrag",
-  "project.entries_other": "{count} Einträge",
+  "project.no_events": "Noch keine Events",
+  "project.no_events_hint": "Fügen Sie eine Quelle hinzu und senden Sie Ihr erstes Event.",
+  "project.events_one": "{count} Event",
+  "project.events_other": "{count} Events",
 };

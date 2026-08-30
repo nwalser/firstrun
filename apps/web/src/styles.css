@@ -679,6 +679,16 @@
   --z-index-sidebar: 76; /* --header-zindex + 1, measured */
   --z-index-scrim: 99; /* the dim behind a modal overlay, under it and over all else */
   --z-index-overlay: 100; /* popovers, menus, dialogs, sheets, tooltips */
+  /*
+    A toast outranks a modal, deliberately.
+
+    It is the only channel the app has for "that did not save", and the action
+    that failed is very often the one somebody just took inside a dialog. A
+    toast that renders behind the dialog that caused it is a message nobody
+    reads. This is the one step where being above a modal is the point rather
+    than an accident of portal order.
+  */
+  --z-index-toast: 110;
 
   /* --- the pane's breakpoints --------------------------------------------
      The reference names four steps and queries them against the CONTENT PANE
@@ -819,12 +829,35 @@
   /*
     The breadcrumb's icon group, while the page's own heading is on screen.
 
-    Hidden rather than removed, so nothing reflows when the heading scrolls past
-    and the group appears: the topbar's centre cell keeps its measured centre
-    either way. `page-header.tsx` owns the attribute.
+    It COLLAPSES rather than disappearing. `display: none` removes the element
+    from layout, so the title jumped 50px sideways every time a heading scrolled
+    past: the comment that used to sit here claimed nothing reflowed, and it was
+    simply wrong. Animating the width instead means the title slides to its new
+    centre over the same 200ms the rest of the chrome moves in, which is also
+    the closest we get to the reference's own width-probe animation without
+    rebuilding the breadcrumb around a measuring copy.
+
+    Reduced motion keeps the collapse and drops the movement.
   */
+  .route-title-icons {
+    max-width: 4rem;
+    overflow: hidden;
+    transition:
+      max-width 200ms ease,
+      opacity 200ms ease,
+      padding-right 200ms ease;
+  }
+
   html[data-route-title-visible] .route-title-icons {
-    display: none;
+    max-width: 0;
+    padding-right: 0;
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .route-title-icons {
+      transition: none;
+    }
   }
 
   /* A card being dragged. Lifted, slightly transparent, and above the grid. */
@@ -832,11 +865,6 @@
     @apply z-50 opacity-90;
     box-shadow: var(--geist-shadow-modal);
     cursor: grabbing;
-  }
-
-  /* Where the dragged card would land. */
-  .drop-target {
-    @apply ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 }
 
@@ -873,7 +901,27 @@
 
 [data-slot="sidebar"] {
   flex: 0 0 var(--sidebar-width);
-  transition: flex-basis 200ms linear;
+  /*
+    `ease`, matching the settings pane swap, which is the only motion in this
+    shell the reference actually measured. It was `linear`, and nothing else in
+    the app is: a linear collapse starts and stops abruptly next to a pane that
+    eases beside it.
+  */
+  transition: flex-basis 200ms ease;
+}
+
+/*
+  The inner column moves with the pane, on the same clock.
+
+  It is held at the expanded width and clipped, so during a POINTER drag both
+  are pinned to the pointer and neither animates. But an arrow-key resize is a
+  single jump: the pane eased to its new basis while the column snapped, and for
+  200ms the eased edge and the already-moved contents disagreed. Giving the
+  column the same transition makes the two halves one movement, and the rule
+  below still kills both together while a pointer is down.
+*/
+[data-slot="sidebar"] > * {
+  transition: width 200ms ease;
 }
 
 /*

@@ -420,11 +420,11 @@ function SourceRow(props: { workspace: string; source: WorkspaceSourceSummary })
 
       <div class="ml-auto flex shrink-0 items-center gap-2">
         {/*
-          The id travels in the query string, so the wiki opens with this source
+          The id travels in the query string, so the documentation opens with this source
           already selected and every snippet on it carries this key.
         */}
         <Link
-          to="/wiki/$topic"
+          to="/docs/$topic"
           params={{ topic: installTopicFor(props.source.kind) }}
           search={{ source: props.source.id }}
           class={buttonVariants({ variant: "ghost", size: "toolbar-icon" })}

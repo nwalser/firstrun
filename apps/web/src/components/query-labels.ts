@@ -44,7 +44,7 @@ const COLUMN_KEYS: Record<EntryColumn, SimpleKey> = {
   name: "explore.column_name",
   severity: "explore.column_severity",
   distinct_id: "explore.column_distinct_id",
-  entry_id: "explore.column_entry_id",
+  entry_id: "explore.column_event_id",
   ingested_at: "explore.column_ingested_at",
 };
 
@@ -129,7 +129,7 @@ export function queryLabels(i18n: I18n): QueryLabels {
   const aggregation = (agg: Aggregation): string => {
     switch (agg.fn) {
       case "count":
-        return i18n.t("explore.agg_entries");
+        return i18n.t("explore.agg_events");
       case "count_distinct":
         return agg.field.kind === "unique"
           ? i18n.t("explore.agg_uniques")

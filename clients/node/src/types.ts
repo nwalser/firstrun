@@ -259,13 +259,6 @@ export interface FirstrunOptions {
   /** Requests per flush cycle, so one cycle cannot run forever. Default 32. */
   maxRequestsPerFlush?: number;
 
-  /** @deprecated Use `delivery.maxBatch`. */
-  maxBatchEntries?: number;
-  /** @deprecated Use `delivery.flushAt`. Defaults to `delivery.maxBatch`. */
-  flushAt?: number;
-  /** @deprecated Use `delivery.every`. */
-  flushIntervalMs?: number;
-
   /**
    * Whole-attempt timeout: connect, send and response. Default 5000ms.
    *
@@ -287,18 +280,6 @@ export interface FirstrunOptions {
   breakerThreshold?: number;
   /** How long the breaker stays open before one probe. Default 30000ms. */
   breakerResetMs?: number;
-
-  /** @deprecated Use `delivery.flushTimeoutMs`. */
-  flushTimeoutMs?: number;
-
-  /**
-   * @deprecated Use `delivery.flushOnExit`.
-   *
-   * The signal handlers are shared by every live client and are installed only
-   * when the host has no handler of its own, so this never changes how the host
-   * program responds to a signal.
-   */
-  registerShutdownHooks?: boolean;
 
   /** The only reporting channel. Never called with the host's logger implied. */
   onDiagnostic?: (d: Diagnostic) => void;

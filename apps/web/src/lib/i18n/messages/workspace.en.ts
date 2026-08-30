@@ -65,20 +65,20 @@ export const workspace = {
   "workspace.projects_other": "{count} projects",
 
   /*
-    The rate under a project's name.
+    The unit under the headline rate, and only the unit.
 
-    `{rate}` arrives already formatted, because the digits follow the magnitude
-    and only the caller knows the magnitude. Not a plural family: a rate is a
-    ratio, and "1 entry/hour" would be selected by the count of a number that is
-    almost never a whole one.
+    The number is drawn separately, at its own size, so this carries no
+    placeholder. Not a plural family either: a rate is a ratio, and "1
+    event/hour" would be selected by the count of a number that is almost never
+    a whole one.
   */
-  "workspace.per_hour": "{rate} entries/hour",
+  "workspace.per_hour_unit": "events/hour",
 
   // The thirty-day histogram. The chart itself carries no axis and no labels,
   // so this is the whole of what a screen reader gets from it: the total, and
   // the window it covers.
-  "workspace.ingest_30d_one": "{count} entry in the last 30 days",
-  "workspace.ingest_30d_other": "{count} entries in the last 30 days",
+  "workspace.ingest_30d_one": "{count} event in the last 30 days",
+  "workspace.ingest_30d_other": "{count} events in the last 30 days",
 
   // The rail.
   "workspace.activity": "Activity",

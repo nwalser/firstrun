@@ -18,6 +18,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-j
 import { Dynamic } from "solid-js/web";
 import { installTopicFor } from "../components/install-guide.js";
 import { PageHeader } from "../components/page-header.js";
+import { RefreshButton } from "../components/refresh-button.js";
 import {
   Button,
   Card,
@@ -135,20 +136,33 @@ function Sources() {
 
   let searchField: HTMLInputElement | undefined;
 
-  // `/` focuses the search, which is the shortcut the placeholder advertises.
-  // Guarded on the event target so typing a slash into any other field, or into
-  // the confirm box of a delete dialog, still types a slash.
+  /*
+    `/` focuses the search, which is the shortcut the placeholder advertises.
+
+    Guarded on the event target so typing a slash into any other field, or into
+    the confirm box of a delete dialog, still types a slash.
+
+    CAPTURE phase, and it stops the event dead once it has handled it. The
+    shell's Find row advertises the same key on the same window, so without
+    this both fire: the page focuses this field and the palette opens over the
+    top of it and takes the focus back, which makes the hint in this input a
+    lie. A page that owns a search field owns the shortcut while it is on
+    screen, and window-capture runs before the shell's window-bubble listener.
+  */
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) {
+        return;
+      }
       event.preventDefault();
+      event.stopImmediatePropagation();
       searchField?.focus();
     };
-    window.addEventListener("keydown", onKey);
-    onCleanup(() => window.removeEventListener("keydown", onKey));
+    window.addEventListener("keydown", onKey, { capture: true });
+    onCleanup(() => window.removeEventListener("keydown", onKey, { capture: true }));
   });
 
   /**
@@ -216,7 +230,12 @@ function Sources() {
           hasSources() ? (
             <>
               <DropdownMenu>
-                <DropdownMenuTrigger as={Button} variant="outline" size="sm" class="rounded-md">
+                {/* No radius override. `docs/geist-reference.md` puts surfaces
+                    and popover rows at 6px and small controls and CHIPS at 4,
+                    which is what the small button size already is. The filter
+                    row on the workspace list never overrode it, so the two
+                    filter rows in the product were a pixel apart. */}
+                <DropdownMenuTrigger as={Button} variant="outline" size="sm">
                   <ListFilter class="size-3.5" />
                   {i18n.t("sources.add_filter")}
                 </DropdownMenuTrigger>
@@ -243,7 +262,6 @@ function Sources() {
                   <Button
                     variant="outline"
                     size="sm"
-                    class="rounded-md"
                     aria-label={i18n.t("sources.remove_filter", {
                       surface: SURFACE_LABELS[kind],
                     })}
@@ -344,6 +362,8 @@ function Sources() {
                 </For>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <RefreshButton />
 
             <Show when={isAdmin()}>
               <Link
@@ -453,13 +473,13 @@ function SourceRow(props: { source: SourceSummary; isAdmin: boolean; onRemove: (
 
       <div class="ml-auto flex shrink-0 items-center gap-2">
         {/*
-          The id travels in the query string, so the wiki opens with this source
+          The id travels in the query string, so the documentation opens with this source
           already selected and every snippet on it carries this key. An icon,
           not a panel: the guide is five pages long and belongs where it can be
-          read, which is the wiki and the step that just created the key.
+          read, which is the documentation and the step that just created the key.
         */}
         <Link
-          to="/wiki/$topic"
+          to="/docs/$topic"
           params={{ topic: installTopicFor(props.source.kind) }}
           search={{ source: props.source.id }}
           class={buttonVariants({ variant: "ghost", size: "toolbar-icon" })}

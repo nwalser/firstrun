@@ -293,9 +293,13 @@ function ValueInput(props: {
                 <button
                   type="button"
                   disabled={props.disabled}
+                  // Transitioned like every other control in this drawer: the
+                  // input these sit under, the select beside it and the buttons
+                  // below all ease their colours, so a chip that snaps is the
+                  // one thing in the row that behaves differently.
                   class={cn(
                     "max-w-[12rem] truncate rounded-md bg-muted px-1.5 py-0.5",
-                    "text-label-13 text-muted-foreground",
+                    "text-label-13 text-muted-foreground transition-colors",
                     "hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
                   )}
                   title={sample}

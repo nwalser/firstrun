@@ -764,6 +764,173 @@ export async function sourceDailyCounts(
   return foldDaily(rows.rows, from, out);
 }
 
+/**
+ * One slice of usage: a dimension value, a day, and how many entries landed.
+ *
+ * `key` is null for the entries that carry no value for that dimension -- an
+ * unclassified severity, or an entry written before the edge stamped a source
+ * id. Null rather than a bucket named "none", because the caller decides how to
+ * label an absence and the two are different answers.
+ */
+export interface UsageSlice {
+  key: string | null;
+  day: Date;
+  entries: number;
+}
+
+export interface WorkspaceUsage {
+  byProject: UsageSlice[];
+  bySource: UsageSlice[];
+  bySeverity: UsageSlice[];
+}
+
+/**
+ * What a workspace has ingested, broken down three ways, in ONE pass.
+ *
+ * Usage is entries. Not bytes, not "events" of some special kind: one row in
+ * `log_entries` is one unit, whatever it happens to be called and whatever
+ * severity it carries, because that is the whole point of one table (rule 1).
+ *
+ * `GROUPING SETS` rather than three statements, because all three answers come
+ * off the same rows. Three separate `group by`s would read the window three
+ * times to say three things about it; one grouping set reads it once and emits
+ * the three roll-ups together. `grouping()` is what tells them apart on the way
+ * back: it returns 0 for a column that IS in the row's own set, which is the
+ * only way to distinguish "this set does not group by severity" from "this
+ * entry's severity is null".
+ *
+ * Every set carries the day as well, so a caller gets both the total for a
+ * dimension value (sum its days) and the shape of it over time from one result.
+ * A dimension without days would be a fourth set for a number that is already
+ * there.
+ *
+ * The dimensions are named ONCE, in a subquery, and grouped by name outside it.
+ * That is not tidiness: `grouping()` and the grouping set have to reference the
+ * SAME expression, and drizzle binds every `${...}` as a fresh placeholder, so
+ * writing `attributes ->> 'firstrun.source.id'` in both places produced
+ * `attributes ->> $3` and `attributes ->> $7` -- two different expressions to
+ * Postgres, and the error `arguments to GROUPING must be grouping expressions
+ * of the associated query level`. Naming them in a subquery keeps the key bound
+ * as a parameter (rule 3: an attribute key is data and never reaches SQL as
+ * text) while giving both references one plain column to point at.
+ *
+ * Bucketed on `time` and in UTC, for the reasons on `projectDailyCounts`.
+ *
+ * `projectIds`, when given, narrows to those projects. It is the same page at
+ * project scope rather than a different one, which is what makes the scope
+ * switcher able to stay where it is.
+ */
+export async function workspaceUsage(
+  db: Database,
+  workspaceId: string,
+  from: Date,
+  to: Date,
+  projectIds: readonly string[] = []
+): Promise<WorkspaceUsage> {
+  const scope =
+    projectIds.length > 0
+      ? raw`${logEntries.projectId} in (${raw.join(
+          projectIds.map((id) => raw`${id}`),
+          raw`, `
+        )})`
+      : raw`${logEntries.projectId} IN (
+             select ${projects.id} from ${projects}
+              where ${projects.workspaceId} = ${workspaceId}
+           )`;
+
+  const rows = await db.execute<{
+    g_project: number;
+    g_source: number;
+    project_id: string | null;
+    source_id: string | null;
+    severity: number | string | null;
+    day: string;
+    n: string | number;
+  }>(raw`
+    select grouping(e.project_id) as g_project,
+           grouping(e.source_id)  as g_source,
+           e.project_id           as project_id,
+           e.source_id            as source_id,
+           e.severity             as severity,
+           e.day                  as day,
+           count(*)::int          as n
+      from (
+        select ${logEntries.projectId}                          as project_id,
+               ${logEntries.attributes} ->> ${ATTR.SOURCE_ID}   as source_id,
+               ${logEntries.severity}                           as severity,
+               ${utcDayBucket}                                  as day
+          from ${logEntries}
+         where ${scope}
+           and ${logEntries.time} >= ${from}
+           and ${logEntries.time} <  ${to}
+      ) e
+     group by grouping sets (
+       (e.project_id, e.day),
+       (e.source_id, e.day),
+       (e.severity, e.day)
+     )
+  `);
+
+  const out: WorkspaceUsage = { byProject: [], bySource: [], bySeverity: [] };
+  for (const row of rows.rows) {
+    // `date_trunc` is an expression, so it arrives however `pg` parsed it
+    // rather than through the column's decoder -- as everywhere else here.
+    const slice = { day: new Date(row.day), entries: Number(row.n ?? 0) };
+    if (Number(row.g_project) === 0) {
+      out.byProject.push({ ...slice, key: row.project_id });
+    } else if (Number(row.g_source) === 0) {
+      out.bySource.push({ ...slice, key: row.source_id });
+    } else {
+      out.bySeverity.push({
+        ...slice,
+        key: row.severity === null ? null : String(Number(row.severity)),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Entries per project over a window, flat.
+ *
+ * The baseline behind every delta on the usage page. A plain group-by rather
+ * than the grouping set above, because a comparison window is only ever asked
+ * for one number per project and reading it three ways would triple the cost of
+ * a percentage.
+ */
+export async function projectEntryCounts(
+  db: Database,
+  workspaceId: string,
+  from: Date,
+  to: Date,
+  projectIds: readonly string[] = []
+): Promise<Map<string, number>> {
+  const scope =
+    projectIds.length > 0
+      ? raw`${logEntries.projectId} in (${raw.join(
+          projectIds.map((id) => raw`${id}`),
+          raw`, `
+        )})`
+      : raw`${logEntries.projectId} IN (
+             select ${projects.id} from ${projects}
+              where ${projects.workspaceId} = ${workspaceId}
+           )`;
+
+  const rows = await db.execute<{ project_id: string; n: string | number }>(raw`
+    select ${logEntries.projectId} as project_id,
+           count(*)::int           as n
+      from ${logEntries}
+     where ${scope}
+       and ${logEntries.time} >= ${from}
+       and ${logEntries.time} <  ${to}
+     group by 1
+  `);
+
+  const out = new Map<string, number>();
+  for (const row of rows.rows) out.set(row.project_id, Number(row.n ?? 0));
+  return out;
+}
+
 export async function listProjects(db: Database, workspaceId: string): Promise<ProjectMeta[]> {
   return db
     .select(projectColumns)
@@ -1017,7 +1184,7 @@ export interface WorkspaceSource extends Source {
 /**
  * Every source in a workspace, with the project each belongs to.
  *
- * The wiki needs this: its install pages are written against one specific
+ * The documentation needs this: its install pages are written against one specific
  * source, and the picker that chooses it spans the whole workspace rather than
  * one project. Fetching it project by project would mean one round trip per
  * project to fill a dropdown.
@@ -1097,11 +1264,10 @@ export interface DashboardRecord {
 }
 
 /**
- * `parseBoard` rather than a bare parse: it migrates a board written before the
- * query layer on the way through, and never throws. A dashboard that will not
- * render because one stored widget lost an argument is a worse outcome than one
- * that quietly starts over, and one unreadable card is dropped on its own
- * rather than taking the arrangement with it.
+ * `parseBoard` rather than a bare parse, because it never throws. A dashboard
+ * that will not render because one stored widget lost an argument is a worse
+ * outcome than one that quietly starts over, and one unreadable card is dropped
+ * on its own rather than taking the arrangement with it.
  */
 const toRecord = (row: Dashboard): DashboardRecord => ({
   id: row.id,

@@ -412,11 +412,6 @@ is only that the pickers in the dashboard will not suggest it before you have se
 | `flushOnExit` | `true` | Except in `startup` mode. Always time-bounded |
 | `flushTimeoutMs` | `2000` | Budget for `flush()` and for the exit flush |
 
-`maxBatchEntries`, `flushAt`, `flushIntervalMs`, `flushTimeoutMs` and `registerShutdownHooks`
-still work as top-level options and mean what they meant. They map onto `delivery.maxBatch`,
-`delivery.flushAt`, `delivery.every`, `delivery.flushTimeoutMs` and `delivery.flushOnExit`, and
-`delivery` wins where both are set.
-
 `fetch` has no separate connect timeout without pulling in an undici `Agent`, and this package has
 no runtime dependencies, so `requestTimeoutMs` aborts the whole attempt instead. That bounds the
 same failure. Pass your own `fetch` if you need a dispatcher with finer control.

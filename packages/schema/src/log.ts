@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { Attributes, type Attributes as Attrs } from "./attributes.js";
 import { SeverityNumber } from "./severity.js";
-import { SURFACES, type Surface } from "./surface.js";
 
 /**
  * One log entry, and the wire it arrives on. The only row shape this has.
@@ -85,7 +84,7 @@ export const LogEntry = z.object({
   severity: SeverityNumber.nullish().transform((v) => v ?? null),
 
   /**
-   * The anonymous id this surface generated and persisted for itself. Required,
+   * The anonymous id this client generated and persisted for itself. Required,
    * because an entry that cannot be attributed to anything cannot be counted.
    */
   distinct_id: z.string().min(1).max(512),
@@ -100,27 +99,25 @@ export type LogEntry = z.infer<typeof LogEntry>;
 // ---------------------------------------------------------------------------
 
 /**
- * `fr_web_9f3a…`. The prefix names the surface, so a misplaced key is obvious.
+ * `fr_9f3ab21c4d5e6f70`. Sixteen hex characters and nothing else.
+ *
+ * It used to be `fr_<surface>_<16>`, and the middle segment named the kind of
+ * thing the key belonged to. There are no kinds of source any more, so there is
+ * nothing for that segment to say: a key names one destination, and what sends
+ * to it is the customer's business rather than a value we hold them to.
  *
  * Public by necessity: it ships in a script tag and inside binaries anyone can
  * unpack. It identifies a destination and authorises nothing, and the edge is
  * the only thing that knows which project it belongs to.
  */
-export const SOURCE_KEY_RE = new RegExp(`^fr_(${SURFACES.join("|")})_[0-9a-z]{16}$`);
+export const SOURCE_KEY_RE = /^fr_[0-9a-f]{16}$/;
 export const SourceKey = z.string().regex(SOURCE_KEY_RE, "invalid source key");
 
-/** The surface a key claims. The edge still trusts the stored source, not this. */
-export function surfaceFromSourceKey(key: string): Surface | null {
-  const m = SOURCE_KEY_RE.exec(key);
-  return m ? (m[1] as Surface) : null;
-}
-
 /** Mints a source key. Public identifier, so it only has to be unguessable. */
-export function mintSourceKey(surface: Surface): string {
+export function mintSourceKey(): string {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `fr_${surface}_${hex}`;
+  return `fr_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +153,7 @@ export const WireEntry = z.object({
 export type WireEntry = z.infer<typeof WireEntry>;
 
 /**
- * A batch, from any surface.
+ * A batch, from any client.
  *
  * `r` is the resource: the attributes true of the whole client rather than of
  * one entry, such as `service.version`, `os.type`, `session.id` and `user.id`.
@@ -185,8 +182,6 @@ export type LogBatch = z.infer<typeof LogBatch>;
 export interface NormalizeContext {
   projectId: string;
   sourceId: string;
-  /** The surface recorded on the source row, not the one the key claimed. */
-  surface: Surface;
   /** Server-stamped. Never used for bucketing. */
   ingestedAt: number;
 }
@@ -195,10 +190,9 @@ export interface NormalizeContext {
  * A wire entry becomes a stored entry.
  *
  * Three attribute maps are layered, least specific first: the resource, then
- * the entry's own, then the two the edge stamps. The edge wins outright.
- * `firstrun.source.surface` is what the stored source row says, so a client
- * cannot report itself as a surface it is not by putting the key in its own
- * attributes.
+ * the entry's own, then the one the edge stamps. The edge wins outright, so a
+ * client cannot claim to have arrived through a source other than the one whose
+ * key it used by putting `firstrun.source.id` in its own attributes.
  *
  * Nothing here reads `n` or `s`. An exception and a page view take the same
  * three lines, which is the property the whole design rests on.
@@ -212,7 +206,6 @@ export function normalizeEntry(
     ...(batch.r ?? {}),
     ...(e.a ?? {}),
     "firstrun.source.id": ctx.sourceId,
-    "firstrun.source.surface": ctx.surface,
   };
 
   return LogEntry.parse({

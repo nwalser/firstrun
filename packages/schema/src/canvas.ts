@@ -35,8 +35,6 @@ export const CANVAS_MIN_HEIGHT = 600;
 export const MIN_WIDGET_W = 160;
 export const MIN_WIDGET_H = 120;
 
-/** The gap templates and migrations leave between cards. One grid cell. */
-
 export const snapToGrid = (n: number): number => Math.round(n / GRID) * GRID;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));

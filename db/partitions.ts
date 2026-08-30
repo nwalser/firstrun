@@ -4,7 +4,7 @@ import type { Queryable } from "./client.js";
  * Partition maintenance for `log_entries`.
  *
  * The SQL lives in the database as three functions, created by
- * migrations/0004_log_entries.sql, and this file is the thin thing that calls
+ * migrations/0000_initial.sql, and this file is the thin thing that calls
  * them. That split is deliberate: partition management has to be runnable by a
  * person with a psql prompt at two in the morning, and a policy that only exists
  * as TypeScript inside a web server is a policy you cannot apply when the web

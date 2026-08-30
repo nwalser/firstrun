@@ -20,7 +20,7 @@ import {
  *
  * Drizzle owns the DDL, with one exception it cannot express: `log_entries` is
  * partitioned, so its real DDL is hand-written in
- * migrations/0004_log_entries.sql and the declaration below exists for the
+ * migrations/0000_initial.sql and the declaration below exists for the
  * types and the snapshot.
  *
  * Drizzle does NOT own the analytics queries. Every question a board asks is
@@ -350,7 +350,7 @@ export const dashboards = pgTable(
  * ## Drizzle does not own this table's DDL
  *
  * `PARTITION BY RANGE (time)` has no Drizzle expression, so the real DDL is
- * hand-written in migrations/0004_log_entries.sql and this declaration exists
+ * hand-written in migrations/0000_initial.sql and this declaration exists
  * for the types, for the query builder and for the snapshot. Do NOT run
  * `drizzle-kit push` against it: push would replace a partitioned table with an
  * ordinary one and take every partition with it.

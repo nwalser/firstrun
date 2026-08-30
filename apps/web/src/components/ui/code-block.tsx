@@ -30,7 +30,7 @@ import { Button } from "./button.js";
  * compiled to a getter that builds its nodes when it is read, so testing one to
  * decide what to render claims the server's DOM out of order and hydration
  * fails somewhere else entirely -- the long version of that story is in
- * `wiki/snippet.tsx`. A string can be read as many times as it likes.
+ * `documentation/snippet.tsx`. A string can be read as many times as it likes.
  *
  * ## The code is padded, not the box
  *
@@ -43,9 +43,9 @@ import { Button } from "./button.js";
  *
  * `highlighted` is HTML, produced by `lib/highlight.ts` during render. It is a
  * prop rather than something this component computes because this component is
- * shared: the wiki uses it, and so do the login page and three settings pages,
+ * shared: the documentation uses it, and so do the login page and three settings pages,
  * and a static import of the highlighter here would put 30KB of grammars in a
- * chunk the dashboard loads to show a source key. The wiki's `Snippet` is the
+ * chunk the dashboard loads to show a source key. The documentation's `Snippet` is the
  * only caller that passes it.
  *
  * Setting it as HTML is safe for exactly one reason, stated in full in

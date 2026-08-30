@@ -21,10 +21,16 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
+  Spinner,
   initials,
   toast,
 } from "../components/ui/index.js";
-import { DangerZone, SettingsSection, SettingsShell } from "../components/settings-shell.js";
+import {
+  DangerZone,
+  SettingsPending,
+  SettingsSection,
+  SettingsShell,
+} from "../components/settings-shell.js";
 import { LogoField } from "../components/logo-field.js";
 import { useI18n } from "../lib/i18n/index.js";
 import {
@@ -53,6 +59,7 @@ export const Route = createFileRoute("/w/$wslug/settings")({
     return view;
   },
   component: WorkspaceSettings,
+  pendingComponent: SettingsPending,
 });
 
 function WorkspaceSettings() {
@@ -90,8 +97,12 @@ function WorkspaceSettings() {
     });
     setBusy(false);
     if (!result.ok) {
+      // Inline only. The message has a place on screen -- under the field it is
+      // about, where the reader's eye already is -- and a toast repeating it in
+      // the corner is the same sentence twice, one copy of which then times
+      // out. A toast is for a failure with nowhere to land: a delete, a role
+      // change, a logo upload. See the note on `run` in `w.$wslug.members.tsx`.
       setError(result.error);
-      toast.error(result.error);
       return;
     }
     toast.success(i18n.t("settings.renamed_to", { name: name().trim() }));
@@ -145,7 +156,18 @@ function WorkspaceSettings() {
           title={i18n.t("shell.general")}
           description={i18n.t("settings.name_hint")}
           footer={
+            /*
+              A spinner AND the changed word, which is the treatment
+              `ConfirmDelete` already uses for the one action in the design
+              system that can take a moment. The word alone was the whole
+              progress report on every form in the product: a disabled button
+              reading "Saving" is indistinguishable from a disabled button that
+              has stopped.
+            */
             <Button type="submit" form="workspace-general" disabled={busy() || !renamed()}>
+              <Show when={busy()}>
+                <Spinner />
+              </Show>
               {busy() ? i18n.t("common.saving") : i18n.t("common.save")}
             </Button>
           }

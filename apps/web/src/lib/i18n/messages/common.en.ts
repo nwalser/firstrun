@@ -11,7 +11,7 @@ import type { Namespaced } from "./namespace.js";
  *
  * A translator who needs a shared string that is not here puts it in their own
  * namespace instead, even if a neighbouring area ends up with the same word.
- * Two catalogue entries reading "Speichern" cost nothing. Two people editing
+ * Two catalogue events reading "Speichern" cost nothing. Two people editing
  * one file costs an afternoon.
  */
 export const common = {

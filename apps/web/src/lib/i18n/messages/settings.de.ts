@@ -122,6 +122,11 @@ export const settings: SettingsMessages = {
     "der Seitenleiste und im Workspace-Umschalter und liegt in der Datenbank statt auf der " +
     "Festplatte: Deploys ersetzen das Dateisystem, und ein Logo, das beim nächsten Release " +
     "verschwindet, ist schlechter als gar kein Logo.",
+  "settings.project_logo": "Projektbild",
+  "settings.project_logo_saved_hint":
+    "Wird gespeichert, sobald Sie eines auswählen. Speichern oben gilt dem Namen. Erscheint " +
+    "überall dort, wo dieses Projekt aufgeführt ist, und liegt aus demselben Grund wie ein " +
+    "Workspace-Logo in der Datenbank statt auf der Festplatte: Deploys ersetzen das Dateisystem.",
   "settings.logo_alt": "Logo von {name}",
   "settings.logo_drop": "Bild hierher ziehen oder klicken, um eines zu wählen",
   "settings.logo_drop_replacement": "Ersatz hierher ziehen oder klicken, um einen zu wählen",

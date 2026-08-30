@@ -9,6 +9,8 @@ import LayoutDashboard from "lucide-solid/icons/layout-dashboard";
 import Plug from "lucide-solid/icons/plug";
 import Plus from "lucide-solid/icons/plus";
 import { For, Show, type JSX } from "solid-js";
+import { ROW_INTERACTION } from "../components/page-header.js";
+import { RefreshButton } from "../components/refresh-button.js";
 import {
   Badge,
   Card,
@@ -20,6 +22,7 @@ import {
   EmptyDescription,
   EmptyMedia,
   EmptyTitle,
+  Skeleton,
   buttonVariants,
 } from "../components/ui/index.js";
 import { VisualisationBody } from "../components/widgets.js";
@@ -62,7 +65,44 @@ export const Route = createFileRoute("/w/$wslug/$pslug/")({
     return snapshot;
   },
   component: ProjectOverview,
+  pendingComponent: ProjectOverviewPending,
 });
+
+/**
+ * What this page is while its numbers are still being counted.
+ *
+ * It is the one page in the product whose loader is seven SQL queries over a
+ * partitioned table, so it is also the one that can visibly take a moment. With
+ * nothing here the router simply held the previous route on screen and the
+ * whole app looked frozen: no spinner, no skeleton, no cursor, and the same
+ * board still showing its old numbers.
+ *
+ * The shape is the real page's, card for card, so nothing moves when the
+ * answers land. The router only shows this after its own pending delay, so a
+ * fast load never flashes it.
+ */
+function ProjectOverviewPending() {
+  return (
+    <main class="flex flex-col gap-6 py-6">
+      <div class="flex h-control-md flex-row items-center gap-2">
+        <Skeleton class="h-4 w-64" />
+      </div>
+      <div class="mt-4 grid grid-cols-1 gap-4 @lg-page/page:grid-cols-3">
+        {/*
+          Seven cards at the page's own fixed height, two of them double width,
+          in the order the page draws them.
+        */}
+        <Skeleton class="h-[240px] @lg-page/page:col-span-2" />
+        <Skeleton class="h-[240px]" />
+        <Skeleton class="h-[240px]" />
+        <Skeleton class="h-[240px]" />
+        <Skeleton class="h-[240px]" />
+        <Skeleton class="h-[240px] @lg-page/page:col-span-2" />
+        <Skeleton class="h-[240px]" />
+      </div>
+    </main>
+  );
+}
 
 /**
  * The questions, resolved once.
@@ -132,6 +172,12 @@ function ProjectOverview() {
           </Show>
         </div>
 
+        {/* Re-reads the snapshot in place. The window is fixed on this page, so
+            "is this thing alive" is a question whose answer changes without
+            anything on screen changing, and a reload was the only way to ask
+            it again. */}
+        <RefreshButton />
+
         <Link
           to="/w/$wslug/$pslug/sources"
           params={{ wslug: workspace(), pslug: project().slug }}
@@ -197,7 +243,7 @@ function ProjectOverview() {
           */}
           <OverviewCard
             class="@lg-page/page:col-span-2"
-            title={i18n.t("project.card_entries")}
+            title={i18n.t("project.card_events")}
             hint={measured()}
           >
             <div class="flex h-full min-h-0 gap-5">
@@ -338,7 +384,16 @@ function ProjectOverview() {
                     <Link
                       to="/w/$wslug/$pslug/dashboards/$dslug"
                       params={{ wslug: workspace(), pslug: project().slug, dslug: board.slug }}
-                      class="group block"
+                      /*
+                        The same fill and the same focus ring as every other
+                        clickable row in the product. It used to have neither:
+                        the arrow nudged and nothing else happened, so the only
+                        row on this page you can actually follow was the one
+                        that looked least like a target. The fill bleeds 8px
+                        into the card's own padding so it reads as a row rather
+                        than as a box drawn around the text.
+                      */
+                      class={cn(ROW_INTERACTION, "group -mx-2 block rounded-sm px-2")}
                     >
                       <Row>
                         <span class="flex min-w-0 items-center gap-2">
@@ -473,7 +528,7 @@ function StatusCard(props: {
             {state().label}
           </span>
         </Fact>
-        <Fact label={i18n.t("project.fact_last_entry")}>
+        <Fact label={i18n.t("project.fact_last_event")}>
           {props.lastSeen ? i18n.relative(props.lastSeen) : i18n.t("common.never")}
         </Fact>
         <Fact label={i18n.t("project.fact_sources")}>

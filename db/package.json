@@ -12,8 +12,7 @@
     "./query": "./query.ts",
     "./partitions": "./partitions.ts",
     "./migrate": "./migrate.ts",
-    "./repo": "./repo.ts",
-    "./queries": "./queries.ts"
+    "./repo": "./repo.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

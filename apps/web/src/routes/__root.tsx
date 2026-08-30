@@ -30,7 +30,7 @@ export const Route = createRootRoute({
         No remote stylesheet, and no font host.
 
         Geist is vendored in `apps/web/public/fonts` and declared in
-        `src/fonts.css`. This is self-hosted analytics whose own wiki promises
+        `src/fonts.css`. This is self-hosted analytics whose own documentation promises
         that nothing about a customer's visitors leaves their infrastructure,
         and a dashboard pulling its typeface from fonts.gstatic.com would send
         every operator's IP and referer to Google on every page load. The

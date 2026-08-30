@@ -24,7 +24,7 @@ export const explore: ExploreMessages = {
   "explore.limit": "Limit",
   "explore.attribute_placeholder": "Attribut oder Spalte…",
 
-  "explore.no_results": "Keine Einträge entsprechen dieser Abfrage",
+  "explore.no_results": "Keine Events entsprechen dieser Abfrage",
   "explore.results_one": "{count} Gruppe",
   "explore.results_other": "{count} Gruppen",
   "explore.save_as_widget": "Als Widget speichern",
@@ -33,7 +33,7 @@ export const explore: ExploreMessages = {
   "explore.column_name": "Name",
   "explore.column_severity": "Severity",
   "explore.column_distinct_id": "Client-ID",
-  "explore.column_entry_id": "Eintrags-ID",
+  "explore.column_event_id": "Event-ID",
   "explore.column_ingested_at": "Empfangen am",
 
   "explore.field_unique": "Unique",
@@ -42,7 +42,7 @@ export const explore: ExploreMessages = {
   "explore.field_placeholder": "Feld auswählen",
   "explore.field_custom": "Anderes Attribut…",
 
-  "explore.agg_entries": "Einträge",
+  "explore.agg_events": "Events",
   "explore.agg_uniques": "Uniques",
   "explore.agg_distinct_of": "Verschiedene {field}",
   "explore.agg_percentile_of": "p{p} {field}",
@@ -51,7 +51,7 @@ export const explore: ExploreMessages = {
   "explore.agg_min_of": "Minimum von {field}",
   "explore.agg_max_of": "Maximum von {field}",
 
-  "explore.fn_count": "Anzahl Einträge",
+  "explore.fn_count": "Anzahl Events",
   "explore.fn_count_distinct": "Anzahl verschiedener",
   "explore.fn_sum": "Summe",
   "explore.fn_avg": "Durchschnitt",
@@ -118,12 +118,12 @@ export const explore: ExploreMessages = {
   "explore.section_viz": "Darstellen als",
   "explore.section_measure": "Messgröße",
   "explore.section_measure_hint":
-    "Anzahl Einträge, Anzahl verschiedener Uniques oder eine Zahl aus einem Attribut.",
+    "Anzahl Events, Anzahl verschiedener Uniques oder eine Zahl aus einem Attribut.",
   "explore.section_filter_hint": "Leer bedeutet keine Einschränkung, niemals nichts.",
   "explore.section_group_hint":
     "Eine Spalte oder ein Attributpfad. Jeder teilt die Antwort weiter auf.",
   "explore.section_bucket_hint":
-    "Immer auf dem Zeitpunkt des Eintrags, nie auf dem Zeitpunkt des Eingangs.",
+    "Immer auf dem Zeitpunkt des Events, nie auf dem Zeitpunkt des Eingangs.",
   "explore.section_limit_hint":
     "Wie viele Gruppen zurückkommen. Die Rangfolge entscheidet, welche.",
 
@@ -141,12 +141,12 @@ export const explore: ExploreMessages = {
 
   "explore.nothing_title": "Es ist noch nichts angekommen",
   "explore.nothing_body":
-    "In diesem Zeitraum gibt es keine Einträge, also gibt es nichts zu entdecken und nichts " +
-    "zu filtern. Jeder Client hat dieselben fünf Aufrufe, und einer davon genügt: ein Eintrag " +
-    "ist ein Name, eine Severity und eine Attributkarte, und er ist abfragbar, sobald er " +
+    "In diesem Zeitraum gibt es keine Events, also gibt es nichts zu entdecken und nichts " +
+    "zu filtern. Jeder Client hat dieselben fünf Aufrufe, und einer davon genügt: ein Event " +
+    "ist ein Name, eine Severity und eine Attributkarte, und es ist abfragbar, sobald es " +
     "ankommt.",
-  "explore.nothing_cta": "So senden Sie einen ersten Eintrag",
+  "explore.nothing_cta": "So senden Sie ein erstes Event",
   "explore.nothing_widen":
-    "Erweitern Sie auch den Zeitraum: Einträge werden vom Client gestempelt, und eine App, " +
+    "Erweitern Sie auch den Zeitraum: Events werden vom Client gestempelt, und eine App, " +
     "die offline war, meldet Tage nach, die sie bereits durchlebt hat.",
 };

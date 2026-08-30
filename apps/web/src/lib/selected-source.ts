@@ -1,29 +1,29 @@
 import { createEffect, createMemo, createSignal, onMount, type Accessor } from "solid-js";
-import type { WikiSource } from "./api.js";
+import type { DocsSource } from "./api.js";
 
 /**
- * Which source the wiki is currently written for, remembered across navigation.
+ * Which source the documentation is currently written for, remembered across navigation.
  *
- * The whole point of the wiki is that a snippet arrives with the reader's own
+ * The whole point of the documentation is that a snippet arrives with the reader's own
  * ingest key already in it, so the choice has to outlive a page change -- and a
  * choice that resets on every navigation is worse than no choice at all,
  * because the reader has to notice it reset before they paste.
  *
  * Only the source **id** is stored. Storing the source itself would go stale
- * the moment somebody renames it or rotates its key, and a wiki that shows a
+ * the moment somebody renames it or rotates its key, and a documentation that shows a
  * key from three months ago is exactly the silent failure this feature exists
  * to prevent.
  */
 
 /** One key, namespaced, so nothing else in localStorage can collide with it. */
-const STORAGE_KEY = "firstrun.wiki.source-id";
+const STORAGE_KEY = "firstrun.docs.source-id";
 
 /**
  * `localStorage` is not a safe property to touch.
  *
  * Reading it throws outright in Safari's private mode and wherever site data is
  * blocked -- and a throw here happens during render, which takes the entire
- * wiki down over a preference. Every access is wrapped, and failure means "no
+ * documentation down over a preference. Every access is wrapped, and failure means "no
  * choice remembered", which is a page that still works.
  */
 export function readStoredSourceId(): string | null {
@@ -45,10 +45,10 @@ export function writeStoredSourceId(id: string | null): void {
 
 export interface SelectedSource {
   /** The chosen source, already validated against what the reader can see. */
-  source: Accessor<WikiSource | null>;
+  source: Accessor<DocsSource | null>;
   /** The stored id, whether or not it still resolves. Mostly for debugging. */
   sourceId: Accessor<string | null>;
-  setSource: (source: WikiSource | null) => void;
+  setSource: (source: DocsSource | null) => void;
   clear: () => void;
 }
 
@@ -66,7 +66,7 @@ export interface SelectedSource {
  * appears one tick later, which is invisible, whereas a mismatch here would
  * leave the page half-hydrated and silently uninteractive.
  */
-export function createSelectedSource(sources: () => WikiSource[]): SelectedSource {
+export function createSelectedSource(sources: () => DocsSource[]): SelectedSource {
   const [sourceId, setSourceId] = createSignal<string | null>(null);
 
   onMount(() => {
@@ -95,7 +95,7 @@ export function createSelectedSource(sources: () => WikiSource[]): SelectedSourc
     }
   });
 
-  const setSource = (next: WikiSource | null) => {
+  const setSource = (next: DocsSource | null) => {
     setSourceId(next?.id ?? null);
     writeStoredSourceId(next?.id ?? null);
   };

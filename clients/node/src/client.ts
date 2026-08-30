@@ -259,17 +259,7 @@ export class Firstrun {
     // the same channel as everything else: an option that was corrected rather
     // than obeyed is worth one line in the host's log at boot.
     this.delivery = resolveDelivery(
-      {
-        delivery: options.delivery,
-        maxQueueEntries: this.cfg.maxQueueEntries,
-        legacy: {
-          flushIntervalMs: options.flushIntervalMs,
-          maxBatchEntries: options.maxBatchEntries,
-          flushAt: options.flushAt,
-          flushTimeoutMs: options.flushTimeoutMs,
-          registerShutdownHooks: options.registerShutdownHooks,
-        },
-      },
+      { delivery: options.delivery, maxQueueEntries: this.cfg.maxQueueEntries },
       (message, detail) => this.diag("config", "warn", message, detail)
     );
 

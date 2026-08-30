@@ -58,6 +58,29 @@ const COMPARISONS: Array<{ kind: Comparison["kind"]; key: SimpleKey }> = [
 const lastDay = (to: Date) => toCalendarDate(new Date(to.getTime() - DAY));
 
 /**
+ * Up and down move between the rows of a list inside a popover.
+ *
+ * The scope switcher answers the arrow keys, and a second list of the same
+ * 36px rows in a second popover that only answers Tab is the kind of difference
+ * nobody can learn. It moves real focus rather than a roving index because
+ * these rows are buttons that already take focus, where the switcher's rows
+ * cannot: its focus stays in the search field the whole time.
+ *
+ * Bound on the container rather than on each row, so the row does not have to
+ * know what is above and below it.
+ */
+function arrowKeys(event: KeyboardEvent) {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const container = event.currentTarget as HTMLElement;
+  const rows = [...container.querySelectorAll<HTMLButtonElement>("button")];
+  const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+  if (at < 0) return;
+  event.preventDefault();
+  const next = event.key === "ArrowDown" ? at + 1 : at - 1;
+  rows[Math.min(rows.length - 1, Math.max(0, next))]?.focus();
+}
+
+/**
  * A `yyyy-mm-dd` or a resolved boundary, written out.
  *
  * Pinned to UTC, because every date in a range is a calendar date rather than
@@ -162,8 +185,11 @@ export function TimeRangePicker(props: {
     setComparison({ kind } as Comparison);
   };
 
+  // 8px is the measured distance from a trigger row to its panel. It was 6,
+  // which is not a step of anything and put this popover a pixel closer to its
+  // trigger than every other popover in the app.
   return (
-    <Popover placement="bottom-start" gutter={6}>
+    <Popover placement="bottom-start" gutter={8}>
       {/* A control in a toolbar row: 36px at radius 6, which is one step more
           than a standalone button rounds. */}
       <PopoverTrigger
@@ -192,7 +218,7 @@ export function TimeRangePicker(props: {
 
       <PopoverContent class="w-auto max-w-[calc(100vw-2rem)] overflow-auto p-0">
         <div class="flex">
-          <div class="flex w-44 shrink-0 flex-col gap-0.5 border-r p-2">
+          <div class="flex w-44 shrink-0 flex-col gap-0.5 border-r p-2" onKeyDown={arrowKeys}>
             <div class="text-muted-foreground px-2 pb-1 text-xs font-medium">
               {i18n.t("dashboard.range")}
             </div>
@@ -210,13 +236,18 @@ export function TimeRangePicker(props: {
                     // The measured popover row: 36px, radius 6, 8px each side.
                     // The height is the token rather than padding, so a row
                     // here keeps the same pitch as one in the scope switcher.
+                    // The highlight is the full accent fill and its foreground,
+                    // which is what a hovered row draws everywhere else in the
+                    // app. A weaker tint reserved for hover made this the one
+                    // list where the same gesture produced a different colour.
+                    // What marks the current row is the check and the weight,
+                    // exactly as it is in the select.
                     class={cn(
                       "flex h-popover-row cursor-pointer items-center justify-between",
                       "rounded-md px-2 text-body transition-colors",
                       "focus-ring outline-none",
-                      active()
-                        ? "bg-accent font-medium text-accent-foreground"
-                        : "hover:bg-accent/60"
+                      "hover:bg-accent hover:text-accent-foreground",
+                      active() && "bg-accent font-medium text-accent-foreground"
                     )}
                   >
                     {rangeLabel(i18n, preset.range)}
