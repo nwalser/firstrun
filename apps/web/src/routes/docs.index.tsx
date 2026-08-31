@@ -12,6 +12,7 @@ import {
   EmptyTitle,
 } from "../components/ui/index.js";
 import { cn } from "../lib/cn.js";
+import { canonicalUrl, seoLinks, seoMeta, siteOrigin } from "../lib/seo.js";
 import { DocsPage, DocsProse, useDocs } from "../components/docs/shell.js";
 import {
   sectionLabel,
@@ -30,6 +31,30 @@ import { useI18n } from "../lib/i18n/index.js";
  * reporting side by side instead of one tool per platform.
  */
 export const Route = createFileRoute("/docs/")({
+  /**
+   * The front page of the documentation is the front page of the product for
+   * anybody who arrived from a search, so it is the one page here that has to
+   * say what firstrun is in a sentence a result can show.
+   *
+   * The title and the description are written out rather than read through `t`.
+   * `head()` runs outside the component tree, so there is no i18n context to
+   * read, and the language a crawler is served depends on an `Accept-Language`
+   * header it does not send: a page whose title changes with the request is a
+   * page Google will pick one arbitrary version of. English, always, is the
+   * predictable answer.
+   */
+  head: ({ matches }) => {
+    const origin = siteOrigin(matches);
+    const seo = {
+      title: "Documentation",
+      description:
+        "Install firstrun on the web, desktop, mobile or a server, and send " +
+        "events, errors and metrics to one self-hosted log you own.",
+      canonical: canonicalUrl(origin, "/docs"),
+      index: true,
+    };
+    return { meta: seoMeta(seo, origin), links: seoLinks(seo) };
+  },
   component: DocsIndex,
 });
 

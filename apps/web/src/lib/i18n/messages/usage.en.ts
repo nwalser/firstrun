@@ -3,10 +3,10 @@ import type { Namespaced } from "./namespace.js";
 /**
  * The usage page: how many events a workspace has taken in, and from where.
  *
- * The unit is deliberately named on screen. There is no plan and no quota in
- * this product, so "usage" cannot mean a bill: it means events, and an
+ * The unit is deliberately named on screen: "usage" means events, and an
  * exception, a page view and a measurement each count once, because they are
- * the same row in the same table.
+ * the same row in the same table. That holds whether or not there is a plan
+ * above it, which is why the plan's own strings live in `billing` and not here.
  */
 export const usage = {
   "usage.title": "Usage",

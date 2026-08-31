@@ -5,5 +5,7 @@ export * from "./log-entries.js";
 export * from "./feed.js";
 export * from "./query.js";
 export * from "./partitions.js";
+export * from "./usage.js";
+export * from "./billing.js";
 export { applyMigrations, waitForPostgres } from "./migrate.js";
 export { loadRootEnv } from "./env.js";

@@ -7,29 +7,30 @@ export const project = {
   "project.new_hint": "One project per product, in {workspace}.",
   "project.create": "Create project",
   "project.name_label": "Project name",
+  "project.name_hint":
+    "One product. Your website, your desktop app and your backend all report in here, which " +
+    "is what puts their numbers on one board. Nothing else is created with it.",
   "project.admin_only": "Only an admin of this workspace can create a project.",
-  "project.address_prefix": "Its address will be",
-  "project.start_from": "Start from",
-  "project.start_from_hint":
-    "The first board. Every project gets more later, and none of this is permanent.",
 
-  // The callout that must not be skimmed. One key per paragraph: the English
-  // emphasised three words in the middle of each, and a sentence split around
-  // markup cannot be reordered into German.
-  "project.callout_title": "One product, not one platform",
-  "project.callout_body":
-    "A project is one product. Everything it ships on reports in here as its own source, so your " +
-    "marketing site, your desktop app and your backend belong in this one project. That is what " +
-    "puts their numbers next to each other on one board instead of on three you have to compare " +
-    "by hand.",
-  "project.callout_second":
-    "A second project is for a second product. Splitting one product across two of them does " +
-    "not lose anything, but no board can ever show both halves at once, and every comparison " +
-    "between them becomes a thing somebody does by hand.",
-  "project.chip_website": "Website",
-  "project.chip_desktop": "Desktop app",
-  "project.chip_backend": "Backend",
-  "project.chip_one_board": "one board",
+  // The quickstart. Every step is checked against what exists, so the list is
+  // never wrong about what is left and never has to be dismissed.
+  "project.quickstart": "Finish setting this up",
+  "project.quickstart_hint":
+    "Nothing was created for you. These are the steps, each on the page that does it properly.",
+  "project.quickstart_progress": "{done} of {total}",
+  "project.step_done": "Done",
+  "project.step_source": "Add a source",
+  "project.step_source_hint":
+    "One thing that reports in: your site, your app, or your backend. You get its key here.",
+  "project.step_install": "Install it and send an event",
+  "project.step_install_hint":
+    "Paste the snippet into your own software. This ticks when the first event arrives.",
+  "project.step_install_action": "Open sources",
+  "project.step_board": "Make a board",
+  "project.step_board_hint":
+    "An arrangement of saved questions, with its own range and, if you like, one source it is " +
+    "about.",
+  "project.step_board_action": "New board",
 
   // The overview's toolbar. The baseline is stated on screen because a delta
   // whose baseline is unstated is a number nobody can check.
@@ -59,8 +60,7 @@ export const project = {
   "project.card_boards_hint": "Where the questions you arranged live.",
   "project.new_board": "New",
   "project.never_seen": "never seen",
-  "project.no_boards":
-    "No boards yet. One is made the first time somebody opens this project's dashboards.",
+  "project.no_boards": "No boards yet. Make one when you know what you want to watch.",
 
   // The status card. "Is this thing alive", in four facts.
   "project.fact_reporting": "Reporting",

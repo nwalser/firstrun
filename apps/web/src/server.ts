@@ -1,6 +1,6 @@
 import { createStartHandler, defaultStreamHandler } from "@tanstack/solid-start/server";
 import { handleEntries, handleHealth, preflight } from "@firstrun/ingest";
-import { finishGithubLogin, logout, startGithubLogin } from "./lib/auth.server.js";
+import { finishGithubLogin, logout, publicOrigin, startGithubLogin } from "./lib/auth.server.js";
 import { ensureReady, getCtx, getStore } from "./lib/context.server.js";
 import { readWebTag } from "./lib/web-tag.server.js";
 
@@ -59,17 +59,108 @@ function logoResponse(
   });
 }
 
+/**
+ * What a crawler is allowed to read, and where the list of it is.
+ *
+ * Almost none of this app is public. Everything under `/w/` needs a session,
+ * `/login` and `/new` are steps in getting one, and `/v1/`, `/t.js`, `/auth/`
+ * and `/api/` are machine surfaces that would only ever be crawled by mistake.
+ * The documentation is the half that is meant to be found, so it is the half
+ * that is left open.
+ *
+ * Generated rather than a file in `public/`, for one reason: the `Sitemap:`
+ * line has to be absolute, and this deployment does not know its own hostname
+ * until a request arrives. A static file would have to hard-code firstrun.app,
+ * which is wrong on every self-hosted install.
+ */
+function robots(request: Request): Response {
+  const origin = publicOrigin(request);
+  const body = [
+    "User-agent: *",
+    "Allow: /docs",
+    "Disallow: /w/",
+    "Disallow: /login",
+    "Disallow: /new",
+    "Disallow: /auth/",
+    "Disallow: /api/",
+    "Disallow: /v1/",
+    "",
+    `Sitemap: ${origin}/sitemap.xml`,
+    "",
+  ].join("\n");
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
+}
+
+/**
+ * Every public URL, which is the documentation and nothing else.
+ *
+ * The topic list is imported dynamically because `registry.ts` eagerly pulls in
+ * every page module under `components/docs/topics/`, and those are Solid
+ * components: importing them at the top of the server entry would put the whole
+ * documentation in the module graph of the ingest endpoint. Inside the handler
+ * it is paid for by whoever asked for the sitemap, which is a crawler, once.
+ *
+ * No `lastmod`. A date this cannot compute honestly is a date that says every
+ * page changed on the day of the deploy, and a sitemap that cries wolf about
+ * freshness is worse than one that says nothing about it.
+ */
+async function sitemap(request: Request): Promise<Response> {
+  const origin = publicOrigin(request);
+  const { DOCS_TOPICS } = await import("./components/docs/registry.js");
+
+  const urls = ["/docs", ...DOCS_TOPICS.map((topic) => `/docs/${topic.slug}`)];
+  const body =
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    urls.map((path) => `  <url><loc>${origin}${path}</loc></url>\n`).join("") +
+    `</urlset>\n`;
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/xml; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
+}
+
 async function route(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname;
 
   if (path === "/v1/health") return handleHealth();
 
+  // Above the data-plane guard for the same reason the webhook is: that guard
+  // hands anything outside `/v1/` to SSR, and a crawler asking for /robots.txt
+  // would be answered with the application shell and a 200.
+  if (path === "/robots.txt") return robots(request);
+  if (path === "/sitemap.xml") return sitemap(request);
+
   // Auth is not part of the data plane, but it is the same kind of thing: a
   // redirect and a cookie, with no page to render.
   if (path === "/auth/github") return startGithubLogin(request);
   if (path === "/auth/github/callback") return finishGithubLogin(request);
   if (path === "/auth/logout") return logout(request);
+
+  /*
+    Stripe's webhook, ABOVE the data-plane guard below.
+    
+    That guard answers `null` for anything outside `/v1/` and `/t.js`, which
+    hands the request to SSR: a webhook mounted after it would render a page at
+    Stripe and never be delivered. It also has to see the raw `Request`, because
+    the signature is over the exact bytes of the body and anything that parses
+    and re-serialises the JSON first produces a signature that never matches.
+  */
+  if (path === "/api/stripe/webhook" && request.method === "POST") {
+    await ensureReady();
+    const { handleStripeWebhook } = await import("./lib/stripe.server.js");
+    return handleStripeWebhook(request);
+  }
 
   const logo = LOGO.exec(path);
   if (logo) {

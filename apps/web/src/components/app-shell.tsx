@@ -46,6 +46,7 @@ import {
   duplicateDashboardFn,
   renameDashboardFn,
   reorderDashboardsFn,
+  type BillingView,
   type DashboardSummary,
   type MemberRole,
   type ProjectSummary,
@@ -53,6 +54,7 @@ import {
   type WorkspaceSummary,
 } from "../lib/api.js";
 import { LocaleSwitcher } from "./locale-switcher.js";
+import { PlanNotice } from "./plan-meter.js";
 import {
   Avatar,
   AvatarFallback,
@@ -152,6 +154,14 @@ export interface AppShellProps {
   session: SessionInfo;
   workspace: WorkspaceSummary;
   projects: ProjectSummary[];
+  /**
+   * What this workspace is allowed, loaded once by the layout route.
+   *
+   * Here rather than on each page so that a warning follows somebody around the
+   * workspace without every page paying for the query. On a self-hosted install
+   * it carries no ceilings and `PlanNotice` renders nothing.
+   */
+  billing: BillingView;
   children: JSX.Element;
 }
 
@@ -1977,6 +1987,7 @@ function RootNav(props: {
                     params={{ wslug: props.workspace.slug }}
                     tooltip={i18n.t("shell.settings")}
                     isActive={isActive(`${base()}/settings`)}
+                    submenu
                   >
                     <Settings />
                     <SidebarLabel>{i18n.t("shell.settings")}</SidebarLabel>
@@ -1993,6 +2004,7 @@ function RootNav(props: {
                   params={{ wslug: props.workspace.slug, pslug: project().slug }}
                   tooltip={i18n.t("shell.settings")}
                   isActive={isActive(`${base()}/${project().slug}/settings`)}
+                  submenu
                 >
                   <Settings />
                   <SidebarLabel>{i18n.t("shell.settings")}</SidebarLabel>
@@ -2149,6 +2161,19 @@ function SettingsNav(props: {
                   isActive={props.path === `${base()}/members`}
                 >
                   <SidebarLabel>{i18n.t("shell.people")}</SidebarLabel>
+                </SidebarSubButton>
+              </SidebarMenuItem>
+              {/* Present in both editions. Self hosted the page says there is
+                  nothing to pay and nothing to license, which is a better
+                  answer to "where is billing" than a missing row. */}
+              <SidebarMenuItem>
+                <SidebarSubButton
+                  as={Link}
+                  to="/w/$wslug/settings/billing"
+                  params={{ wslug: props.workspace.slug }}
+                  isActive={props.path === `${base()}/settings/billing`}
+                >
+                  <SidebarLabel>{i18n.t("billing.nav")}</SidebarLabel>
                 </SidebarSubButton>
               </SidebarMenuItem>
             </>
@@ -2357,7 +2382,17 @@ export function AppShell(props: AppShellProps) {
                   : "grid-cols-[minmax(24px,1fr)_minmax(0,1620px)_minmax(24px,1fr)]"
               )}
             >
-              <div class="col-start-2 min-w-0">{props.children}</div>
+              <div class="col-start-2 min-w-0">
+                {/* Above the page rather than inside it: the plan belongs to
+                    the workspace, so the warning has to be visible from
+                    whichever page somebody happens to be on. */}
+                <PlanNotice
+                  billing={props.billing}
+                  workspaceSlug={props.workspace.slug}
+                  role={props.workspace.role}
+                />
+                {props.children}
+              </div>
             </div>
           </div>
         </SidebarInset>

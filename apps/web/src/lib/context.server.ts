@@ -51,12 +51,21 @@ export function ensureReady(): Promise<void> {
 let jobsStarted = false;
 
 /**
- * One prune, and nothing else.
+ * A prune, and on the hosted service a meter push.
  *
  * There used to be a squash job here, folding merged identities back into the
  * events table. Nothing is merged any more: `distinct_id` is written once, by
  * the client that owns it, and never rewritten. Expired login sessions are the
  * only rows in this database that go stale on their own.
+ *
+ * The meter push reports yesterday and today to Stripe. Both, because the job
+ * runs on an interval rather than at a wall-clock hour, so the run that
+ * straddles midnight is the one that would otherwise leave a day unsent. Both
+ * are safe to repeat: Stripe deduplicates on the event identifier, which is
+ * `${workspace}:${day}`.
+ *
+ * It is a no-op without `FIRSTRUN_CLOUD` and a Stripe key, so a self-hosted
+ * install never reaches the network for this or anything else.
  */
 function startBackgroundJobs(): void {
   if (jobsStarted) return;
@@ -72,4 +81,38 @@ function startBackgroundJobs(): void {
       console.error("prune failed", (err as Error)?.message);
     }
   }, 15 * 60_000).unref?.();
+
+  // Partitions, kept ahead of the clock.
+  //
+  // `applyMigrations` creates them on boot, which covers a redeploy but not a
+  // container that has been up since March. Partitions are monthly and created
+  // two months ahead, so the window is wide; six hours is margin on margin and
+  // costs one function call that returns 0.
+  //
+  // Ensure only, never drop. `dropExpiredPartitions` stays something a person
+  // invokes: deleting a customer's data because a retention default was left
+  // alone is not a failure mode this gets to have.
+  setInterval(async () => {
+    try {
+      const { ensurePartitions } = await import("@firstrun/db/partitions");
+      await ensurePartitions(c.store);
+    } catch (err) {
+      // A second replica racing this one loses the CREATE and lands here. The
+      // partition it wanted exists either way, which is the whole point.
+      console.error("partition maintenance failed", (err as Error)?.message);
+    }
+  }, 6 * 60 * 60_000).unref?.();
+
+  setInterval(async () => {
+    try {
+      const { stripeConfigured, pushMeter } = await import("./stripe.server.js");
+      if (!stripeConfigured()) return;
+      const { utcDay } = await import("@firstrun/db/usage");
+      const today = utcDay();
+      const yesterday = utcDay(new Date(Date.now() - 24 * 60 * 60 * 1000));
+      for (const day of new Set([yesterday, today])) await pushMeter(day);
+    } catch (err) {
+      console.error("meter push failed", (err as Error)?.message);
+    }
+  }, 60 * 60_000).unref?.();
 }

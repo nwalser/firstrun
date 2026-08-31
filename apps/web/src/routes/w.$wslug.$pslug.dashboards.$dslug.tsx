@@ -36,6 +36,18 @@ export const Route = createFileRoute("/w/$wslug/$pslug/dashboards/$dslug")({
     });
     if (!view) throw notFound();
 
+    // A project with no boards has no board to show, and that is ordinary: it
+    // is what every project is until somebody makes one. The project's own page
+    // is where the quickstart lives, so that is where a link to a board that
+    // does not exist yet leads.
+    if (!view.dashboard) {
+      throw redirect({
+        to: "/w/$wslug/$pslug",
+        params: { wslug: params.wslug, pslug: params.pslug },
+        replace: true,
+      });
+    }
+
     // The server falls back to the default board when the slug names nothing,
     // which is right for `getProject` and wrong for a URL: silently showing a
     // different board than the address asks for is how somebody sends a link to
@@ -64,7 +76,7 @@ function BoardView() {
     // pixels left of every other page's content.
     <main class="py-6">
       <Show
-        when={view().sources.length > 0}
+        when={view().sources.length > 0 && view().layout && view().snapshot}
         fallback={
           <Empty>
             <EmptyMedia>
@@ -87,9 +99,9 @@ function BoardView() {
         <Dashboard
           workspaceSlug={view().workspace.slug}
           projectSlug={view().project.slug}
-          dashboardId={view().dashboard.id}
-          layout={view().layout}
-          snapshot={view().snapshot}
+          dashboardId={view().dashboard!.id}
+          layout={view().layout!}
+          snapshot={view().snapshot!}
           sources={view().sources}
           discovery={view().discovery}
           canEdit={view().role === "admin"}

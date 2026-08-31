@@ -1,4 +1,5 @@
 import { DateRange } from "@firstrun/schema";
+import type { BillingStatus, Entitlements, PlanId } from "@firstrun/schema/plan";
 import { FeedRequest, type FeedEntry, type FeedPage } from "@firstrun/schema/feed";
 import { createServerFn } from "@tanstack/solid-start";
 import { Board, type Board as BoardValue } from "@firstrun/schema/board";
@@ -104,11 +105,34 @@ export interface MemberSummary {
   role: MemberRole;
 }
 
+/**
+ * What this workspace is allowed, and how close it is to it.
+ *
+ * Present in both editions and empty in one of them. Self hosted answers
+ * `cloud: false` with every entitlement `null`, and `null` means NO LIMIT, not
+ * zero: every meter, banner and upsell is conditioned on a ceiling existing, so
+ * a self hoster sees none of them and there is nothing to unlock. See
+ * `lib/billing.server.ts`, which is the only file that knows the difference.
+ *
+ * `period.entries` is counted on ARRIVAL, not on the entries' own `time`. It
+ * will not match the usage page's chart to the row, and that is correct: one is
+ * what was billed this month, the other is when things happened. Both say which
+ * they are on screen.
+ */
+export interface BillingView {
+  cloud: boolean;
+  plan: PlanId;
+  status: BillingStatus;
+  entitlements: Entitlements;
+  period: { from: string; to: string; entries: number };
+}
+
 export interface WorkspaceView {
   workspace: WorkspaceSummary;
   projects: ProjectListItem[];
   members: MemberSummary[];
   currentUserId: string;
+  billing: BillingView;
 }
 
 export interface SourceSummary {
@@ -217,8 +241,9 @@ export interface UsageSlice {
  * Usage here is ENTRIES. One row in the table is one unit, whatever it is
  * called and whatever severity it carries: an exception, a page view and a
  * measurement cost the same, because they are the same row (rule 1). There is
- * no plan and no quota in this product, so the page reports volume and its
- * shape rather than a bill.
+ * no severity, name or kind that is billed differently, because they are all
+ * the same row. The plan meter above this on the page is a separate number with
+ * a separate contract: see `BillingView`.
  */
 export interface WorkspaceUsageView {
   from: string;
@@ -267,10 +292,18 @@ export interface ProjectView {
   role: MemberRole;
   sources: SourceSummary[];
   dashboards: DashboardSummary[];
-  dashboard: DashboardSummary;
+  /**
+   * The board this view is of, or null when the project has none.
+   *
+   * Null is the state every project starts in: nothing is created on anybody's
+   * behalf, so "no boards yet" is ordinary rather than exceptional. `dashboard`,
+   * `layout` and `snapshot` are null together -- there is no board, so there is
+   * no arrangement and nothing was measured.
+   */
+  dashboard: DashboardSummary | null;
   /** The board itself: an arrangement of saved queries. */
-  layout: BoardValue;
-  snapshot: BoardSnapshot;
+  layout: BoardValue | null;
+  snapshot: BoardSnapshot | null;
   /** What this project has actually written, so the pickers offer real options. */
   discovery: Discovery;
   /** Absolute origin the tag and SDK should talk to. */
@@ -304,6 +337,21 @@ export const getSession = createServerFn({ method: "GET" }).handler(
   async (): Promise<SessionInfo> => {
     const { loadSession } = await import("./api.server.js");
     return loadSession();
+  }
+);
+
+/**
+ * The origin the document is being served from, for canonical and `og:url`.
+ *
+ * Read in the root loader beside the session and the language, and for the same
+ * reason: it is a fact about the REQUEST, so the only place it exists is on the
+ * server, and a page that waited for hydration to learn it would have shipped
+ * its head tags without it -- which for a crawler means shipped without them.
+ */
+export const getPublicOrigin = createServerFn({ method: "GET" }).handler(
+  async (): Promise<string> => {
+    const { loadPublicOrigin } = await import("./api.server.js");
+    return loadPublicOrigin();
   }
 );
 
@@ -501,7 +549,14 @@ export const saveDashboard = createServerFn({ method: "POST" })
 
 export const createDashboardFn = createServerFn({ method: "POST" })
   .validator(
-    (input: { workspace: string; project: string; name: string; template?: string }) => input
+    (input: {
+      workspace: string;
+      project: string;
+      name: string;
+      template?: string;
+      /** One source to narrow the whole board to, permanently. Optional. */
+      sourceId?: string;
+    }) => input
   )
   .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
     const { addDashboard } = await import("./api.server.js");
@@ -556,6 +611,27 @@ export const renameWorkspaceFn = createServerFn({ method: "POST" })
     return renameWorkspace(data.workspace, data.name);
   });
 
+/**
+ * Start a subscription, or manage an existing one.
+ *
+ * Both answer with a URL rather than redirecting, so the caller decides when to
+ * leave the page and can show its own error if Stripe is unreachable. Both are
+ * no-ops on a self-hosted install, where there is no plan to change.
+ */
+export const startCheckoutFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string; plan: string }) => input)
+  .handler(async ({ data }): Promise<Result<{ url: string }>> => {
+    const { startCheckout } = await import("./api.server.js");
+    return startCheckout(data.workspace, data.plan);
+  });
+
+export const openBillingPortalFn = createServerFn({ method: "POST" })
+  .validator((input: { workspace: string }) => input)
+  .handler(async ({ data }): Promise<Result<{ url: string }>> => {
+    const { openBillingPortal } = await import("./api.server.js");
+    return openBillingPortal(data.workspace);
+  });
+
 export const deleteWorkspaceFn = createServerFn({ method: "POST" })
   .validator((input: { workspace: string; confirm: string }) => input)
   .handler(async ({ data }): Promise<Result> => {
@@ -596,7 +672,9 @@ export const clearProjectLogoFn = createServerFn({ method: "POST" })
 // ---------------------------------------------------------------------------
 
 export const createProjectFn = createServerFn({ method: "POST" })
-  .validator((input: { workspace: string; name: string; template?: string }) => input)
+  .validator(
+    (input: { workspace: string; name: string }) => input
+  )
   .handler(async ({ data }): Promise<Result<{ slug: string }>> => {
     const { addProject } = await import("./api.server.js");
     return addProject(data);
@@ -623,7 +701,6 @@ export const createSourceFn = createServerFn({ method: "POST" })
       project: string;
       name: string;
       assetName?: string;
-      template?: string;
     }) => input
   )
   .handler(async ({ data }): Promise<Result<{ sourceId: string; ingestKey: string }>> => {

@@ -518,13 +518,21 @@
 */
 @theme static {
   /* --- fonts -------------------------------------------------------------
-     The Geist stacks, with the self-hosted faces from `fonts.css` first. */
+     The Geist stacks, with the self-hosted faces from `fonts.css` first.
+
+     Second in each stack is that file's metric-matched fallback: a `local()`
+     face that downloads nothing and exists only to carry Geist's advance width
+     and ascent onto a font the machine already has. It is what makes the
+     `font-display: swap` re-paint a change of shape rather than a reflow. The
+     platform stack behind it is unchanged and still answers for a machine that
+     has neither Arial nor Courier New. */
   --font-sans:
-    "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    "Geist", "Geist Fallback", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
   --font-mono:
-    "Geist Mono", Menlo, Monaco, "Lucida Console", "Liberation Mono", "DejaVu Sans Mono",
-    "Bitstream Vera Sans Mono", "Courier New", monospace;
+    "Geist Mono", "Geist Mono Fallback", Menlo, Monaco, "Lucida Console", "Liberation Mono",
+    "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace;
 
   /* This app is full of tables of numbers, so the mono face is pinned to
      tabular figures and a slashed zero, and its code ligatures are off: an id

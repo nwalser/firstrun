@@ -50,6 +50,8 @@ import {
   type QueryRow as CompilerRow,
 } from "@firstrun/db";
 import { configFromEnv } from "@firstrun/ingest";
+import { isPlanId } from "@firstrun/schema/plan";
+import { loadBilling } from "./billing.server.js";
 import { ATTR } from "@firstrun/schema/conventions";
 import {
   SEVERITY_LABELS,
@@ -71,6 +73,8 @@ import {
   overviewRequests,
   resolveComparison,
   resolveRange,
+  scopedToSource,
+  sourceIs,
   templateByKey,
   type Comparison,
   type DateRange,
@@ -104,7 +108,7 @@ import type {
   WorkspaceUsageView,
   WorkspaceView,
 } from "./api.js";
-import { currentUser, oauthConfig } from "./auth.server.js";
+import { currentUser, oauthConfig, publicOrigin } from "./auth.server.js";
 import { ensureReady, getStore } from "./context.server.js";
 
 /**
@@ -144,6 +148,27 @@ const denied = <T = Record<string, never>>(error: string): Result<T> => ({ ok: f
  * happening at runtime, and it lives here once rather than at every return.
  */
 const ok = (): Result => ({ ok: true }) as Result;
+
+/**
+ * The origin this deployment answers on, read once in the root loader.
+ *
+ * There for the one job the browser cannot do for itself: writing an ABSOLUTE
+ * canonical and `og:url` into the document. A route's `head()` runs outside the
+ * component tree and outside the request, so it has no way to ask; the value
+ * rides down on the root's loader data and `lib/seo.ts` reads it back off the
+ * match list.
+ *
+ * Deliberately not `req.url`. Behind Railway's edge that is an internal
+ * hostname, and a canonical pointing at `web.railway.internal` tells a crawler
+ * the real page is somewhere it cannot reach. `publicOrigin` prefers the
+ * configured origin and falls back through the forwarding headers, which is the
+ * same answer the OAuth callback is built from.
+ *
+ * No database, so it costs nothing beyond the object it returns.
+ */
+export function loadPublicOrigin(): string {
+  return publicOrigin(getRequest());
+}
 
 export async function loadSession(): Promise<SessionInfo> {
   await ensureReady();
@@ -253,9 +278,13 @@ export async function loadWorkspace(slug: string): Promise<WorkspaceView | null>
   if (!access) return null;
 
   const db = getStore().db;
-  const [projects, members] = await Promise.all([
+  // Billing rides along here rather than on each page inside the workspace: the
+  // layout route loads this once and every page under it can warn without a
+  // second query. Self hosted answers without touching the database at all.
+  const [projects, members, billing] = await Promise.all([
     listProjectsWithStats(db, access.workspace.id),
     listMembers(db, access.workspace.id),
+    loadBilling(access.workspace),
   ]);
 
   // After the projects, because it is asked for exactly the ids that came back:
@@ -292,6 +321,7 @@ export async function loadWorkspace(slug: string): Promise<WorkspaceView | null>
     }),
     members,
     currentUserId: access.user.id,
+    billing,
   };
 }
 
@@ -431,11 +461,7 @@ export async function loadSourceDetail(
   const { from, until: to } = histogramWindow();
 
   /** Everything this source wrote, as a filter the query layer understands. */
-  const written: Filter = {
-    op: "eq",
-    field: { kind: "attribute", path: [ATTR.SOURCE_ID] },
-    value: source.id,
-  };
+  const written: Filter = sourceIs(source.id);
 
   const [lastSeen, daily, answers] = await Promise.all([
     sourceLastSeen(store.db, project.id),
@@ -840,17 +866,20 @@ export async function loadProject(
   // A slug naming no board falls back to the first one rather than 404ing. A
   // board can be renamed or deleted while somebody has its link open, and the
   // honest answer to a stale tab is the project's first board, not an error.
+  //
+  // No board at all is not an error either: it is a project nobody has made one
+  // in yet. The three board-shaped fields go null together and the route that
+  // wanted a board sends the reader to the quickstart. Nothing is measured,
+  // because there is nothing arranged to measure.
   const row = await boardRow(project.id, dashboardSlug);
-  if (!row) return null;
-
-  const board = row.layout;
+  const board = row?.layout ?? null;
 
   const [boards, sources, lastSeen, discovery, snapshot] = await Promise.all([
     listDashboards(store.db, project.id),
     listSources(store.db, project.id),
     sourceLastSeen(store.db, project.id),
-    discoverIn(project.id, board.range),
-    measureBoard(project.id, board),
+    board ? discoverIn(project.id, board.range) : Promise.resolve(emptyDiscovery()),
+    board ? measureBoard(project.id, board) : Promise.resolve(null),
   ]);
 
   return {
@@ -881,7 +910,7 @@ export async function loadProject(
       slug: d.slug,
       position: d.position,
     })),
-    dashboard: { id: row.id, name: row.name, slug: row.slug, position: row.position },
+    dashboard: row ? { id: row.id, name: row.name, slug: row.slug, position: row.position } : null,
     layout: board,
     snapshot,
     discovery,
@@ -924,12 +953,17 @@ export async function loadProjectOverview(
 // ---------------------------------------------------------------------------
 
 /**
- * The stored board, by slug, or the project's first one.
+ * The stored board, by slug, or the project's first one, or null.
  *
  * A slug naming no board falls back rather than 404ing: a board can be renamed
  * or deleted while somebody has its link open, and the honest answer to a stale
  * tab is the project's first board. Both lookups are scoped to the project, so
  * a slug belonging to a board somewhere else is a not-found rather than a read.
+ *
+ * NULL when the project has no boards at all, which is what every project is
+ * until somebody makes one. This used to be impossible because the fallback
+ * CREATED a board; now the caller says what an empty project looks like, and
+ * the route sends the reader to the quickstart.
  *
  * `dashboardBySlug` and `defaultDashboard` return the board already parsed:
  * the repo reads every stored layout through `parseBoard`, so nothing in this
@@ -1250,11 +1284,22 @@ export async function loadDiscovery(input: {
 // Writes. Every one of these is admin-only.
 // ---------------------------------------------------------------------------
 
+/**
+ * A board: a name, a starting arrangement, and optionally one source it is
+ * about.
+ *
+ * `sourceId` becomes the board's PERMANENT filter, which is the difference
+ * between a board called *Marketing site* and a board you re-filter on every
+ * visit. It is checked against the project's own sources rather than trusted,
+ * so an id from another project narrows nothing instead of naming a row the
+ * caller cannot see.
+ */
 export async function addDashboard(input: {
   workspace: string;
   project: string;
   name: string;
   template?: string;
+  sourceId?: string;
 }): Promise<Result<{ slug: string }>> {
   const found = await adminOnProject(input.workspace, input.project, "add a dashboard");
   if (!found.ok) return denied(found.error);
@@ -1262,8 +1307,17 @@ export async function addDashboard(input: {
   const name = input.name.trim().slice(0, 60);
   if (!name) return denied("A dashboard needs a name.");
 
-  const layout = templateByKey(input.template ?? "")?.build() ?? defaultBoard();
-  const created = await createDashboardRecord(getStore().db, found.project.id, name, layout);
+  const store = getStore();
+  const built = templateByKey(input.template ?? "")?.build() ?? defaultBoard();
+
+  let layout = built;
+  if (input.sourceId) {
+    const sources = await listSources(store.db, found.project.id);
+    if (!sources.some((s) => s.id === input.sourceId)) return denied("No such source.");
+    layout = scopedToSource(built, input.sourceId);
+  }
+
+  const created = await createDashboardRecord(store.db, found.project.id, name, layout);
   return { ok: true, slug: created.slug };
 }
 
@@ -1347,6 +1401,75 @@ export async function addWorkspace(name: string): Promise<Result<{ slug: string 
   if (!name) return denied("A workspace needs a name.");
   const created = await createWorkspace(getStore().db, name, user.id);
   return { ok: true, slug: created.slug };
+}
+
+/**
+ * Sends an admin to Stripe Checkout for one tier.
+ *
+ * Admin only, re-checked here: the UI hides the button from a reader, and
+ * hiding a button is a courtesy rather than a permission check.
+ *
+ * The plan is validated against the closed set rather than passed through. It
+ * chooses a price id, and a price id is money.
+ *
+ * Returns a URL for the caller to navigate to. Stripe Checkout is a hosted page
+ * on Stripe's own origin, which is the point: no card number, no billing
+ * address and no tax id ever reaches this codebase.
+ */
+export async function startCheckout(
+  workspaceSlug: string,
+  plan: string
+): Promise<Result<{ url: string }>> {
+  const access = await requireAdmin(workspaceSlug);
+  if (!access) return { ok: false, error: "You need admin access to change the plan." };
+
+  const { stripeConfigured, checkoutUrl } = await import("./stripe.server.js");
+  if (!stripeConfigured()) return { ok: false, error: "Billing is not enabled here." };
+  if (!isPlanId(plan) || plan === "free") return { ok: false, error: "No such plan." };
+
+  try {
+    const url = await checkoutUrl(
+      {
+        id: access.workspace.id,
+        name: access.workspace.name,
+        slug: access.workspace.slug,
+        stripeCustomerId: access.workspace.stripeCustomerId,
+      },
+      plan,
+      configFromEnv().publicOrigin
+    );
+    return { ok: true, url };
+  } catch (err) {
+    console.error("checkout failed", (err as Error)?.message);
+    return { ok: false, error: "Could not reach Stripe. Try again in a moment." };
+  }
+}
+
+/** The Billing Portal: card, plan changes, cancellation and invoices, all on Stripe. */
+export async function openBillingPortal(
+  workspaceSlug: string
+): Promise<Result<{ url: string }>> {
+  const access = await requireAdmin(workspaceSlug);
+  if (!access) return { ok: false, error: "You need admin access to change the plan." };
+
+  const { stripeConfigured, portalUrl } = await import("./stripe.server.js");
+  if (!stripeConfigured()) return { ok: false, error: "Billing is not enabled here." };
+
+  try {
+    const url = await portalUrl(
+      {
+        id: access.workspace.id,
+        name: access.workspace.name,
+        slug: access.workspace.slug,
+        stripeCustomerId: access.workspace.stripeCustomerId,
+      },
+      configFromEnv().publicOrigin
+    );
+    return { ok: true, url };
+  } catch (err) {
+    console.error("portal failed", (err as Error)?.message);
+    return { ok: false, error: "Could not reach Stripe. Try again in a moment." };
+  }
 }
 
 export async function renameWorkspace(
@@ -1486,10 +1609,18 @@ export async function dropProjectLogo(
 // Projects and sources
 // ---------------------------------------------------------------------------
 
+/**
+ * A project: a name, and nothing else made on anybody's behalf.
+ *
+ * No source, no board. Both used to be created here -- a source because the
+ * create form asked for one, a board because `createProject` built one from a
+ * template -- and both were things the reader then had to evaluate rather than
+ * things they had chosen. What they get instead is an empty project whose own
+ * page lists what is left to do and links to the page that does each part.
+ */
 export async function addProject(input: {
   workspace: string;
   name: string;
-  template?: string;
 }): Promise<Result<{ slug: string }>> {
   const access = await requireAdmin(input.workspace);
   if (!access) return denied("You need admin access to add a project.");
@@ -1497,8 +1628,7 @@ export async function addProject(input: {
   const name = input.name.trim().slice(0, 60);
   if (!name) return denied("A project needs a name.");
 
-  const layout = templateByKey(input.template ?? "")?.build() ?? defaultBoard();
-  const created = await createProject(getStore().db, access.workspace.id, name, layout);
+  const created = await createProject(getStore().db, access.workspace.id, name);
   return { ok: true, slug: created.slug };
 }
 
@@ -1543,67 +1673,34 @@ export async function removeProject(input: {
 }
 
 /**
- * Key order is not part of a layout, so a comparison of two of them cannot be
- * a comparison of two JSON strings as they happen to have been built.
+ * A source, and only a source.
+ *
+ * It used to create a board from a template at the same time, deduplicating
+ * against the boards the project already had so it did not hand somebody a
+ * second copy of the screen they were looking at. That whole mechanism is gone
+ * with the autogeneration it existed to make tolerable: a board is made on the
+ * page that makes boards, where it can be named, given a template AND scoped to
+ * a source. One page per thing, each in full, none of it duplicated.
  */
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.keys(record)
-        .sort()
-        .map((k) => [k, canonical(record[k])])
-    );
-  }
-  return value;
-}
-
-const sameLayout = (a: unknown, b: unknown): boolean =>
-  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-
 export async function addSource(input: {
   workspace: string;
   project: string;
   name: string;
   assetName?: string;
-  template?: string;
 }): Promise<Result<{ sourceId: string; ingestKey: string }>> {
   const found = await adminOnProject(input.workspace, input.project, "add a source");
   if (!found.ok) return denied(found.error);
 
-  const store = getStore();
   const name = input.name.trim().slice(0, 60) || "Untitled";
   // The asset name is whatever the customer typed, or nothing. It used to be
   // forced to "Setup" for a desktop source and forced to null for every other
   // kind; there are no kinds, so it is simply an optional field again.
   const source = await createSource(
-    store.db,
+    getStore().db,
     found.project.id,
     name,
     input.assetName?.trim() || null
   );
-
-  // A board for the new source, named after it -- unless the project already
-  // has that exact board. A new project starts life with one of these
-  // templates on it, and handing somebody a second copy of the screen they are
-  // already looking at is not a feature.
-  const template = templateByKey(input.template ?? "");
-  if (template) {
-    const layout = template.build();
-    // The STORED json, not a parsed board: a board somebody has since edited is
-    // saved in the current shape and can never equal a freshly built template,
-    // which is the right answer. Comparing parsed boards would round every
-    // edited board through the reader's defaults and could suppress the new
-    // board over a coincidence.
-    const existing = await store.query<{ layout: unknown }>(
-      `SELECT layout FROM dashboards WHERE project_id = $1::uuid`,
-      [found.project.id]
-    );
-    if (!existing.some((d) => sameLayout(d.layout, layout))) {
-      await createDashboardRecord(store.db, found.project.id, name, layout);
-    }
-  }
 
   return { ok: true, sourceId: source.id, ingestKey: source.ingestKey };
 }

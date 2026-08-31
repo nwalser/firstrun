@@ -3,20 +3,14 @@ import Globe from "lucide-solid/icons/globe";
 import Monitor from "lucide-solid/icons/monitor";
 import { For, Show, createSignal } from "solid-js";
 import { InstallGuideLink } from "../components/install-guide.js";
-import { TemplatePicker } from "../components/template-picker.js";
 import {
   Alert,
   AlertDescription,
   Button,
   CodeBlock,
   Field,
-  FieldDescription,
-  FieldLabel,
   Input,
-  RadioCard,
-  RadioGroup,
   Spinner,
-  Switch,
   buttonVariants,
 } from "../components/ui/index.js";
 import { cn } from "../lib/cn.js";
@@ -27,18 +21,27 @@ import { Route as ProjectRoute } from "./w.$wslug.$pslug.js";
 /**
  * Adding a source, as a page.
  *
- * Two questions and a handover, none of which fits in a drawer over the list it
- * is about to change.
+ * One question and a handover: name the thing, then install it. It does ONE
+ * thing, in full, and nothing else on the way past.
  *
- * There used to be three, and the first was "what kind of source is this" -- a
- * website or a desktop app. That answer decided the middle segment of the key,
- * the value stamped onto every event, which boards were offered and whether the
- * installer basename was even asked. All of it is gone: a source is one thing
- * that writes events, and what it happens to run on is the customer's business.
+ * There used to be a step in the middle that made a board from a template at
+ * the same time. It is gone, and not because boards stopped mattering: it asked
+ * half of a decision -- a template, but no name, no range and no scope -- that
+ * the page for adding a board asks properly. Two pages asking the same question
+ * differently is how somebody ends up with a board they did not choose and
+ * cannot find the settings for. Adding a source adds a source; the quickstart
+ * on the project page is what points at the board step next.
  *
- * The last step comes after creation on purpose. The ingest key does not exist
- * until then, and the guide it hands over to is written against a real key
- * rather than a placeholder somebody pastes with the placeholder still in it.
+ * Before that there was a step asking "what kind of source is this" -- a
+ * website or a desktop app -- which decided the middle segment of the key, the
+ * value stamped onto every event, and which boards were offered. Also gone: a
+ * source is one thing that writes events, and what it happens to run on is the
+ * customer's business.
+ *
+ * The install step comes after creation on purpose. The ingest key does not
+ * exist until then, and the guide it hands over to is written against a real
+ * key rather than a placeholder somebody pastes with the placeholder still in
+ * it.
  */
 export const Route = createFileRoute("/w/$wslug/$pslug/sources/new")({
   component: NewSource,
@@ -49,11 +52,7 @@ export const Route = createFileRoute("/w/$wslug/$pslug/sources/new")({
  * would be frozen in whichever locale was active when the module was first
  * evaluated, and switching language would leave the stepper in English.
  */
-const STEP_KEYS: SimpleKey[] = [
-  "sources.step_details",
-  "sources.step_dashboard",
-  "sources.step_install",
-];
+const STEP_KEYS: SimpleKey[] = ["sources.step_details", "sources.step_install"];
 
 function NewSource() {
   const i18n = useI18n();
@@ -64,11 +63,6 @@ function NewSource() {
   const [step, setStep] = createSignal(0);
   const [name, setName] = createSignal("");
   const [assetName, setAssetName] = createSignal("");
-  const [wantsBoard, setWantsBoard] = createSignal(true);
-  // The overview, because nothing on this page says which board would suit
-  // better. It used to be picked from the kind, and there is no kind to pick
-  // from: every template is on offer and the reader chooses.
-  const [template, setTemplate] = createSignal("overview");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [created, setCreated] = createSignal<{ sourceId: string; ingestKey: string } | null>(null);
@@ -84,7 +78,6 @@ function NewSource() {
         project: view().project.slug,
         name: name().trim(),
         ...(assetName().trim() ? { assetName: assetName().trim() } : {}),
-        ...(wantsBoard() ? { template: template() } : {}),
       },
     });
     setBusy(false);
@@ -93,7 +86,7 @@ function NewSource() {
       return;
     }
     setCreated({ sourceId: result.sourceId, ingestKey: result.ingestKey });
-    setStep(2);
+    setStep(1);
     // So the list, the tab strip and the sidebar all know about it before the
     // reader gets back to any of them.
     await router.invalidate();
@@ -101,12 +94,8 @@ function NewSource() {
 
   function submit(e: Event) {
     e.preventDefault();
-    if (step() === 0 && !name().trim()) return;
-    if (step() < 1) {
-      setStep(step() + 1);
-      return;
-    }
-    if (step() === 1) void create();
+    if (!name().trim()) return;
+    void create();
   }
 
   // The compact track, the measured 914px one Settings uses, rather than a
@@ -163,7 +152,7 @@ function NewSource() {
           </ol>
 
           <Show
-            when={step() < 3}
+            when={step() === 0}
             fallback={
               <div class="flex flex-col gap-6">
                 <div>
@@ -184,7 +173,20 @@ function NewSource() {
                   {(source) => <InstallGuideLink sourceId={source().sourceId} />}
                 </Show>
 
+                {/*
+                  Two ways on, and the board is not made here. The page that
+                  makes boards asks the whole question -- name, arrangement, and
+                  which source it is about -- and this page has no business
+                  asking a third of it on the way past.
+                */}
                 <div class="flex justify-end gap-2 border-t pt-6">
+                  <Link
+                    to="/w/$wslug/$pslug/dashboards/new"
+                    params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
+                    class={buttonVariants({ variant: "outline" })}
+                  >
+                    {i18n.t("sources.make_board")}
+                  </Link>
                   <Link
                     to="/w/$wslug/$pslug/sources"
                     params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
@@ -197,68 +199,45 @@ function NewSource() {
             }
           >
             <form onSubmit={submit} class="flex flex-col gap-6">
-              <Show when={step() === 0}>
-                <div>
-                  <h1 class="text-h2">{i18n.t("sources.step_details_title")}</h1>
-                  <p class="mt-1 text-body text-muted-foreground">
-                    {i18n.t("sources.step_details_hint")}
-                  </p>
-                </div>
+              {/*
+                No wrapper element here, and no fragment either. This used to be
+                one of two `<Show>` blocks and is now the only step; a `<>` in
+                its place is a compile error under a `<form>` in Solid, and one
+                that SSRs perfectly while 500ing the client module -- so the
+                page renders correctly and then quietly ignores every keystroke.
+              */}
+              <div>
+                <h1 class="text-h2">{i18n.t("sources.step_details_title")}</h1>
+                <p class="mt-1 text-body text-muted-foreground">
+                  {i18n.t("sources.step_details_hint")}
+                </p>
+              </div>
 
-                <Field label={i18n.t("common.name")}>
-                  <Input
-                    // A domain, so it stays as written. It is an example of a
-                    // name rather than a claim about what this source is.
-                    placeholder="themia.app"
-                    value={name()}
-                    onInput={(e) => setName(e.currentTarget.value)}
-                  />
-                </Field>
-
-                {/*
-                  A label, not a mechanism. It is what the install guides put in
-                  the SDK snippet's app name, so a reader copying one gets their
-                  own application named back at them instead of "YourApp".
-                */}
-                <Field
-                  label={i18n.t("sources.asset_label")}
-                  description={i18n.t("sources.asset_hint")}
-                >
-                  <Input
-                    placeholder="Themia"
-                    value={assetName()}
-                    onInput={(e) => setAssetName(e.currentTarget.value)}
-                  />
-                </Field>
-              </Show>
-
-              <Show when={step() === 1}>
-                <div>
-                  <h1 class="text-h2">{i18n.t("sources.step_board_title")}</h1>
-                  <p class="mt-1 text-body text-muted-foreground">
-                    {i18n.t("sources.step_board_hint")}
-                  </p>
-                </div>
-
-                <Switch
-                  checked={wantsBoard()}
-                  onChange={setWantsBoard}
-                  label={i18n.t("sources.want_board")}
-                  description={i18n.t("sources.want_board_hint")}
+              <Field label={i18n.t("common.name")}>
+                <Input
+                  // A domain, so it stays as written. It is an example of a
+                  // name rather than a claim about what this source is.
+                  placeholder="themia.app"
+                  value={name()}
+                  onInput={(e) => setName(e.currentTarget.value)}
                 />
+              </Field>
 
-                <Show when={wantsBoard()}>
-                  <Field>
-                    <FieldLabel>{i18n.t("sources.template_label")}</FieldLabel>
-                    <FieldDescription>{i18n.t("sources.template_hint")}</FieldDescription>
-                    <TemplatePicker
-                      value={template()}
-                      onChange={setTemplate}
-                      class="mt-2"
-                    />
-                  </Field>
-                </Show>
-              </Show>
+              {/*
+                A label, not a mechanism. It is what the install guides put in
+                the SDK snippet's app name, so a reader copying one gets their
+                own application named back at them instead of "YourApp".
+              */}
+              <Field
+                label={i18n.t("sources.asset_label")}
+                description={i18n.t("sources.asset_hint")}
+              >
+                <Input
+                  placeholder="Themia"
+                  value={assetName()}
+                  onInput={(e) => setAssetName(e.currentTarget.value)}
+                />
+              </Field>
 
               <Show when={error()}>
                 {(message) => (
@@ -268,40 +247,25 @@ function NewSource() {
                 )}
               </Show>
 
-              <div class="flex items-center justify-between border-t pt-6">
-                <Show
-                  when={step() > 0}
-                  fallback={
-                    <Link
-                      to="/w/$wslug/$pslug/sources"
-                      params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
-                      class={buttonVariants({ variant: "ghost" })}
-                    >
-                      {i18n.t("common.cancel")}
-                    </Link>
-                  }
+              <div class="flex items-center justify-end gap-2 border-t pt-6">
+                <Link
+                  to="/w/$wslug/$pslug/sources"
+                  params={{ wslug: view().workspace.slug, pslug: view().project.slug }}
+                  class={buttonVariants({ variant: "ghost" })}
                 >
-                  <Button type="button" variant="ghost" onClick={() => setStep(step() - 1)}>
-                    {i18n.t("common.back")}
-                  </Button>
-                </Show>
+                  {i18n.t("common.cancel")}
+                </Link>
 
                 {/* Kobalte renders type="button" unless told otherwise.
 
                     Spinner and the changed word, the treatment `ConfirmDelete`
                     already uses: a disabled button reading "Creating" is
-                    indistinguishable from a disabled button that has stopped.
-                    Only the last step can be busy -- the first is a step
-                    counter, not a request. */}
-                <Button type="submit" disabled={busy() || (step() === 0 && !name().trim())}>
+                    indistinguishable from a disabled button that has stopped. */}
+                <Button type="submit" disabled={busy() || !name().trim()}>
                   <Show when={busy()}>
                     <Spinner />
                   </Show>
-                  {step() < 1
-                    ? i18n.t("sources.continue")
-                    : busy()
-                      ? i18n.t("common.creating")
-                      : i18n.t("sources.create")}
+                  {busy() ? i18n.t("common.creating") : i18n.t("sources.create")}
                 </Button>
               </div>
             </form>

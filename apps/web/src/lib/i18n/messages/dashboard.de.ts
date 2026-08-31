@@ -116,7 +116,8 @@ export const dashboard: DashboardMessages = {
   "dashboard.live": "Live",
   "dashboard.live_title": "Dieses Board liest sich neu, solange es offen ist. Aktualisiert {when}.",
   "dashboard.live_paused":
-    "Pausiert, solange das Board angeordnet wird. Es läuft weiter, sobald du fertig bist.",
+    "Pausiert, solange das Board beschäftigt ist oder der Tab im Hintergrund liegt. Es läuft " +
+    "von selbst weiter.",
 
   "dashboard.preset_event_count": "Ein Event zählen",
   "dashboard.preset_event_count_hint":

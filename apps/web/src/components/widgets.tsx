@@ -312,7 +312,18 @@ export const groupLabel = (row: QueryRow, notSet: string): string =>
 
 export interface Point {
   at: Date;
-  value: number;
+  /**
+   * NULL is not zero, and the difference survives all the way to the mark.
+   *
+   * `fill` produces a row for every bucket in the window and the compiler
+   * coalesces only the aggregations that mean zero over nothing (count,
+   * count_distinct, sum). An average, a percentile, a min and a max come back
+   * NULL for a bucket nobody wrote to, deliberately: an empty day plotted as a
+   * 0ms p75 is a chart claiming the fastest day on record was the one nobody
+   * used the software. This used to be coerced to 0 right here, which threw the
+   * distinction away before anything could draw it.
+   */
+  value: number | null;
 }
 
 export interface Series {
@@ -338,7 +349,7 @@ export function seriesFrom(rows: readonly QueryRow[], notSet: string, index = 0)
       series = { label, points: [] };
       byGroup.set(label, series);
     }
-    series.points.push({ at: row.bucket, value: row.value[index] ?? 0 });
+    series.points.push({ at: row.bucket, value: row.value[index] ?? null });
   }
   for (const series of byGroup.values()) {
     series.points.sort((a, b) => a.at.getTime() - b.at.getTime());
@@ -414,6 +425,15 @@ export function niceScale(max: number, targetTicks: number): { top: number; tick
   if (step < 1 && max >= 1) step = 1;
 
   const top = Math.ceil(max / step) * step;
+  // A finite maximum can still round to a top that is not: an aggregate over a
+  // customer-written numeric attribute is bounded in COUNT by the attribute
+  // rules and not in magnitude, so a value near the top of the double range
+  // reaches here. The loop below would then run to Infinity and push ticks
+  // until the tab died.
+  if (!Number.isFinite(top) || !Number.isFinite(step) || step <= 0) {
+    return { top: max, ticks: [0, max] };
+  }
+
   const ticks: number[] = [];
   // Half a step of slack, because 3 * 0.1 is not 0.3 in binary floating point
   // and a tick ladder that stops one step short leaves the top of the chart
@@ -443,12 +463,31 @@ interface Plot {
  * at the maximum value is otherwise drawn half outside its own box.
  */
 const AXIS_ROW_H = 16;
-const CHAR_PX = 7;
+/**
+ * One character of Geist Mono at the caption size, rounded up.
+ *
+ * Mono, so this is an advance rather than an average, and it is the reason a
+ * tick gutter can be sized from a string length at all.
+ */
+const CHAR_PX = 7.5;
 /** The measured air between a tick label and the plot it labels. */
 const AXIS_GAP_PX = 12;
 
 function plotOf(w: number, h: number, axes: boolean, xLabels: boolean, widest: string): Plot {
-  const left = axes ? Math.min(60, widest.length * CHAR_PX + AXIS_GAP_PX) : 0;
+  /*
+    Sized to the widest label, capped as a SHARE of the chart rather than at a
+    fixed 60px.
+
+    Not every language abbreviates a thousand. German compact-short has no
+    thousands unit at all, so the tick that reads "800K" in English reads
+    "800.000" in German and the one that reads "1.2M" reads "1,2 Mio." -- eight
+    characters where the fixed cap allowed six, and the labels were simply cut
+    off by the SVG's own edge. A proportional cap gives a wide chart all the
+    room its labels ask for while still refusing to spend a third of a narrow
+    one on the axis.
+  */
+  const wanted = widest.length * CHAR_PX + AXIS_GAP_PX;
+  const left = axes ? Math.min(wanted, Math.max(28, w * 0.34)) : 0;
   const bottom = xLabels ? AXIS_ROW_H : 0;
   // Half a tick label sits above the highest gridline, so the headroom has to
   // clear it. Without axes there is only the 2px half of a line's own stroke.
@@ -510,7 +549,7 @@ export function NumberView(props: {
     const series = seriesFrom(props.sparkline, i18n.t("dashboard.not_set"))[0]?.points ?? [];
     // One point is a dot pretending to be a trend, and all zeroes draws as a
     // line along the axis that reads as data. Both are worse than no chart.
-    return series.length > 1 && series.some((p) => p.value > 0) ? series : [];
+    return series.length > 1 && series.some((p) => (p.value ?? 0) > 0) ? series : [];
   });
   const label = () => labels.aggregation(props.query.aggregations[0] ?? { fn: "count" });
 
@@ -597,7 +636,7 @@ export function NumberView(props: {
             <span class="shrink-0">
               {i18n.t("dashboard.peak")}{" "}
               <span class={cn("font-semibold text-foreground", NUM)}>
-                {i18n.num(Math.max(...points().map((p) => p.value)))}
+                {i18n.num(Math.max(0, ...points().map((p) => p.value ?? 0)))}
               </span>
             </span>
           </div>
@@ -620,7 +659,7 @@ export function NumberView(props: {
  * the biggest day, and nothing here claims to say what it was.
  */
 function Sparkline(props: { points: Point[]; w: number; h: number }) {
-  const max = () => Math.max(1, ...props.points.map((p) => p.value));
+  const max = () => Math.max(1, ...props.points.map((p) => p.value ?? 0));
   const pitch = () => props.w / Math.max(1, props.points.length);
   // A quarter of the pitch, capped at two pixels. Below about eight pixels of
   // pitch a fixed gap eats the bar it is separating, and thirty days of a
@@ -631,7 +670,15 @@ function Sparkline(props: { points: Point[]; w: number; h: number }) {
     <svg class="block" width={props.w} height={props.h} aria-hidden="true">
       <For each={props.points}>
         {(point, i) => {
-          const height = () => Math.max(point.value > 0 ? 1 : 0, (point.value / max()) * props.h);
+          // A bucket nobody wrote to draws nothing at all. A one-pixel stub
+          // there would be a bar saying "a little", where the honest answer is
+          // that the question was not measured that day.
+          const height = () => {
+            const value = point.value;
+            return value === null
+              ? 0
+              : Math.max(value > 0 ? 1 : 0, (value / max()) * props.h);
+          };
           return (
             <rect
               class="fill-chart-1 opacity-80"
@@ -756,46 +803,93 @@ export function ChartView(props: {
   const ranks = createMemo(() => ranksFrom(props.rows, notSet()));
 
   /**
-   * The comparison line is the first thing to go. Two overlaid series in a
-   * chart 60px tall are one thick smudge, and a smudge that changes shape when
-   * the window changes reads as data.
+   * The comparison window, laid over this one by POSITION IN ITS OWN WINDOW.
+   *
+   * Two windows of the same length hold the same buckets in the same order, so
+   * the honest overlay is the nth bucket of the baseline over the nth column
+   * here. It used to be the nth ELEMENT of the returned array, which is the
+   * same thing only when the comparison window came back gap-free: one bucket
+   * with no rows in it shifted every later baseline point a column to the left,
+   * and the tooltip then printed that value under the wrong date.
+   *
+   * So the offset is computed from each point's own timestamp against the
+   * baseline's first bucket, in bucket widths taken from this grid's own
+   * spacing. A gap stays a gap, and a comparison window that runs longer than
+   * this one (a month against a shorter month, an hour lost to a clock change)
+   * simply has nowhere to put its extra columns.
+   *
+   * One line, always the first group. Six baselines under six series is a
+   * smudge, and the comparison is a reference for the shape rather than a
+   * second reading of it. It is also the first thing to go on a small card.
    */
   const previous = () => {
     if (!props.previous || !atLeast(props.tier, "medium")) return null;
-    const first = seriesFrom(props.previous, notSet())[0];
-    if (!first || first.points.length === 0) return null;
-    // Cut to the current window's column count. The baseline is drawn on THIS
-    // chart's x mapping, so a comparison window holding one bucket more (a
-    // month against a shorter month, an hour lost to a clock change) would
-    // otherwise draw its last point past the right hand edge.
-    return first.points.slice(0, Math.max(1, grid().times.length)).map((p) => p.value);
+    const points = seriesFrom(props.previous, notSet())[0]?.points ?? [];
+    const times = grid().times;
+    if (points.length === 0 || times.length === 0) return null;
+
+    const laid = new Array<number | null>(times.length).fill(null);
+    // The bucket width, read off the grid rather than off the query, so a
+    // series whose own buckets are irregular still lands on whole columns.
+    const step =
+      times.length > 1
+        ? Math.min(
+            ...times.slice(1).map((t, i) => t.getTime() - times[i]!.getTime())
+          )
+        : 0;
+    const origin = points[0]!.at.getTime();
+
+    for (const point of points) {
+      const at =
+        step > 0 ? Math.round((point.at.getTime() - origin) / step) : points.indexOf(point);
+      if (at >= 0 && at < laid.length) laid[at] = point.value;
+    }
+    return laid;
   };
 
+  /**
+   * The largest value anything on this chart draws, NOT floored at one.
+   *
+   * It used to be, which quietly deleted `niceScale`'s fractional branch: a max
+   * of at least one makes the integer-step rule fire for every chart, so a
+   * series of averages around 0.4 was drawn against a 0..1 axis and one around
+   * 0.02 lay flat on the zero gridline, indistinguishable from no data. The
+   * floor was only ever protecting the divide, and `niceScale` already answers
+   * a sensible 0..1 scale for an all-zero series.
+   */
   const peak = () =>
     Math.max(
-      1,
+      0,
       ...grid().lines.flatMap((line) => line.values.map((v) => v ?? 0)),
       ...ranks().map((r) => r.value),
-      ...(previous() ?? [])
+      ...(previous() ?? []).map((v) => v ?? 0)
     );
 
   /** Axes from tier 3, and one more tick once there is room to read it. */
   const axes = () => atLeast(props.tier, "medium");
   const scale = createMemo(() => niceScale(peak(), atLeast(props.tier, "large") ? 4 : 3));
 
-  // Compact on the axis, in full in the tooltip. An axis has three characters
-  // of room and a tooltip has a line, so 12.4K on the scale and 12,431 under
-  // the pointer is the same number answered at two densities.
-  //
-  // NOT `i18n.compact`, which prints in full below a hundred thousand: that is
-  // right for a headline on a tiny card and wrong here, where an axis reading
-  // "80.000" pins the gutter at its cap and takes the width from the plot. A
-  // decimal only appears once the number is big enough to need one.
+  /*
+    Compact on the axis, in full in the tooltip: 12.4K on the scale and 12,431
+    under the pointer is the same number answered at two densities.
+
+    NOT `i18n.compact`, which prints in full below a hundred thousand -- right
+    for a headline on a tiny card, wrong for an axis. And the fraction digits
+    are NOT conditioned on the magnitude, which is the mistake this replaces:
+    `maximumFractionDigits: 0` below ten thousand made Intl round every compact
+    tick to a whole thousand, so a scale stepping in 500s printed 1500 as "2K",
+    2500 as "3K", and put the same label on two adjacent gridlines. An axis that
+    misreports its own top by a third is worse than no axis.
+
+    One decimal is enough for every ladder `niceScale` can produce: its steps are
+    1, 2 or 5 times a power of ten and there are only three or four of them, so
+    a tick is never finer than a tenth of its own compact unit.
+  */
   const tickText = (value: number) =>
     i18n.num(value, {
       notation: "compact",
       compactDisplay: "short",
-      maximumFractionDigits: Math.abs(value) < 10_000 ? 0 : 1,
+      maximumFractionDigits: 1,
     });
   const valueText = (value: number) => formatValue(i18n, props.query, 0, value);
   const widest = () =>
@@ -977,15 +1071,42 @@ function Gridlines(props: {
   );
 }
 
-/** One dated or named label under a column. */
+/**
+ * Cut to a width, with an ellipsis, however narrow the width is.
+ *
+ * `truncateMiddle` hands the string back UNCHANGED below six characters, which
+ * is exactly the range a dense category axis computes, so the guard that was
+ * meant to stop it mangling a short label was instead letting every long one
+ * through whole. Below six it cuts from the end: there is no room to keep both
+ * halves, and the head is the half that tells two names apart at a glance.
+ */
+function cutTo(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max >= 6) return truncateMiddle(text, max);
+  return `${text.slice(0, Math.max(1, max - 1))}…`;
+}
+
+/**
+ * One dated or named label under a column.
+ *
+ * The label budget is handed to `text` because only this component knows it:
+ * labels are drawn one per `X_TICK_PITCH_PX`, not one per column, so the room a
+ * label actually has is the LABEL pitch. Deriving it from the column pitch made
+ * a chart of forty narrow bars compute three characters of room for a label
+ * that had a hundred and thirty pixels.
+ */
 function XTicks(props: {
   plot: Plot;
   count: number;
   at: (index: number) => number;
-  text: (index: number) => string;
+  text: (index: number, chars: number) => string;
 }) {
   const shown = () =>
     tickIndices(props.count, Math.max(2, Math.floor(props.plot.width / X_TICK_PITCH_PX)));
+
+  /** Characters per label, with a character of air between two neighbours. */
+  const chars = () =>
+    Math.max(2, Math.floor(props.plot.width / Math.max(1, shown().length) / CHAR_PX) - 1);
 
   return (
     <Index each={shown()}>
@@ -1002,7 +1123,7 @@ function XTicks(props: {
             y={props.plot.top + props.plot.height + AXIS_ROW_H - 4}
             text-anchor={first() ? "start" : last() ? "end" : "middle"}
           >
-            {props.text(index())}
+            {props.text(index(), chars())}
           </text>
         );
       }}
@@ -1084,7 +1205,8 @@ function ChartTip(props: {
  */
 function SeriesChart(props: {
   grid: Grid;
-  previous: number[] | null;
+  /** Positional over this chart's own columns, with a null where the baseline had no bucket. */
+  previous: Array<number | null> | null;
   chart: "line" | "bar" | "area";
   scale: { top: number; ticks: number[] };
   w: number;
@@ -1099,9 +1221,22 @@ function SeriesChart(props: {
   label: string;
 }) {
   const i18n = useI18n();
-  const [hover, setHover] = createSignal<number | null>(null);
+  const [hovered, setHover] = createSignal<number | null>(null);
 
   const count = () => props.grid.times.length;
+  /**
+   * The hovered column, held against the data that is actually there.
+   *
+   * The board is live: a refetch can hand this component a shorter series while
+   * a pointer is resting on it, and the raw signal would then point past the
+   * end of every array on the next render. Clamped here rather than reset,
+   * because the pointer has not moved and the reader is still looking at the
+   * right hand end of the chart.
+   */
+  const hover = () => {
+    const at = hovered();
+    return at === null || count() === 0 ? null : Math.min(at, count() - 1);
+  };
   const plot = () => plotOf(props.w, props.h, props.axes, props.axes, props.widest);
 
   /** Bars only make sense for one series. Several are drawn as lines instead. */
@@ -1117,6 +1252,12 @@ function SeriesChart(props: {
         : plot().left + (i / (count() - 1)) * plot().width;
   const yAt = (value: number) =>
     plot().top + plot().height - (value / props.scale.top) * plot().height;
+
+  /** The columns a series actually has a reading for, with their positions. */
+  const drawn = (values: Array<number | null>) =>
+    values
+      .map((value, at) => ({ at, value }))
+      .filter((p): p is { at: number; value: number } => p.value !== null);
 
   const linePath = (values: Array<number | null>) => {
     let started = false;
@@ -1151,8 +1292,12 @@ function SeriesChart(props: {
       colour: colourAt(n),
       value: line.values[i] === null ? "–" : props.valueText(line.values[i]!),
     }));
+    // A column the baseline has no bucket for is left out of the tooltip
+    // entirely rather than printed as a dash: a row saying the comparison
+    // window measured nothing is a claim, and the honest answer is that this
+    // chart does not know whether it did.
     const before = props.previous?.[i];
-    if (before !== undefined) {
+    if (before !== undefined && before !== null) {
       rows.push({
         label: i18n.t("dashboard.baseline_series"),
         colour: "var(--color-muted-foreground)",
@@ -1253,7 +1398,32 @@ function SeriesChart(props: {
           <For each={props.grid.lines}>
             {(line, i) => (
               <>
-                <Show when={props.chart === "area" && props.grid.lines.length === 1}>
+                {/*
+                  A series of ONE point is a dot, not a path.
+
+                  A path holding a single moveto and no drawing command paints
+                  nothing at all: a card whose query answered with one bucket
+                  drew axes, a gridline and a tick over an empty plot. The area
+                  branch was worse, closing that lone moveto against both bottom
+                  corners and filling a triangle across the whole width from one
+                  reading. A window that holds one bucket has one value, and a
+                  dot is the honest mark for it.
+                */}
+                <Show when={drawn(line.values).length === 1}>
+                  <circle
+                    cx={xAt(drawn(line.values)[0]!.at)}
+                    cy={yAt(drawn(line.values)[0]!.value)}
+                    r="3"
+                    fill={colourAt(i())}
+                  />
+                </Show>
+                <Show
+                  when={
+                    props.chart === "area" &&
+                    props.grid.lines.length === 1 &&
+                    drawn(line.values).length > 1
+                  }
+                >
                   <path
                     // One flat tone at 15%, not a gradient fading to nothing.
                     // A gradient puts a soft edge halfway up the plot that
@@ -1354,9 +1524,22 @@ function CategoryChart(props: {
   valueText: (value: number) => string;
   label: string;
 }) {
-  const [hover, setHover] = createSignal<number | null>(null);
+  const [hovered, setHover] = createSignal<number | null>(null);
 
   const count = () => props.ranks.length;
+  /**
+   * The hovered column, held against the data that is actually there.
+   *
+   * The board is live: a refetch can hand this component a shorter series while
+   * a pointer is resting on it, and the raw signal would then point past the
+   * end of every array on the next render. Clamped here rather than reset,
+   * because the pointer has not moved and the reader is still looking at the
+   * right hand end of the chart.
+   */
+  const hover = () => {
+    const at = hovered();
+    return at === null || count() === 0 ? null : Math.min(at, count() - 1);
+  };
   const plot = () => plotOf(props.w, props.h, props.axes, props.axes, props.widest);
   const pitch = () => plot().width / Math.max(1, count());
   const xAt = (i: number) => plot().left + (i + 0.5) * pitch();
@@ -1366,9 +1549,6 @@ function CategoryChart(props: {
     const i = Math.floor((clientX - rect.left - plot().left) / pitch());
     return count() <= 0 ? null : Math.max(0, Math.min(count() - 1, i));
   };
-
-  /** How many characters a tick has room for at this pitch. */
-  const tickChars = () => Math.max(3, Math.floor(pitch() / CHAR_PX) - 1);
 
   return (
     <>
@@ -1414,7 +1594,7 @@ function CategoryChart(props: {
             plot={plot()}
             count={count()}
             at={xAt}
-            text={(i) => truncateMiddle(props.ranks[i]!.label, tickChars())}
+            text={(i, chars) => cutTo(props.ranks[i]!.label, chars)}
           />
         </Show>
       </svg>
@@ -1466,7 +1646,9 @@ export function ListView(props: {
   // printed figure is the real share either way.
   const top = () => Math.max(...ranks().map((r) => r.value), 1);
   const shown = () => ranks().slice(0, LIST_ROWS[props.tier]);
-  const hasShare = () => ranks().some((r) => r.share !== null);
+  /** Whether the share column is drawn at all at this size. */
+  const showsShare = () =>
+    atLeast(props.tier, "small") && ranks().some((r) => r.share !== null);
 
   return (
     <Show when={ranks().length > 0} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
@@ -1537,13 +1719,25 @@ export function ListView(props: {
                 >
                   {rank.label}
                 </span>
+                {/*
+                  One figure below `medium`, and NEVER none.
+
+                  The two gates used to be written independently and disagreed
+                  at the bottom of the ladder: the share needs `small`, the
+                  count stood down whenever a share existed, and a `tiny` row
+                  with a share therefore drew a label against an empty column.
+                  Every shipped ranking sets `withTotal`, so that was the normal
+                  case rather than the exotic one. Stated once now: the share is
+                  the figure a small row shows, and the count is what it falls
+                  back to when there is no share or no room for one.
+                */}
                 <span class={cn("relative flex shrink-0 items-baseline gap-2 text-xs", NUM)}>
-                  <Show when={atLeast(props.tier, "medium") || !hasShare()}>
+                  <Show when={atLeast(props.tier, "medium") || !showsShare()}>
                     <span class="font-semibold text-foreground">
                       {formatValue(i18n, props.query, 0, rank.value)}
                     </span>
                   </Show>
-                  <Show when={atLeast(props.tier, "small") && rank.share !== null}>
+                  <Show when={showsShare() && rank.share !== null}>
                     {/* Wider than it was: German writes a percentage with a
                         non-breaking space before the sign, and `i18n.percent`
                         keeps a decimal on a small share, so the old ten

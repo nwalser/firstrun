@@ -967,17 +967,24 @@ export async function projectForUser(
 }
 
 /**
- * A project is created with a board, never without one.
+ * A project is a name and nothing else.
  *
- * `layout` is a template the person picked at creation time, defaulting to the
- * overview -- an empty canvas asks a question somebody who has just installed
- * the tag cannot yet answer.
+ * It is created EMPTY: no source, and no board. It used to arrive with an
+ * "Overview" board built from a template, which read as helpful and was not:
+ * the board answered questions about data that did not exist yet, in a project
+ * that had nothing reporting into it, and the first thing anybody did with it
+ * was work out whether it was theirs to delete. A board somebody chose beats a
+ * board somebody inherited.
+ *
+ * What replaces it is the quickstart on the project's own page: it lists the
+ * steps actually outstanding -- add a source, install it, make a board -- and
+ * links to the page that does each one in full. Nothing is generated on
+ * somebody's behalf, so nothing has to be undone.
  */
 export async function createProject(
   db: Database,
   workspaceId: string,
-  name: string,
-  layout: Board = defaultBoard()
+  name: string
 ): Promise<Project> {
   return db.transaction(async (tx) => {
     const slug = await uniqueSlug(async (candidate) => {
@@ -989,15 +996,7 @@ export async function createProject(
       return hit.length > 0;
     }, name);
 
-    const created = (await tx.insert(projects).values({ workspaceId, name, slug }).returning())[0]!;
-    await tx.insert(dashboards).values({
-      projectId: created.id,
-      name: "Overview",
-      slug: "overview",
-      position: 0,
-      layout,
-    });
-    return created;
+    return (await tx.insert(projects).values({ workspaceId, name, slug }).returning())[0]!;
   });
 }
 
@@ -1365,15 +1364,17 @@ export async function dashboardById(
 }
 
 /**
- * A project always has at least one dashboard.
+ * The project's first board, or null.
  *
- * Created lazily rather than failing, so a project made before the default
- * layout changed, or made by the seed, still opens.
+ * Null is a real answer now: a project is created empty and stays that way
+ * until somebody makes a board. This used to CREATE one when it found none,
+ * which is how a project that was deliberately empty grew an "Overview" nobody
+ * asked for the first time any page called this.
  */
 export async function defaultDashboard(
   db: Database,
   projectId: string
-): Promise<DashboardRecord> {
+): Promise<DashboardRecord | null> {
   const rows = await db
     .select()
     .from(dashboards)
@@ -1382,8 +1383,7 @@ export async function defaultDashboard(
     .limit(1);
 
   const existing = rows[0];
-  if (existing) return toRecord(existing);
-  return createDashboard(db, projectId, "Overview", defaultBoard());
+  return existing ? toRecord(existing) : null;
 }
 
 /** Kept because "the project's board" is still what most callers mean. */
@@ -1487,8 +1487,10 @@ export async function deleteDashboard(
     .from(dashboards)
     .where(eq(dashboards.projectId, projectId));
 
+  // No floor. A project with no boards is a legal, reachable state -- it is
+  // what every new project is -- so the last board is deletable like any other,
+  // and the quickstart offers to make another.
   if (!all.some((d) => d.id === dashboardId)) return { error: "No such dashboard." };
-  if (all.length <= 1) return { error: "A project needs at least one dashboard." };
 
   await db
     .delete(dashboards)

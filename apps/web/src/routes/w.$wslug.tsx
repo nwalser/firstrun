@@ -29,6 +29,7 @@ function WorkspaceLayout() {
       session={data().session}
       workspace={data().view.workspace}
       projects={data().view.projects}
+      billing={data().view.billing}
     >
       <Outlet />
     </AppShell>

@@ -70,6 +70,21 @@ export const attrIn = (key: string, values: readonly string[]): Filter => ({
   values: [...values] as Scalar[],
 });
 
+/**
+ * Everything one source wrote.
+ *
+ * The id the edge stamps, never the ingest key and never the name: a key can be
+ * rotated and a name can be changed, and a board that narrowed itself by either
+ * would silently start matching nothing. Written once here because a board
+ * scoped to a source, the source overview and any card somebody builds by hand
+ * must all mean the same thing by "only this source".
+ */
+export const sourceIs = (sourceId: string): Filter => ({
+  op: "eq",
+  field: attr(ATTR.SOURCE_ID),
+  value: sourceId,
+});
+
 /** An AND of parts. An empty one is "no constraint", which is what AND means. */
 export const allOf = (parts: Filter[]): Filter => ({ op: "and", filters: parts });
 

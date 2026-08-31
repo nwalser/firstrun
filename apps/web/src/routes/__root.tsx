@@ -1,9 +1,10 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/solid-router";
 import { HydrationScript } from "solid-js/web";
 import { SIDEBAR_WIDTH_SCRIPT, Toaster } from "../components/ui/index.js";
-import { getSession } from "../lib/api.js";
+import { getPublicOrigin, getSession } from "../lib/api.js";
 import { DEFAULT_LOCALE, LocaleProvider, useI18n } from "../lib/i18n/index.js";
 import { getLocale } from "../lib/i18n/api.js";
+import { SITE_NAME, seoMeta, siteOrigin } from "../lib/seo.js";
 import styles from "../styles.css?url";
 
 /**
@@ -16,14 +17,36 @@ import styles from "../styles.css?url";
  * scrolling inside.
  */
 export const Route = createRootRoute({
-  head: () => ({
+  head: ({ matches }) => ({
     meta: [
       { charset: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { name: "color-scheme", content: "dark" },
       // The page behind the chrome is pure black, so the browser UI matches it.
       { name: "theme-color", content: "#000000" },
-      { title: "firstrun" },
+      /*
+        The floor, not the page.
+
+        The router walks matches from the deepest outwards and keeps the first
+        tag it sees for any `name`/`property`, so every tag here is what a route
+        gets when it says nothing. `/docs` and its topics say something; the
+        signed-in half says `noindex` and means it.
+
+        `index: false` is the right default for the same reason the front door
+        is a redirect: everything under `/w/` needs a session, and a search
+        result that lands a stranger on a login screen is a result nobody
+        wanted. A route that IS meant to be found opts in.
+      */
+      ...seoMeta(
+        {
+          title: SITE_NAME,
+          description:
+            "One structured log for everything you ship. Self-hosted analytics, " +
+            "errors and metrics in one table, with a query layer on top.",
+          index: false,
+        },
+        siteOrigin(matches)
+      ),
     ],
     links: [
       /*
@@ -68,17 +91,21 @@ export const Route = createRootRoute({
     ],
   }),
   /*
-    Both in parallel. The session is a database round trip and the locale is a
-    header read, so running them one after the other would add the cheap one to
-    the time to first byte for nothing.
+    All three in parallel. The session is a database round trip; the locale and
+    the origin are header reads. Running them one after the other would add the
+    two cheap ones to the time to first byte for nothing.
 
     The language has to be decided here, on the server, before any markup is
     written. A choice read in the browser instead would paint English, swap on
     hydration, and hydrate against markup that no longer matches.
   */
   loader: async () => {
-    const [session, locale] = await Promise.all([getSession(), getLocale()]);
-    return { session, locale };
+    const [session, locale, origin] = await Promise.all([
+      getSession(),
+      getLocale(),
+      getPublicOrigin(),
+    ]);
+    return { session, locale, origin };
   },
   component: RootDocument,
 });

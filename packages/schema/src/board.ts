@@ -1,6 +1,8 @@
 import {
   CANVAS_WIDTH,
   MAX_WIDGETS,
+  MAX_WIDGET_H,
+  MAX_WIDGET_Y,
   MIN_WIDGET_H,
   MIN_WIDGET_W,
   normaliseRect,
@@ -60,9 +62,9 @@ export const BOARD_VERSION = 1;
  */
 const geometry = {
   x: z.number().int().min(0).max(CANVAS_WIDTH).default(0),
-  y: z.number().int().min(0).max(40000).default(0),
+  y: z.number().int().min(0).max(MAX_WIDGET_Y).default(0),
   w: z.number().int().min(MIN_WIDGET_W).max(CANVAS_WIDTH).default(400),
-  h: z.number().int().min(MIN_WIDGET_H).max(3000).default(220),
+  h: z.number().int().min(MIN_WIDGET_H).max(MAX_WIDGET_H).default(220),
 };
 
 const base = {

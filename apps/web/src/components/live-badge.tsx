@@ -70,3 +70,14 @@ export function LiveBadge(props: { at: Date; now: Date; paused: boolean }) {
  * cannot drift into two different ideas of what "live" means.
  */
 export const LIVE_INTERVAL_MS = 30_000;
+
+/**
+ * How long one measurement may take before it counts as lost.
+ *
+ * `fetch` has no timeout of its own, so without this a request that is never
+ * answered is indistinguishable from one still on its way, and a surface that
+ * only lets one beat run at a time stops beating forever. Twice the interval:
+ * long enough that a slow board is not declared dead, short enough that two
+ * ticks of silence is the most anybody waits.
+ */
+export const LIVE_TIMEOUT_MS = LIVE_INTERVAL_MS * 2;

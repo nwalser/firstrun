@@ -9,7 +9,9 @@ import {
   FieldDescription,
   FieldLabel,
   Input,
+  Select,
   buttonVariants,
+  type SelectOption,
 } from "../components/ui/index.js";
 import { createDashboardFn } from "../lib/api.js";
 import { useI18n } from "../lib/i18n/index.js";
@@ -34,6 +36,13 @@ export const Route = createFileRoute("/w/$wslug/$pslug/dashboards/new")({
   component: NewDashboard,
 });
 
+/**
+ * "Every source", as a value the select can actually hold.
+ *
+ * A source id is a uuid, so no source can collide with it.
+ */
+const ALL = "all";
+
 /** Mirrors db/repo.ts, so the preview is the slug and not an approximation. */
 function slugify(name: string): string {
   return (
@@ -52,13 +61,36 @@ function NewDashboard() {
   const navigate = useNavigate();
 
   const [name, setName] = createSignal("");
-  const [template, setTemplate] = createSignal("handoff");
+  const [template, setTemplate] = createSignal("overview");
+  /**
+   * Which source the board is about. `ALL` is every source, which is a board
+   * with no permanent filter at all.
+   *
+   * A named sentinel rather than `""`: Kobalte reads an empty option value as
+   * "nothing selected" and renders the placeholder, so the default choice sat
+   * there looking unanswered while being the answer.
+   */
+  const [scope, setScope] = createSignal(ALL);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   const workspace = () => view().workspace.slug;
   const project = () => view().project.slug;
   const canEdit = () => view().role === "admin";
+  const sources = () => view().sources;
+
+  /**
+   * Every source, plus "all of them" first.
+   *
+   * The sources come off the project layout's nav, which is already loaded, so
+   * offering this costs no round trip. An empty value is the absence of a
+   * filter rather than a filter matching everything, which is the same
+   * distinction `emptyFilter` makes: an empty AND is no constraint.
+   */
+  const scopeOptions = (): SelectOption<string>[] => [
+    { value: ALL, label: i18n.t("boards.scope_all") },
+    ...sources().map((s) => ({ value: s.id, label: s.name })),
+  ];
 
   /** Where Cancel goes: the board that was open when the `+` was pressed. */
   async function submit(e: Event) {
@@ -72,6 +104,7 @@ function NewDashboard() {
         project: project(),
         name: name().trim(),
         template: template(),
+        ...(scope() === ALL ? {} : { sourceId: scope() }),
       },
     });
     setBusy(false);
@@ -141,6 +174,40 @@ function NewDashboard() {
             <FieldDescription>{i18n.t("boards.start_from_hint")}</FieldDescription>
             <TemplatePicker value={template()} onChange={setTemplate} class="mt-2" />
           </Field>
+
+          {/*
+            Which source the board is about, as a PERMANENT filter.
+
+            This is the whole difference between a board called "Marketing site"
+            and a board you re-filter on every visit: the constraint belongs to
+            the board, so it survives a reload, a shared link and the next
+            person to open it. It is a filter like any other, ANDed into every
+            card before its key is derived, so whoever opens the board can see
+            it in the filter sheet and take it off.
+
+            Offered here and nowhere else. The page that adds a source used to
+            make a board at the same time, which meant the same decision was
+            half-asked in two places and fully asked in neither.
+          */}
+          <Show when={sources().length > 0}>
+            <Field>
+              <FieldLabel>{i18n.t("boards.scope")}</FieldLabel>
+              <FieldDescription>
+                {scope() === ALL
+                  ? i18n.t("boards.scope_all_hint")
+                  : i18n.t("boards.scope_one_hint", {
+                      name: sources().find((s) => s.id === scope())?.name ?? "",
+                    })}
+              </FieldDescription>
+              <Select
+                class="mt-2"
+                value={scope()}
+                options={scopeOptions()}
+                onChange={setScope}
+                aria-label={i18n.t("boards.scope")}
+              />
+            </Field>
+          </Show>
 
           <Show when={error()}>
             {(message) => (

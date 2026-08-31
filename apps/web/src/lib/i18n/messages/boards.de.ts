@@ -31,6 +31,13 @@ export const boards: BoardsMessages = {
     "haben.",
   "boards.address_prefix": "Die Adresse lautet",
   "boards.name_placeholder": "Marketing-Website",
+  "boards.scope": "Worum es geht",
+  "boards.scope_all": "Alle Quellen",
+  "boards.scope_all_hint":
+    "Kein dauerhafter Filter. Jede Karte zählt alles, was dieses Projekt empfängt.",
+  "boards.scope_one_hint":
+    "Ein dauerhafter Filter auf {name}. Jede Karte dieses Boards zählt nur, was diese Quelle " +
+    "sendet, bei jedem Besuch und für jeden, dem Sie es geben. Sie können ihn später entfernen.",
   "boards.start_from": "Startpunkt",
   "boards.start_from_hint":
     "Jede Karte ist eine, die Sie auch von Hand hätten platzieren können, und jede lässt sich " +

@@ -34,7 +34,7 @@ lives in `packages/schema/src/surface.ts`.
 
 ---
 
-## The eight rules a future session will otherwise get wrong
+## The nine rules a future session will otherwise get wrong
 
 ### 1. One structured log for all telemetry. Nothing is special-cased.
 
@@ -107,6 +107,15 @@ lives in `packages/schema/src/surface.ts`.
 - **Never sort, bucket, window or retain on `ingested_at`.** Every series, every time bucket and
   every partition boundary uses `time`. `packages/ingest/test/late-event.test.ts` is that promise
   written down.
+- **There is exactly one exception, and it is the billing meter.** `usage_daily` files entries
+  under the day they ARRIVED, and `db/usage.ts` is the only place in the repo that does. This is
+  not a lapse to clean up. `time` is the client's, so a period counted on it never closes (an
+  entry uploaded on the 3rd would change an invoice sent on the 1st) and a client stamping last
+  year would fall outside every open period and ingest free forever. Arrival is when the row cost
+  us the page it is written on. The rule above governs the query layer, where bucketing on arrival
+  would put a laptop's offline week on the wrong days; the meter is the other question and is
+  counted the other way. The two numbers will not agree to the row, both are shown, and both say
+  which they are.
 - OTel calls the pair `timestamp` and `observed_timestamp`. Ours are `time` and `ingested_at`,
   and they mean the same two things.
 
@@ -167,6 +176,33 @@ attribution was exactly the thing we traded this away for once, and reversed.
 - The last admin cannot be demoted or removed. A workspace nobody can administer is the one
   unrecoverable state this model allows.
 
+### 9. There are two editions, and the difference is one function.
+
+- **Self-hosted is free, complete and unlicensed.** Every feature is on, there are no ceilings,
+  there is no licence key, no phone-home and nothing to unlock. That is not a trial: it is the
+  product, and the hosted service is the thing being sold.
+- `apps/web/src/lib/billing.server.ts` reads `FIRSTRUN_CLOUD` and **nothing else in the repo may**.
+  Everything downstream asks `entitlementsFor()` for a shape it can render, and self-hosted answers
+  `UNLIMITED`. There is no second build, no feature flag and no gate to remove.
+- **A limit of `null` is NO LIMIT, never zero.** Same idiom as an empty board filter. Every meter,
+  banner and upsell in the UI is conditioned on a ceiling existing, so a self-hoster sees none of
+  them without a single `if (selfHosted)` anywhere.
+- **Nothing on the ingest path consults a plan, in either edition.** Rule 7 is not negotiable for
+  commercial reasons: an entry is never refused because somebody is over a limit or behind on a
+  payment. Ingest meters and writes. Limits are read on the dashboard and warned about there.
+- **Going over warns. It does not block, drop, or close a board.** Reading their own data is what
+  makes somebody come back and pay, and a customer who loses telemetry over a late invoice is a
+  customer who has lost the month, not a customer who upgrades.
+- Pricing is entries per month, measured by `usage_daily`. **Retention is NOT a plan lever**:
+  `log_entries` is partitioned by `time` across every workspace, so per-workspace retention would
+  need per-workspace DELETEs, which rule 4 exists to prevent.
+- The tiers are constants in `packages/schema/src/plan.ts` and are meant to be edited.
+  `workspaces.plan_limits` overrides them for one workspace, because the first customers get
+  hand-tuned and none of that belongs in the numbers everybody else is measured against.
+- Money is Stripe's, and card details never reach this codebase: Checkout and the Billing Portal
+  are hosted on Stripe's origin. The price tiers live in Stripe. `PLANS` here is the entitlement
+  the meter is drawn against, not the price.
+
 ---
 
 ## workspace > project > source
@@ -207,6 +243,8 @@ attribution was exactly the thing we traded this away for once, and reversed.
 | Ingest | **One endpoint, `POST /v1/e`**, two body shapes: a compact one and an SDK one |
 | Deployment | **Railway**, one Dockerfile, one service |
 | Auth | **GitHub OAuth**, session token hashed at rest |
+| Editions | **Hosted is paid, self-hosted is free and uncapped.** No licence key, ever |
+| Billing | **Stripe**, metered subscription. Checkout and Portal, no card fields here |
 
 ClickHouse and SQLite were both removed. At this scale one partitioned Postgres does all of it,
 and dedup is the primary key rather than a side table. The crossover is somewhere in the tens of
@@ -431,7 +469,9 @@ clients/go/         server-side Go
 clients/dotnet/     .NET, including how a Windows desktop app reports
 sdk/tauri/          Rust crate for Tauri desktop apps: disk-backed entry queue
 db/                 drizzle schema, migrations, partition maintenance, the query compiler, seed
-docs/               measured design references and the delivery policy
+  usage.ts          the billing meter: the one thing counted on arrival, not on `time`
+  billing.ts        the workspace's plan and Stripe ids. Hosted service only
+docs/               measured design references, the delivery policy, and billing
 ```
 
 `packages/schema` is the contract and has no runtime dependencies beyond zod. Both sides of every
@@ -464,4 +504,7 @@ service on Railway stays a routing decision rather than something baked into the
 ## Explicitly NOT in scope
 
 Session replay · feature flags · experiments · minidumps or symbol upload · alerting and on-call ·
-billing · **cross-surface identity resolution of any kind**.
+**cross-surface identity resolution of any kind**.
+
+Billing used to be on that list and is not any more. See "The two editions" above: it exists, it
+is confined to the hosted service, and self-hosting stays free and uncapped.

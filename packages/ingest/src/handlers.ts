@@ -158,6 +158,12 @@ export async function handleEntries(req: Request, ctx: Ctx): Promise<Response> {
     ingestedAt: ctx.now(),
   };
 
-  const result = await ingestEntries(ctx, normalizeBatch(batch.data, context));
+  // The meter target comes from the key's row for the same reason the entries'
+  // project does: a body cannot claim to have arrived somewhere it did not, and
+  // a batch carries exactly one key, so there is never anything to group by.
+  const result = await ingestEntries(ctx, normalizeBatch(batch.data, context), {
+    projectId: source.projectId,
+    sourceId: source.id,
+  });
   return json({ ...result, dropped } satisfies IngestResponse, 202);
 }

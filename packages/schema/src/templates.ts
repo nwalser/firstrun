@@ -3,6 +3,7 @@ import { BOARD_VERSION, type Board, type BoardWidget } from "./board.js";
 import { emptyFilter, type LogQuery, type Visualisation } from "./query.js";
 import {
   UNIQUES,
+  allOf,
   atLeast,
   attr,
   dailyIn,
@@ -10,6 +11,7 @@ import {
   nameIs,
   rankingQuery,
   seriesQuery,
+  sourceIs,
   totalQuery,
   vitalsQuery,
   type Unit,
@@ -119,8 +121,8 @@ function overviewBoard(): Board {
       limit: 200,
     }),
 
-    ranking({ id: "pages", title: "Top pages", x: 0, y: 500, w: 640, h: 300 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
-    ranking({ id: "refs", title: "Where people came from", x: 640, y: 500, w: 640, h: 300 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
+    ranking({ id: "pages", title: "Top pages", x: 0, y: 480, w: 640, h: 300 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
+    ranking({ id: "refs", title: "Where people came from", x: 640, y: 480, w: 640, h: 300 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
   ]);
 }
 
@@ -138,17 +140,17 @@ function webBoard(): Board {
       { compare: true }
     ),
 
-    ranking({ id: "pages", title: "Top pages", x: 0, y: 480, w: 440, h: 320 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
-    ranking({ id: "refs", title: "Referrers", x: 440, y: 480, w: 440, h: 320 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
-    ranking({ id: "camps", title: "Campaigns", x: 880, y: 480, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.UTM_CAMPAIGN, 10),
+    ranking({ id: "pages", title: "Top pages", x: 0, y: 460, w: 440, h: 320 }, NAME.PAGE_VIEW, ATTR.URL_PATH, 10),
+    ranking({ id: "refs", title: "Referrers", x: 440, y: 460, w: 440, h: 320 }, NAME.PAGE_VIEW, ATTR.REFERRER_HOST, 10),
+    ranking({ id: "camps", title: "Campaigns", x: 880, y: 460, w: 400, h: 320 }, NAME.PAGE_VIEW, ATTR.UTM_CAMPAIGN, 10),
 
     card(
-      { id: "vitals", title: "Web vitals", x: 0, y: 820, w: 640, h: 220 },
+      { id: "vitals", title: "Web vitals", x: 0, y: 780, w: 640, h: 220 },
       "table",
       vitalsQuery(NAME.WEB_VITAL)
     ),
 
-    ranking({ id: "files", title: "Downloads", x: 640, y: 820, w: 640, h: 220 }, NAME.FILE_DOWNLOAD, ATTR.URL_PATH, 8),
+    ranking({ id: "files", title: "Downloads", x: 640, y: 780, w: 640, h: 220 }, NAME.FILE_DOWNLOAD, ATTR.URL_PATH, 8),
   ]);
 }
 
@@ -173,10 +175,10 @@ function appBoard(): Board {
       { compare: true }
     ),
 
-    ranking({ id: "os", title: "Operating systems", x: 0, y: 520, w: 640, h: 280 }, NAME.APP_INSTALL, ATTR.OS_TYPE, 8),
+    ranking({ id: "os", title: "Operating systems", x: 0, y: 500, w: 640, h: 280 }, NAME.APP_INSTALL, ATTR.OS_TYPE, 8),
 
     card(
-      { id: "faults", title: "Errors per day", x: 640, y: 520, w: 640, h: 280 },
+      { id: "faults", title: "Errors per day", x: 640, y: 500, w: 640, h: 280 },
       "bar",
       seriesQuery("entries", TEMPLATE_TZ, atLeast("ERROR"))
     ),
@@ -222,6 +224,26 @@ export const DASHBOARD_TEMPLATES: DashboardTemplate[] = [
 
 export const templateByKey = (key: string): DashboardTemplate | undefined =>
   DASHBOARD_TEMPLATES.find((t) => t.key === key);
+
+/**
+ * The same board, narrowed to one source for good.
+ *
+ * A board called *Marketing site* that shows the desktop app's numbers too is a
+ * board somebody has to re-filter on every visit, so the constraint belongs to
+ * the BOARD rather than to the person looking at it: it is ANDed into every
+ * card before the key is derived, it survives a reload and a shared link, and
+ * it is a filter like any other, so whoever opens the board can see it in the
+ * filter sheet and take it off.
+ *
+ * ANDed onto whatever the template already carried rather than replacing it.
+ * Every template here starts with no constraint, and this must not be the
+ * reason that stops being safe to change.
+ */
+export function scopedToSource(layout: Board, sourceId: string): Board {
+  const existing = layout.filter;
+  const parts = existing.op === "and" ? existing.filters : [existing];
+  return { ...layout, filter: allOf([...parts, sourceIs(sourceId)]) };
+}
 
 /**
  * What a project gets before anyone has touched it.

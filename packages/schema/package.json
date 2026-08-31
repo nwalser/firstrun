@@ -9,13 +9,15 @@
     "./log": "./src/log.ts",
     "./severity": "./src/severity.ts",
     "./attributes": "./src/attributes.ts",
-    "./conventions": "./src/conventions.ts",    "./canvas": "./src/canvas.ts",
+    "./conventions": "./src/conventions.ts",
+    "./canvas": "./src/canvas.ts",
     "./query": "./src/query.ts",
     "./board": "./src/board.ts",
     "./overview": "./src/overview.ts",
     "./feed": "./src/feed.ts",
     "./templates": "./src/templates.ts",
-    "./recipes": "./src/recipes.ts"
+    "./recipes": "./src/recipes.ts",
+    "./plan": "./src/plan.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"

@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   bigint,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -122,9 +123,38 @@ export const workspaces = pgTable(
     logoMimeType: text("logo_mime_type"),
     logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }),
 
+    /**
+     * Billing. Present in every edition, read by one of them.
+     *
+     * The self-hosted edition never looks at these columns: `entitlementsFor`
+     * returns UNLIMITED before it reaches the row, so a self-hoster gets every
+     * feature with no ceiling, no licence and nothing to switch on. The columns
+     * still exist there because one schema that is partly unused beats two
+     * schemas that drift, and because a customer who moves onto the hosted
+     * edition should be a plan change rather than a migration.
+     *
+     * `plan` is text rather than an enum. The closed set lives in
+     * `@firstrun/schema/plan`, where an unknown value reads as free instead of
+     * throwing: adding a tier should not need a migration, and a row written by
+     * a newer deploy must not break an older one mid-rollout.
+     *
+     * `plan_limits` overrides the tier's ceilings for one workspace. It exists
+     * because the first customers get hand-tuned limits, and none of that
+     * belongs in the tier constants everybody else is measured against.
+     */
+    plan: text("plan").notNull().default("free"),
+    planLimits: jsonb("plan_limits"),
+    billingStatus: text("billing_status").notNull().default("active"),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("workspaces_slug_key").on(t.slug)]
+  (t) => [
+    uniqueIndex("workspaces_slug_key").on(t.slug),
+    // The Stripe webhook arrives knowing a customer id and nothing else.
+    uniqueIndex("workspaces_stripe_customer_key").on(t.stripeCustomerId),
+  ]
 );
 
 /**
@@ -404,6 +434,64 @@ export const logEntries = pgTable(
   ]
 );
 
+/**
+ * The billing meter: how many entries a workspace has been charged for.
+ *
+ * ## Why a roll-up and not `count(*)` over `log_entries`
+ *
+ * Retention drops the evidence. `log_entries` is partitioned by `time` and a
+ * whole month is DROPped once it ages out (rule 4), so a number derived from
+ * those rows stops being derivable exactly when somebody disputes an invoice.
+ * This table is a few rows per source per day, survives the partition drop, and
+ * is the only durable record of what was billed.
+ *
+ * ## The day is the day it ARRIVED, not the entry's own `time`
+ *
+ * This is the one place in the codebase that counts on arrival, and it is
+ * deliberate. Rule 5 governs the query layer, where bucketing on `ingested_at`
+ * would put a laptop's offline week on the wrong days. Billing is the opposite
+ * question:
+ *
+ *  - `time` is client-stamped, so a client that stamps last year would land
+ *    outside every open billing period and ingest for free forever.
+ *  - A period counted on `time` never closes: an entry uploaded on the 3rd
+ *    changes an invoice sent on the 1st.
+ *  - Arrival is when the row actually cost a page of Postgres.
+ *
+ * So the usage PAGE buckets on `time` and this table counts on arrival, they
+ * will not agree to the row, and both numbers say on screen which they are.
+ *
+ * ## No foreign key to projects or sources
+ *
+ * Only the workspace cascades. A billing record has to outlive the thing it
+ * describes: deleting a project must not erase the month it was invoiced in. A
+ * breakdown that names a project which no longer exists renders as deleted.
+ *
+ * `source_id` costs nothing to carry because a batch arrives under exactly one
+ * source key, so the writer already has it and never has to group.
+ */
+export const usageDaily = pgTable(
+  "usage_daily",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+
+    /** The UTC day the entries arrived on. Plain `date`: no zone, no bucket maths. */
+    day: date("day").notNull(),
+
+    projectId: uuid("project_id").notNull(),
+    sourceId: uuid("source_id").notNull(),
+
+    /** Entries the primary key accepted as NEW. A replayed queue is not billed twice. */
+    entries: bigint("entries", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [
+    // Workspace first: every read of this table is one workspace over a month.
+    primaryKey({ columns: [t.workspaceId, t.day, t.projectId, t.sourceId] }),
+  ]
+);
+
 // ---------------------------------------------------------------------------
 // Relations, for the typed query API
 // ---------------------------------------------------------------------------
@@ -446,4 +534,5 @@ export type Project = typeof projects.$inferSelect;
 export type Source = typeof sources.$inferSelect;
 export type Dashboard = typeof dashboards.$inferSelect;
 export type LogEntryRow = typeof logEntries.$inferSelect;
+export type UsageDailyRow = typeof usageDaily.$inferSelect;
 export type MemberRole = (typeof memberRoleEnum.enumValues)[number];

@@ -3,9 +3,11 @@ import {
   CANVAS_WIDTH,
   GRID,
   MAX_WIDGETS,
+  MAX_WIDGET_H,
   MIN_WIDGET_H,
   MIN_WIDGET_W,
   normaliseRect,
+  snapToGrid,
   type Rect,
 } from "@firstrun/schema";
 import {
@@ -189,11 +191,25 @@ export const moveBy = (r: Rect, dx: number, dy: number): Rect => ({
  * The opposite edge is the anchor: dragging the west edge moves `x` and grows
  * `w` by the same amount, so the right hand side of the card does not creep.
  *
- * The west and north edges clamp to the minimum HERE rather than leaving it to
- * `normaliseRect`, because those are the two that move the origin: clamping a
- * width after the fact would let a card slide sideways once it hit its minimum.
- * East and south leave the origin alone, so the later clamp reaches the same
- * answer and both directions stop dead at the minimum instead of jumping.
+ * THE MOVING EDGE IS SNAPPED HERE, AND THE SIZE IS DERIVED FROM THE ANCHOR.
+ * That ordering is the whole correctness of the west and north handles.
+ * `normaliseRect` snaps `x` and `w` independently, and a start rect is always
+ * grid-aligned, so `x + w` is a multiple of the grid: the moment the pointer
+ * put the west edge on a half-cell it put the WIDTH on one too, and rounding
+ * both away from zero pushed the anchored right edge out by a whole cell. The
+ * card either grew on the side nobody was touching or slid sideways without
+ * changing size at all. Snapping the origin first and taking `w = right - x`
+ * makes the pair grid-aligned by construction, so the later `normaliseRect` is
+ * an identity on it rather than a second, disagreeing opinion.
+ *
+ * The west and north edges clamp to BOTH limits HERE, because those are the two
+ * that move the origin: a size clamped after the fact would let a card slide
+ * once it hit a limit, since the origin would keep following the pointer while
+ * the size stopped growing. That is true at the maximum exactly as it is at the
+ * minimum -- a card already at the tallest the schema allows would have
+ * translated upward one-for-one under a north drag rather than stopping. East
+ * and south leave the origin alone, so the later clamp reaches the same answer
+ * and every direction stops dead instead of jumping.
  *
  * Cells, like everything else on this side of the file. `MIN_WIDGET_W` and
  * `MIN_WIDGET_H` are the smallest CELL, so the smallest card is two gutters
@@ -203,18 +219,23 @@ export const moveBy = (r: Rect, dx: number, dy: number): Rect => ({
  */
 export function resizeBy(r: Rect, edge: ResizeEdge, dx: number, dy: number): Rect {
   let { x, y, w, h } = r;
+  const right = r.x + r.w;
+  const bottom = r.y + r.h;
 
-  if (edge.includes("e")) w = Math.min(r.w + dx, CANVAS_WIDTH - r.x);
-  if (edge.includes("s")) h = r.h + dy;
+  if (edge.includes("e")) w = Math.min(snapToGrid(r.w + dx), CANVAS_WIDTH - r.x);
+  if (edge.includes("s")) h = snapToGrid(r.h + dy);
 
   if (edge.includes("w")) {
-    const right = r.x + r.w;
-    x = Math.min(Math.max(0, r.x + dx), right - MIN_WIDGET_W);
+    // The widest a card may be is the canvas itself, and the anchor is already
+    // on it, so the lower bound here can never bite. Stated anyway, in the same
+    // shape as the north edge, so the two cannot drift apart.
+    const widest = Math.max(0, right - CANVAS_WIDTH);
+    x = Math.min(Math.max(widest, snapToGrid(r.x + dx)), right - MIN_WIDGET_W);
     w = right - x;
   }
   if (edge.includes("n")) {
-    const bottom = r.y + r.h;
-    y = Math.min(Math.max(0, r.y + dy), bottom - MIN_WIDGET_H);
+    const tallest = Math.max(0, bottom - MAX_WIDGET_H);
+    y = Math.min(Math.max(tallest, snapToGrid(r.y + dy)), bottom - MIN_WIDGET_H);
     h = bottom - y;
   }
 
@@ -753,22 +774,25 @@ export function Canvas(props: {
     // viewport is narrower. A board arranged at one width that rearranges
     // itself at another is a board somebody has to arrange twice.
     //
-    // Pulled out by one gutter on every side. The gutter is space BETWEEN two
-    // cards, and the outermost cells have nothing on the far side to be between
-    // -- left uncompensated, a card flush against the canvas would draw ten
-    // pixels in from the page's own padding and read as an accident. So the
-    // surface bleeds by exactly that much and a flush cell lands flush.
+    // The net effect is a bleed of one gutter on every side. The gutter is space
+    // BETWEEN two cards, and the outermost cells have nothing on the far side to
+    // be between -- left uncompensated, a card flush against the canvas would
+    // draw ten pixels in from the page's own padding and read as an accident.
     //
-    // This also replaces the padding that used to be here for the resize
-    // handles: they reach four pixels out of a card, which is now four pixels
-    // into its own gutter rather than over the canvas edge or a neighbour.
+    // It is spelled as two gutters of negative margin and one of padding rather
+    // than as one negative margin, because a scroller CLIPS at its padding box
+    // and the cell wall now carries ink that is painted outside the border box:
+    // the dashed arrange frame, and the two-stop focus ring at four pixels of
+    // spread. With no padding, a card at x=0 or y=0 lost the top and left of
+    // both -- and leftward overflow is not even scrollable, so there was no way
+    // to see it. One gutter of room inside the clip is more than either needs.
     <div
       class={cn(
         "overflow-x-auto overflow-y-hidden",
         props.gesturing && "select-none",
         props.class
       )}
-      style={{ margin: `-${GUTTER}px` }}
+      style={{ margin: `-${GUTTER * 2}px`, padding: `${GUTTER}px` }}
     >
       <div class="relative" style={{ width: `${CANVAS_WIDTH}px`, height: `${props.height}px` }}>
         <Show when={props.showGrid}>
@@ -853,8 +877,11 @@ export function CanvasItem(
           "z-index": local.active ? LIFTED_Z : (local.z ?? 0),
           "container-type": "size",
           "container-name": CARD_CONTAINER,
-          "--card-w": `${card().w}px`,
-          "--card-h": `${card().h}px`,
+          // Only the hero size. `--card-w` and `--card-h` used to be published
+          // beside it and nothing ever read them: an element inside a size
+          // container already reaches both axes through the container-relative
+          // units, so they were a second, staler answer to a question CSS
+          // answers itself.
           "--card-hero": `${heroFontSize(card())}px`,
           ...(typeof local.style === "object" ? local.style : {}),
         }}

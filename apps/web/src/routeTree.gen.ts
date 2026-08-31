@@ -30,6 +30,7 @@ import { Route as WWslugEventsIndexRouteImport } from './routes/w.$wslug.events.
 import { Route as WWslugEventsEidRouteImport } from './routes/w.$wslug.events.$eid'
 import { Route as WWslugProjectsNewRouteImport } from './routes/w.$wslug.projects.new'
 import { Route as WWslugSettingsIndexRouteImport } from './routes/w.$wslug.settings.index'
+import { Route as WWslugSettingsBillingRouteImport } from './routes/w.$wslug.settings.billing'
 import { Route as WWslugSettingsProjectsRouteImport } from './routes/w.$wslug.settings.projects'
 import { Route as WWslugPslugDashboardsDslugRouteImport } from './routes/w.$wslug.$pslug.dashboards.$dslug'
 import { Route as WWslugPslugDashboardsNewRouteImport } from './routes/w.$wslug.$pslug.dashboards.new'
@@ -142,6 +143,11 @@ const WWslugSettingsIndexRoute = WWslugSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WWslugSettingsRoute,
 } as any)
+const WWslugSettingsBillingRoute = WWslugSettingsBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => WWslugSettingsRoute,
+} as any)
 const WWslugSettingsProjectsRoute = WWslugSettingsProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRouteWithChildren
   '/w/$wslug/events/$eid': typeof WWslugEventsEidRoute
   '/w/$wslug/projects/new': typeof WWslugProjectsNewRoute
+  '/w/$wslug/settings/billing': typeof WWslugSettingsBillingRoute
   '/w/$wslug/settings/projects': typeof WWslugSettingsProjectsRoute
   '/w/$wslug/$pslug/': typeof WWslugPslugIndexRoute
   '/w/$wslug/events/': typeof WWslugEventsIndexRoute
@@ -217,6 +224,7 @@ export interface FileRoutesByTo {
   '/w/$wslug/$pslug/settings': typeof WWslugPslugSettingsRoute
   '/w/$wslug/events/$eid': typeof WWslugEventsEidRoute
   '/w/$wslug/projects/new': typeof WWslugProjectsNewRoute
+  '/w/$wslug/settings/billing': typeof WWslugSettingsBillingRoute
   '/w/$wslug/settings/projects': typeof WWslugSettingsProjectsRoute
   '/w/$wslug/$pslug': typeof WWslugPslugIndexRoute
   '/w/$wslug/events': typeof WWslugEventsIndexRoute
@@ -247,6 +255,7 @@ export interface FileRoutesById {
   '/w/$wslug/$pslug/sources': typeof WWslugPslugSourcesRouteWithChildren
   '/w/$wslug/events/$eid': typeof WWslugEventsEidRoute
   '/w/$wslug/projects/new': typeof WWslugProjectsNewRoute
+  '/w/$wslug/settings/billing': typeof WWslugSettingsBillingRoute
   '/w/$wslug/settings/projects': typeof WWslugSettingsProjectsRoute
   '/w/$wslug/$pslug/': typeof WWslugPslugIndexRoute
   '/w/$wslug/events/': typeof WWslugEventsIndexRoute
@@ -278,6 +287,7 @@ export interface FileRouteTypes {
     | '/w/$wslug/$pslug/sources'
     | '/w/$wslug/events/$eid'
     | '/w/$wslug/projects/new'
+    | '/w/$wslug/settings/billing'
     | '/w/$wslug/settings/projects'
     | '/w/$wslug/$pslug/'
     | '/w/$wslug/events/'
@@ -301,6 +311,7 @@ export interface FileRouteTypes {
     | '/w/$wslug/$pslug/settings'
     | '/w/$wslug/events/$eid'
     | '/w/$wslug/projects/new'
+    | '/w/$wslug/settings/billing'
     | '/w/$wslug/settings/projects'
     | '/w/$wslug/$pslug'
     | '/w/$wslug/events'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/w/$wslug/$pslug/sources'
     | '/w/$wslug/events/$eid'
     | '/w/$wslug/projects/new'
+    | '/w/$wslug/settings/billing'
     | '/w/$wslug/settings/projects'
     | '/w/$wslug/$pslug/'
     | '/w/$wslug/events/'
@@ -498,6 +510,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof WWslugSettingsIndexRouteImport
       parentRoute: typeof WWslugSettingsRoute
     }
+    '/w/$wslug/settings/billing': {
+      id: '/w/$wslug/settings/billing'
+      path: '/billing'
+      fullPath: '/w/$wslug/settings/billing'
+      preLoaderRoute: typeof WWslugSettingsBillingRouteImport
+      parentRoute: typeof WWslugSettingsRoute
+    }
     '/w/$wslug/settings/projects': {
       id: '/w/$wslug/settings/projects'
       path: '/projects'
@@ -605,11 +624,13 @@ const WWslugEventsRouteWithChildren = WWslugEventsRoute._addFileChildren(
 )
 
 interface WWslugSettingsRouteChildren {
+  WWslugSettingsBillingRoute: typeof WWslugSettingsBillingRoute
   WWslugSettingsProjectsRoute: typeof WWslugSettingsProjectsRoute
   WWslugSettingsIndexRoute: typeof WWslugSettingsIndexRoute
 }
 
 const WWslugSettingsRouteChildren: WWslugSettingsRouteChildren = {
+  WWslugSettingsBillingRoute: WWslugSettingsBillingRoute,
   WWslugSettingsProjectsRoute: WWslugSettingsProjectsRoute,
   WWslugSettingsIndexRoute: WWslugSettingsIndexRoute,
 }

@@ -82,7 +82,7 @@ import {
   Switch,
   Textarea,
 } from "./ui/index.js";
-import { LIVE_INTERVAL_MS, LiveBadge } from "./live-badge.js";
+import { LIVE_INTERVAL_MS, LIVE_TIMEOUT_MS, LiveBadge } from "./live-badge.js";
 import { WidgetBody, defaultTitle } from "./widgets.js";
 
 /**
@@ -169,10 +169,40 @@ export function Dashboard(props: DashboardProps) {
   const [error, setError] = createSignal<string | null>(null);
   /** When the loader last answered. Read by the live badge, nothing else. */
   const [measuredAt, setMeasuredAt] = createSignal(new Date());
+  /**
+   * An edit this browser has made and the server has not confirmed.
+   *
+   * True from the moment `persist` changes the local board until the save that
+   * carries the change comes back. It covers the DEBOUNCE as well as the
+   * request, which `state()` does not: a drag commit sits on a timer for 250ms
+   * and a keystroke for 500ms, and for that whole interval the change exists
+   * only in local state and in a closure.
+   */
+  const [unsaved, setUnsaved] = createSignal(false);
 
-  // The loader is the source of truth. When it refetches -- after a range
-  // change, or another tab saving -- take its answer over the local copy.
-  createEffect(() => setBoard(props.layout));
+  /**
+   * The loader is the source of truth, EXCEPT over an edit it has not seen.
+   *
+   * A loader answer arriving while a save is pending is an older board than the
+   * one on screen, and taking it would revert the card somebody just moved. The
+   * next `persist` would then derive its payload from the reverted copy and
+   * cancel the pending save on the way through, so the edit would be gone from
+   * the screen and from the server at once. The live poll makes that a real
+   * event rather than a theoretical one: it is a refetch every thirty seconds,
+   * forever, on every open board.
+   *
+   * The pending save always finishes by writing what the screen shows, so
+   * skipping the answer loses nothing: `setState("saved")` is followed by the
+   * loader's own invalidation on any change that needs one.
+   */
+  createEffect(
+    on(
+      () => props.layout,
+      (next) => {
+        if (!unsaved()) setBoard(next);
+      }
+    )
+  );
 
   let debounce: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(debounce));
@@ -187,27 +217,48 @@ export function Dashboard(props: DashboardProps) {
    */
   async function persist(next: Board, opts: PersistOptions = {}) {
     setBoard(next);
+    setUnsaved(true);
     clearTimeout(debounce);
 
     const run = async () => {
       setState("saving");
       setError(null);
-      const result = await saveDashboard({
-        data: {
-          workspace: props.workspaceSlug,
-          project: props.projectSlug,
-          dashboardId: props.dashboardId,
-          layout: next,
-        },
-      });
-      if (!result.ok) {
+      try {
+        const result = await saveDashboard({
+          data: {
+            workspace: props.workspaceSlug,
+            project: props.projectSlug,
+            dashboardId: props.dashboardId,
+            layout: next,
+          },
+        });
+        if (!result.ok) {
+          setState("error");
+          setError(result.error);
+          return;
+        }
+        if (opts.refetch) await router.invalidate();
+        setState("saved");
+        setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 1600);
+      } catch (cause) {
+        /*
+          A REJECTED save, as distinct from one that answered "no".
+
+          `saveDashboard` validates with `Board.parse`, which throws rather than
+          returning a result, so a layout the UI allowed and the schema refuses
+          lands here -- as does any network failure. Uncaught it left the state
+          at "saving" for the life of the page: the toolbar said "Saving..."
+          forever with no error, and the live poll, which holds off while a save
+          is in flight, never ran again.
+        */
         setState("error");
-        setError(result.error);
-        return;
+        setError(cause instanceof Error ? cause.message : i18n.t("common.error"));
+      } finally {
+        // Whatever happened, this browser is no longer holding a change the
+        // server has not been told about. Leaving it set would freeze the board
+        // against every future loader answer.
+        setUnsaved(false);
       }
-      if (opts.refetch) await router.invalidate();
-      setState("saved");
-      setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 1600);
     };
 
     if (opts.debounceMs) debounce = setTimeout(() => void run(), opts.debounceMs);
@@ -243,41 +294,78 @@ export function Dashboard(props: DashboardProps) {
    * the scroll position all survive. That is the whole reason a board can be
    * live at all: the alternative was a browser reload.
    *
-   * It holds off in three cases, and every one of them is a case where a fresh
+   * It holds off in four cases, and every one of them is a case where a fresh
    * answer would take something away from somebody.
    *
    * 1. WHILE ARRANGING. A loader answer replaces `props.layout`, and the effect
    *    above takes it over the local copy: mid-drag that snatches the card back
-   *    to where the gesture started, and mid-edit it undoes a change the save
-   *    has not landed yet.
-   * 2. WHILE SAVING. Same race, one step earlier.
-   * 3. WHILE THE TAB IS HIDDEN. A board in a background tab is measuring for
+   *    to where the gesture started.
+   * 2. WHILE AN EDIT IS UNSAVED. Not `state() === "saving"`, which only covers
+   *    the request: an edit spends its first 250ms (a drag) or 500ms (a
+   *    keystroke) on a debounce timer where nothing has been sent yet, and
+   *    leaving arrange mode is the very next thing anybody does after placing a
+   *    card. `unsaved()` covers the timer and the request together.
+   * 3. WHILE A BEAT IS ALREADY RUNNING. One measurement at a time.
+   * 4. WHILE THE TAB IS HIDDEN. A board in a background tab is measuring for
    *    nobody. It catches up the moment it is looked at again, which is also
    *    the moment its numbers start mattering.
+   *
+   * The gate is re-read AFTER the answer arrives as well as before it is asked,
+   * because a whole loader round trip fits inside it: the session, the project,
+   * the dashboards, the sources and a `measureBoard` for every card. Whether it
+   * was safe to ask is not the same question as whether it is safe to apply.
    */
   const [now, setNow] = createSignal(new Date());
+  /** A beat that is still out. A signal, because the badge has to be able to say so. */
+  const [beating, setBeating] = createSignal(false);
+  /** The last beat failed or never came back. Cleared by the next one that does. */
+  const [stalled, setStalled] = createSignal(false);
+
   const live = () =>
     !canArrange() &&
     canvas.active() === null &&
+    !unsaved() &&
     state() !== "saving" &&
     !(typeof document !== "undefined" && document.hidden);
 
-  createEffect(on(() => props.snapshot, () => setMeasuredAt(new Date())));
+  createEffect(
+    on(
+      () => props.snapshot,
+      () => {
+        setMeasuredAt(new Date());
+        setStalled(false);
+      }
+    )
+  );
 
   onMount(() => {
-    let inFlight = false;
-
     async function beat() {
       setNow(new Date());
-      if (inFlight || !live()) return;
-      inFlight = true;
+      if (beating() || !live()) return;
+      setBeating(true);
       try {
-        await router.invalidate();
+        /*
+          Raced against a deadline, because `fetch` has none.
+
+          A request that is never answered and never reset -- a proxy holding
+          the socket, Postgres blocked on a lock behind `measureBoard` -- left
+          the in-flight flag set for the life of the page, and every later beat
+          returned at the guard above. The board stopped measuring while the
+          badge went on pulsing green, which is the one thing it must not say.
+        */
+        await Promise.race([
+          router.invalidate(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("live refresh timed out")), LIVE_TIMEOUT_MS)
+          ),
+        ]);
       } catch {
-        // One missed beat. The last answer stays on screen carrying its own
-        // age, which is the truth: that is still when this data is from.
+        // The last answer stays on screen carrying its own age, which is the
+        // truth: that is still when this data is from. The badge stops
+        // claiming to be live until a beat gets through.
+        setStalled(true);
       } finally {
-        inFlight = false;
+        setBeating(false);
       }
     }
 
@@ -496,7 +584,7 @@ export function Dashboard(props: DashboardProps) {
             forgets to ask for -- so it asks itself, and what belongs in the
             toolbar is the fact that it does rather than a control to make it.
           */}
-          <LiveBadge at={measuredAt()} now={now()} paused={!live()} />
+          <LiveBadge at={measuredAt()} now={now()} paused={!live() || stalled()} />
 
           <Show when={props.canEdit}>
             <ModeToggle
@@ -992,7 +1080,14 @@ function BoardCard(props: {
             "h-full overflow-hidden",
             // The lift is on the card, not on the cell: what a person picks up
             // is the thing with the border on it.
-            dragging() && "dragging"
+            //
+            // Spelled out rather than reusing the `dragging` utility, which
+            // carries a stacking step and a grab cursor as well as the lift.
+            // Both belong to the CELL: the stacking step would put the card
+            // over its own control strip, and the cursor is declared on an
+            // element, so it would beat the resize cursor the gesture writes on
+            // the root and show a grab hand while an edge is being pulled.
+            dragging() && "opacity-90 shadow-2xl"
           )}
         >
           <Show when={showHeader()}>

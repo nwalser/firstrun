@@ -6,6 +6,7 @@ import ListFilter from "lucide-solid/icons/list-filter";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, type JSX } from "solid-js";
 import { PageHeader } from "../components/page-header.js";
+import { PlanMeter } from "../components/plan-meter.js";
 import {
   Badge,
   Button,
@@ -39,11 +40,18 @@ import { Route as WorkspaceRoute } from "./w.$wslug.js";
  * by source or by severity, because those are the three dimensions this data
  * model actually has.
  *
- * What it deliberately does NOT have is the reference's whole reason for
- * existing: a plan, a quota, an included-credit meter and a charge column.
- * There is no billing here, so the summary card reports volume against the
- * previous window instead of money against an allowance. A progress bar with no
- * limit behind it would be a decoration pretending to be a number.
+ * The reference's included-credit meter is the card at the top, and it is
+ * conditional: it appears only where there IS an allowance, which means on the
+ * hosted service. A self-hosted install resolves no ceilings at all, so the
+ * card renders nothing and this page is exactly what it always was. A progress
+ * bar with no limit behind it would be a decoration pretending to be a number,
+ * which is why the condition is on the limit and not on an edition flag.
+ *
+ * The meter and everything below it count differently, and that is deliberate
+ * rather than a discrepancy to reconcile. The meter counts entries as they
+ * ARRIVE, because that is the only window that closes and the only number an
+ * invoice can be checked against. Everything else on the page counts them on
+ * `time`, because that is when they happened. Both say which they are.
  *
  * Two things about the numbers, both from CLAUDE.md and both stated on screen:
  *
@@ -300,11 +308,21 @@ function Usage() {
 
       <div class="flex flex-col gap-4">
         {/*
-          The summary card. The reference's included-credit meter sits here and
-          reports a number against an allowance; we have no allowance, so this
-          reports the same number against the window before it. Three facts, one
-          row, and both resolved windows written out: a delta whose baseline is
-          unstated is a number nobody can check.
+          The plan meter, on the hosted service only. It is the reference's
+          included-credit card, and it is the one thing on this page counted on
+          arrival rather than on `time`.
+        */}
+        <PlanMeter
+          billing={workspace().view.billing}
+          workspaceSlug={workspace().view.workspace.slug}
+          role={workspace().view.workspace.role}
+        />
+
+        {/*
+          The summary card. Volume against the window before it, which is the
+          question this page answers whether or not there is a plan above it.
+          Three facts, one row, and both resolved windows written out: a delta
+          whose baseline is unstated is a number nobody can check.
         */}
         <Card>
           <CardContent class="flex flex-col gap-4 @md-page/page:flex-row @md-page/page:items-end @md-page/page:gap-10">

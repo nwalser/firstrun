@@ -97,10 +97,10 @@ export const sources = {
   "sources.remove_action": "Remove source",
   "sources.clipboard_failed": "Could not reach the clipboard. Select the key and copy it.",
 
-  // The create flow: four steps, the last one after creation.
+  // The create flow: name it, then install it. The board step that used to sit
+  // between them is gone -- a board is made on the page that makes boards.
   "sources.admin_only": "Only an admin of this workspace can add a source.",
   "sources.step_details": "Details",
-  "sources.step_dashboard": "Dashboard",
   "sources.step_install": "Install",
   "sources.step_details_title": "Name it",
   "sources.step_details_hint": "Only ever shown to you and the people in this workspace.",
@@ -108,16 +108,7 @@ export const sources = {
   "sources.asset_hint":
     "Optional. Used in the install guide snippets so they arrive naming your app. Nothing " +
     "sent by a client refers to it.",
-  "sources.step_board_title": "Start it with a board",
-  "sources.step_board_hint":
-    "An arrangement of cards, added alongside the ones this project already has. You can " +
-    "rearrange or delete it later.",
-  "sources.want_board": "Create a dashboard for this source",
-  "sources.want_board_hint":
-    "Off if you would rather arrange one yourself, or already have the board you want.",
-  "sources.template_label": "Template",
-  "sources.template_hint": "Only the boards worth building out of what this kind of source sends.",
-  "sources.continue": "Continue",
+  "sources.make_board": "Make a board for it",
   "sources.ready": "{name} is ready",
   "sources.ready_hint":
     "Nothing arrives until something sends it. Next: install it, which is five steps in the " +

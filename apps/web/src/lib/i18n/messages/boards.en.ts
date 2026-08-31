@@ -32,6 +32,13 @@ export const boards = {
     "own permanent filters. Nothing here is shared with the boards you already have.",
   "boards.address_prefix": "Its address will be",
   "boards.name_placeholder": "Marketing site",
+  "boards.scope": "What it is about",
+  "boards.scope_all": "Every source",
+  "boards.scope_all_hint":
+    "No permanent filter. Every card counts everything this project receives.",
+  "boards.scope_one_hint":
+    "A permanent filter on {name}. Every card on this board counts only what that source " +
+    "sends, on every visit and for everyone you share it with. You can take it off later.",
   "boards.start_from": "Start from",
   "boards.start_from_hint":
     "Every card is one you could have placed by hand, and every one of them moves. The sketch " +

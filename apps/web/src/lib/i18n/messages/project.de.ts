@@ -10,26 +10,29 @@ export const project: ProjectMessages = {
   "project.new_hint": "Ein Projekt pro Produkt, in {workspace}.",
   "project.create": "Projekt erstellen",
   "project.name_label": "Name des Projekts",
+  "project.name_hint":
+    "Ein Produkt. Ihre Website, Ihre Desktop-App und Ihr Backend melden sich alle hier, und " +
+    "genau das stellt ihre Zahlen auf ein Board. Sonst wird nichts mit angelegt.",
   "project.admin_only": "Nur ein Admin dieses Workspace kann ein Projekt erstellen.",
-  "project.address_prefix": "Die Adresse lautet",
-  "project.start_from": "Startpunkt",
-  "project.start_from_hint":
-    "Das erste Board. Jedes Projekt bekommt später weitere, und nichts davon ist endgültig.",
 
-  "project.callout_title": "Ein Produkt, nicht eine Plattform",
-  "project.callout_body":
-    "Ein Projekt ist ein Produkt. Alles, worauf es läuft, meldet sich hier als eigene Quelle, " +
-    "deshalb gehören Ihre Marketing-Website, Ihre Desktop-App und Ihr Backend in dieses eine " +
-    "Projekt. Genau das stellt ihre Zahlen auf einem Board nebeneinander statt auf drei, die " +
-    "Sie von Hand vergleichen müssen.",
-  "project.callout_second":
-    "Ein zweites Projekt ist für ein zweites Produkt. Ein Produkt auf zwei Projekte " +
-    "aufzuteilen verliert nichts, aber kein Board kann jemals beide Hälften zugleich zeigen, " +
-    "und jeder Vergleich zwischen ihnen wird zu Handarbeit.",
-  "project.chip_website": "Website",
-  "project.chip_desktop": "Desktop-App",
-  "project.chip_backend": "Backend",
-  "project.chip_one_board": "ein Board",
+  "project.quickstart": "Einrichtung abschließen",
+  "project.quickstart_hint":
+    "Es wurde nichts für Sie angelegt. Das sind die Schritte, jeder auf der Seite, die ihn " +
+    "vollständig erledigt.",
+  "project.quickstart_progress": "{done} von {total}",
+  "project.step_done": "Erledigt",
+  "project.step_source": "Quelle hinzufügen",
+  "project.step_source_hint":
+    "Eine Sache, die meldet: Ihre Website, Ihre App oder Ihr Backend. Den Key bekommen Sie dort.",
+  "project.step_install": "Installieren und ein Event senden",
+  "project.step_install_hint":
+    "Snippet in Ihre eigene Software einsetzen. Hakt ab, sobald das erste Event ankommt.",
+  "project.step_install_action": "Quellen öffnen",
+  "project.step_board": "Board anlegen",
+  "project.step_board_hint":
+    "Eine Anordnung gespeicherter Fragen, mit eigenem Zeitraum und, wenn Sie mögen, genau " +
+    "einer Quelle, um die es geht.",
+  "project.step_board_action": "Neues Board",
 
   "project.against": "gegenüber {range}",
   "project.sources": "Quellen",
@@ -57,8 +60,7 @@ export const project: ProjectMessages = {
   "project.new_board": "Neu",
   "project.never_seen": "nie gesehen",
   "project.no_boards":
-    "Noch keine Boards. Eines entsteht, sobald jemand die Dashboards dieses Projekts zum " +
-    "ersten Mal öffnet.",
+    "Noch keine Boards. Legen Sie eines an, wenn Sie wissen, was Sie beobachten wollen.",
 
   "project.fact_reporting": "Meldet",
   "project.fact_last_event": "Letztes Event",

@@ -1,5 +1,6 @@
 import { Dialog } from "@kobalte/core/dialog";
 import ChevronLeft from "lucide-solid/icons/chevron-left";
+import ChevronRight from "lucide-solid/icons/chevron-right";
 import PanelLeft from "lucide-solid/icons/panel-left";
 import {
   Show,
@@ -531,6 +532,18 @@ type SidebarMenuButtonProps = {
   children: JSX.Element;
   tooltip?: string;
   isActive?: boolean;
+  /**
+   * The row leads INTO another pane rather than to a page beside the ones
+   * around it, so it draws a trailing chevron pointing the way the pane will
+   * move. It is the mirror of the back chevron in `SidebarPaneHeader`, and the
+   * pair is the only thing telling a reader that a row is a door rather than a
+   * destination -- every row here otherwise looks identical.
+   *
+   * Decoration only: the row is already a link with its own accessible name,
+   * so the chevron is hidden from the accessibility tree instead of adding a
+   * second, wordless thing to read out.
+   */
+  submenu?: boolean;
   class?: string;
   /**
    * Almost always a router `Link`. This is not `PolymorphicProps<T>` because
@@ -546,7 +559,13 @@ type SidebarMenuButtonProps = {
 
 export function SidebarMenuButton(props: SidebarMenuButtonProps) {
   const { state, isMobile } = useSidebar();
-  const [local, rest] = splitProps(props, ["children", "tooltip", "isActive", "class"]);
+  const [local, rest] = splitProps(props, [
+    "children",
+    "tooltip",
+    "isActive",
+    "submenu",
+    "class",
+  ]);
 
   const content = (
     <Button
@@ -591,6 +610,20 @@ export function SidebarMenuButton(props: SidebarMenuButtonProps) {
       {...rest}
     >
       {local.children}
+      {/*
+        Wrapped rather than dropped in bare, because the row's own icon rule
+        gives every DIRECT svg child the 36px leading slot's 10px margins. The
+        chevron is a trailing marker on an 8px edge, not a second icon slot.
+
+        Hidden in the collapsed strip along with the label: a 36px square
+        holding an icon and an arrow is unreadable, and the tooltip is what
+        carries the row there anyway.
+      */}
+      <Show when={local.submenu && state() !== "collapsed"}>
+        <span aria-hidden="true" class="ml-1 flex size-4 shrink-0 items-center justify-center">
+          <ChevronRight class="size-4 opacity-60" />
+        </span>
+      </Show>
     </Button>
   );
 

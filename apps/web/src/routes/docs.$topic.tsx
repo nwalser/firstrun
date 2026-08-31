@@ -19,6 +19,7 @@ import { Callout } from "../components/docs/snippet.js";
 import { PageNav } from "../components/docs/page-nav.js";
 import { DocsPage, useDocs } from "../components/docs/shell.js";
 import { useI18n } from "../lib/i18n/index.js";
+import { SITE_NAME, canonicalUrl, jsonLd, seoLinks, seoMeta, siteOrigin } from "../lib/seo.js";
 
 /**
  * One page of the documentation.
@@ -34,6 +35,82 @@ import { useI18n } from "../lib/i18n/index.js";
  */
 export const Route = createFileRoute("/docs/$topic")({
   loader: ({ params }) => ({ slug: params.topic }),
+  /**
+   * What a search result and an unfurled link say about this page.
+   *
+   * The title and summary come off the registry's own fields rather than
+   * through `t`: `head()` runs outside the component tree, so there is no i18n
+   * context to read from, and a title that changed with `Accept-Language` would
+   * leave a crawler indexing whichever language it happened to be served.
+   *
+   * ## An unknown slug is answered, and is NOT indexed
+   *
+   * The component below deliberately renders the contents plus a sentence
+   * instead of throwing a 404, because the useful response to a dead link is
+   * the way onwards. That is right for a reader and wrong for a crawler: a
+   * page that returns 200 and says "no page called this" is a soft 404, and a
+   * few thousand of them is a real ranking problem. So an unknown slug keeps
+   * the friendly body and takes `noindex` and no canonical.
+   */
+  head: ({ params, matches }) => {
+    const topic = topicBySlug(params.topic);
+    const origin = siteOrigin(matches);
+
+    if (!topic) {
+      return { meta: seoMeta({ title: "Not found", description: "", index: false }) };
+    }
+
+    const canonical = canonicalUrl(origin, `/docs/${topic.slug}`);
+    const seo = { title: topic.title, description: topic.summary, canonical, index: true };
+
+    return {
+      meta: seoMeta(seo, origin),
+      links: seoLinks(seo),
+      /*
+        The page as a thing rather than as tags, which is what earns a
+        documentation result its breadcrumb line and its chance at a rich
+        result. `TechArticle` rather than `Article`: this is reference
+        material, and the vocabulary already exists for it.
+
+        Emitted only with an origin to hand, because every id in the graph is
+        absolute and a graph half-full of relative URLs describes nothing.
+      */
+      scripts: canonical
+        ? [
+            {
+              type: "application/ld+json",
+              children: jsonLd({
+                "@context": "https://schema.org",
+                "@graph": [
+                  {
+                    "@type": "TechArticle",
+                    "@id": canonical,
+                    headline: topic.title,
+                    description: topic.summary,
+                    url: canonical,
+                    inLanguage: "en",
+                    isPartOf: { "@type": "WebSite", name: SITE_NAME, url: origin },
+                    publisher: { "@type": "Organization", name: SITE_NAME, url: origin },
+                  },
+                  {
+                    "@type": "BreadcrumbList",
+                    itemListElement: [
+                      {
+                        "@type": "ListItem",
+                        position: 1,
+                        name: "Documentation",
+                        item: `${origin}/docs`,
+                      },
+                      { "@type": "ListItem", position: 2, name: topic.title, item: canonical },
+                    ],
+                  },
+                ],
+              }),
+            },
+          ]
+        : [],
+    };
+  },
   component: DocsTopicPage,
 });
 

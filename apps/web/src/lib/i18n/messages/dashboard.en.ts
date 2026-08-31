@@ -110,7 +110,12 @@ export const dashboard = {
   // a window onto something still happening, so it re-reads itself while open.
   "dashboard.live": "Live",
   "dashboard.live_title": "This board re-reads itself while it is open. Updated {when}.",
-  "dashboard.live_paused": "Paused while the board is being arranged. It resumes when you stop.",
+  // Deliberately does not name ONE reason. The board holds off while it is
+  // being arranged, while an edit is still being written, and while the tab is
+  // in the background, and a tooltip that blames the first of those is a false
+  // statement two thirds of the time.
+  "dashboard.live_paused":
+    "Paused while the board is busy or the tab is in the background. It resumes on its own.",
 
   // The starting points in the palette. The title is what the row reads; the
   // description is its `title` attribute, because a 36px row has no second line.

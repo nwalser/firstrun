@@ -35,6 +35,18 @@ export const CANVAS_MIN_HEIGHT = 600;
 export const MIN_WIDGET_W = 160;
 export const MIN_WIDGET_H = 120;
 
+/**
+ * The largest a card may be, and the lowest it may sit.
+ *
+ * These are the numbers the stored contract already enforces (`board.ts`), said
+ * here as well because this is where a rect is made legal. `normaliseRect` used
+ * to clamp height and y downward only, so an arrow key held on the south edge
+ * walked a card straight past the schema's ceiling: the board then failed to
+ * SAVE, silently, every time, on a card the canvas had happily drawn.
+ */
+export const MAX_WIDGET_H = 3000;
+export const MAX_WIDGET_Y = 40_000;
+
 export const snapToGrid = (n: number): number => Math.round(n / GRID) * GRID;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -46,15 +58,15 @@ export interface Rect {
   h: number;
 }
 
-/** Keeps a rect on the canvas, on the grid, and above the minimum size. */
+/** Keeps a rect on the canvas, on the grid, and within the size the schema allows. */
 export function normaliseRect(r: Rect): Rect {
   const w = clamp(snapToGrid(r.w), MIN_WIDGET_W, CANVAS_WIDTH);
-  const h = Math.max(MIN_WIDGET_H, snapToGrid(r.h));
+  const h = clamp(snapToGrid(r.h), MIN_WIDGET_H, MAX_WIDGET_H);
   return {
     w,
     h,
     x: clamp(snapToGrid(r.x), 0, CANVAS_WIDTH - w),
-    y: Math.max(0, snapToGrid(r.y)),
+    y: clamp(snapToGrid(r.y), 0, MAX_WIDGET_Y),
   };
 }
 

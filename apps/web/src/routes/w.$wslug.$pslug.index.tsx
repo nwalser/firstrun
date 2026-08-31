@@ -4,22 +4,21 @@ import { queryKey, rowsAt, type LogQuery, type QueryRow } from "@firstrun/schema
 import { Link, createFileRoute, notFound, redirect } from "@tanstack/solid-router";
 import ArrowRight from "lucide-solid/icons/arrow-right";
 import Calendar from "lucide-solid/icons/calendar";
+import CircleCheck from "lucide-solid/icons/circle-check";
+import CircleDashed from "lucide-solid/icons/circle-dashed";
 import LayoutDashboard from "lucide-solid/icons/layout-dashboard";
 import Plug from "lucide-solid/icons/plug";
 import Plus from "lucide-solid/icons/plus";
+import Terminal from "lucide-solid/icons/terminal";
 import { For, Show, type JSX } from "solid-js";
 import { ROW_INTERACTION } from "../components/page-header.js";
 import {
   Badge,
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyMedia,
-  EmptyTitle,
   Skeleton,
   buttonVariants,
 } from "../components/ui/index.js";
@@ -142,6 +141,61 @@ function ProjectOverview() {
 
   const firstBoard = () => boards()[0] ?? null;
 
+  /**
+   * What is left to set this project up, answered from what exists.
+   *
+   * Three steps, in the order they unblock each other: something has to report
+   * before anything can arrive, and something has to arrive before a board has
+   * anything to draw. A later step is not hidden while an earlier one is
+   * outstanding -- seeing what is coming is the point of a list -- but its
+   * action is only offered once it can actually be taken.
+   */
+  const setup = () => {
+    const hasSource = sources().length > 0;
+    const hasEvents = lastSeen() !== null;
+    const hasBoard = boards().length > 0;
+
+    const steps: Step[] = [
+      {
+        key: "source",
+        icon: Plug,
+        title: i18n.t("project.step_source"),
+        body: i18n.t("project.step_source_hint"),
+        done: hasSource,
+        ready: true,
+        action: i18n.t("project.add_source"),
+        to: "/w/$wslug/$pslug/sources/new",
+      },
+      {
+        key: "install",
+        icon: Terminal,
+        title: i18n.t("project.step_install"),
+        body: i18n.t("project.step_install_hint"),
+        done: hasEvents,
+        // Nothing to install until there is a key to install, and the key is on
+        // the source's own page.
+        ready: hasSource,
+        action: i18n.t("project.step_install_action"),
+        to: "/w/$wslug/$pslug/sources",
+      },
+      {
+        key: "board",
+        icon: LayoutDashboard,
+        title: i18n.t("project.step_board"),
+        body: i18n.t("project.step_board_hint"),
+        done: hasBoard,
+        // A board over a project with no sources draws empty cards. It is
+        // allowed, it is just not the next thing worth doing.
+        ready: hasSource,
+        action: i18n.t("project.step_board_action"),
+        to: "/w/$wslug/$pslug/dashboards/new",
+      },
+    ];
+
+    const done = steps.filter((step) => step.done).length;
+    return { steps, done, remaining: steps.length - done };
+  };
+
   return (
     // The dashboard variant of a page: a 24px-gap column of a 36px toolbar row
     // and then the body, with no `h1` at all. Vertical padding only, because the
@@ -191,28 +245,31 @@ function ProjectOverview() {
         </Show>
       </div>
 
+      {/*
+        The quickstart, while there is anything left to do.
+
+        It replaces two things that were both worse. One was an empty state that
+        said "nothing is sending events yet" and offered a single button: true,
+        and no help at all with the three steps after it. The other was
+        autogeneration -- a board built from a template the moment a project was
+        created -- which made the page look finished while leaving the reader to
+        work out what had been made for them and whether they wanted it.
+
+        Every step here is CHECKED against real data, never against a stored
+        "dismissed" flag: a source exists or it does not, something has arrived
+        or nothing has. So the list cannot claim a step is done when it is not,
+        and it disappears on its own once the project is actually set up.
+      */}
+      <Show when={setup().remaining > 0}>
+        <Quickstart
+          steps={setup().steps}
+          done={setup().done}
+          total={setup().steps.length}
+        />
+      </Show>
+
       <Show
         when={sources().length > 0}
-        fallback={
-          <Empty>
-            <EmptyMedia>
-              <Plug />
-            </EmptyMedia>
-            <EmptyTitle>{i18n.t("project.no_sources")}</EmptyTitle>
-            <EmptyDescription>{i18n.t("project.no_sources_hint")}</EmptyDescription>
-            <Show when={isAdmin()}>
-              <EmptyContent>
-                <Link
-                  to="/w/$wslug/$pslug/sources/new"
-                  params={{ wslug: workspace(), pslug: project().slug }}
-                  class={buttonVariants({ size: "sm" })}
-                >
-                  {i18n.t("project.add_source")}
-                </Link>
-              </EmptyContent>
-            </Show>
-          </Empty>
-        }
       >
         {/*
           One column becoming three, which is the reference's project overview
@@ -402,6 +459,121 @@ function ProjectOverview() {
         </div>
       </Show>
     </main>
+  );
+}
+
+/**
+ * One step of the quickstart.
+ *
+ * `to` is a route path, and it is typed as the literal union the router
+ * generates rather than as a string: a path that does not exist is a compile
+ * error here instead of a link that 404s the first time somebody follows it.
+ */
+interface Step {
+  key: string;
+  icon: (props: { class?: string }) => JSX.Element;
+  title: string;
+  body: string;
+  /** Answered from what exists, never from a stored flag. */
+  done: boolean;
+  /** Whether the action can be taken yet. A step is shown either way. */
+  ready: boolean;
+  action: string;
+  to:
+    | "/w/$wslug/$pslug/sources/new"
+    | "/w/$wslug/$pslug/sources"
+    | "/w/$wslug/$pslug/dashboards/new";
+}
+
+/**
+ * What is left to do, as a panel.
+ *
+ * It sits ABOVE the numbers rather than replacing them: a project halfway
+ * through setup still has real events to show, and hiding them behind a
+ * checklist would make the checklist the thing you have to get past. Once every
+ * step is done the panel is gone, and nothing has to be dismissed.
+ *
+ * Nothing here does the work. Each row links to the page that owns that step
+ * and does it in full -- naming a source, installing it, arranging a board --
+ * because a checklist that grows its own forms is a second, worse copy of three
+ * pages that already exist.
+ */
+function Quickstart(props: { steps: Step[]; done: number; total: number }) {
+  const i18n = useI18n();
+  const nav = ProjectRoute.useLoaderData();
+  const params = () => ({ wslug: nav().workspace.slug, pslug: nav().project.slug });
+  const isAdmin = () => nav().role === "admin";
+
+  return (
+    <Card class="overflow-hidden">
+      <CardHeader class="items-start">
+        <div class="min-w-0">
+          <CardTitle>{i18n.t("project.quickstart")}</CardTitle>
+          <CardDescription class="mt-0.5">{i18n.t("project.quickstart_hint")}</CardDescription>
+        </div>
+        <Badge variant="secondary" class="shrink-0">
+          {i18n.t("project.quickstart_progress", { done: props.done, total: props.total })}
+        </Badge>
+      </CardHeader>
+
+      <For each={props.steps}>
+        {(step) => (
+          /*
+            No `ROW_INTERACTION` here. The row is a container for its own
+            button, not a target: giving it the row fill would light up 700px
+            of card for a control that is 120px wide.
+          */
+          <div class="flex items-center gap-3 border-t px-4 py-3">
+            <Show
+              when={step.done}
+              fallback={<CircleDashed class="size-4 shrink-0 text-muted-foreground" />}
+            >
+              <CircleCheck class="size-4 shrink-0 text-positive" />
+            </Show>
+
+            <div class="flex min-w-0 flex-1 flex-col">
+              <span
+                class={cn(
+                  "flex items-center gap-2 text-body",
+                  step.done ? "text-muted-foreground" : "text-foreground"
+                )}
+              >
+                <step.icon class="size-3.5 shrink-0 text-muted-foreground" />
+                {step.title}
+              </span>
+              <span class="text-caption text-muted-foreground">{step.body}</span>
+            </div>
+
+            {/*
+              Done says so and offers nothing: a finished step whose button
+              still invites you to do it again is a step you cannot tell is
+              finished. A reader sees the list -- knowing what is outstanding is
+              not an admin question -- and is offered none of the actions.
+            */}
+            <Show
+              when={!step.done && isAdmin()}
+              fallback={
+                <span class="shrink-0 text-caption text-muted-foreground">
+                  {step.done ? i18n.t("project.step_done") : ""}
+                </span>
+              }
+            >
+              <Link
+                to={step.to}
+                params={params()}
+                class={cn(
+                  buttonVariants({ variant: step.ready ? "outline" : "ghost", size: "sm" }),
+                  "shrink-0"
+                )}
+              >
+                {step.action}
+                <ArrowRight />
+              </Link>
+            </Show>
+          </div>
+        )}
+      </For>
+    </Card>
   );
 }
 

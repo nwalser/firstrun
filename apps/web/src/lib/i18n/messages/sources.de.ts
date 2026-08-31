@@ -92,7 +92,6 @@ export const sources: SourcesMessages = {
 
   "sources.admin_only": "Nur ein Admin dieses Workspace kann eine Quelle hinzufügen.",
   "sources.step_details": "Details",
-  "sources.step_dashboard": "Dashboard",
   "sources.step_install": "Installation",
   "sources.step_details_title": "Benennen Sie sie",
   "sources.step_details_hint": "Wird nur Ihnen und den Personen in diesem Workspace angezeigt.",
@@ -100,17 +99,7 @@ export const sources: SourcesMessages = {
   "sources.asset_hint":
     "Optional. Wird in den Snippets der Installationsanleitung verwendet, damit sie mit dem " +
     "Namen Ihrer Anwendung ankommen. Nichts, was ein Client sendet, bezieht sich darauf.",
-  "sources.step_board_title": "Mit einem Board starten",
-  "sources.step_board_hint":
-    "Eine Anordnung von Karten, die neben denen entsteht, die dieses Projekt bereits hat. Sie " +
-    "können sie später umstellen oder löschen.",
-  "sources.want_board": "Ein Dashboard für diese Quelle erstellen",
-  "sources.want_board_hint":
-    "Aus, wenn Sie lieber selbst eines anordnen oder das gewünschte Board bereits haben.",
-  "sources.template_label": "Vorlage",
-  "sources.template_hint":
-    "Nur die Boards, die sich aus dem lohnen, was diese Art von Quelle sendet.",
-  "sources.continue": "Weiter",
+  "sources.make_board": "Board dafür anlegen",
   "sources.ready": "{name} ist bereit",
   "sources.ready_hint":
     "Es kommt nichts an, bevor etwas sendet. Als Nächstes: installieren, in fünf Schritten im " +

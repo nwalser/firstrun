@@ -16,10 +16,11 @@ import { useI18n } from "../lib/i18n/index.js";
 /**
  * Sign in.
  *
- * Split layout: the form on the left, and the product behind glass on the
- * right. The preview is deliberately inert and very faint -- it says what this
- * is without pretending to be usable, and without inventing numbers convincing
- * enough that someone might read them as their own.
+ * Split layout: the form on the left, and the product on the right. The
+ * preview is drawn at full strength and fills its column: it is what somebody
+ * is signing in to see, so showing it faintly and shrunk was hiding the one
+ * thing on the page worth looking at. It stays inert and `aria-hidden`, and
+ * the numbers stay small enough that nobody reads them as their own.
  */
 export const Route = createFileRoute("/login")({
   loader: async () => {
@@ -116,8 +117,8 @@ function Login() {
         aria-hidden="true"
         class="relative hidden select-none overflow-hidden border-l bg-sidebar lg:block"
       >
-        <div class="pointer-events-none absolute inset-0 flex items-center justify-center p-14 opacity-[0.07]">
-          <div class="w-full max-w-3xl">
+        <div class="pointer-events-none absolute inset-0 flex flex-col justify-center p-10">
+          <div class="w-full">
             {/* `gap-px` over the border colour is what draws the hairlines
                 between these five, so the container spends its ring instead of
                 a border: one edge, not two. */}
@@ -142,7 +143,7 @@ function Login() {
                 <div class="text-small font-semibold uppercase tracking-wider text-muted-foreground">
                   {i18n.t("auth.preview_per_day", { name: PREVIEW_SERIES })}
                 </div>
-                <svg class="mt-4 h-20 w-full" viewBox="0 0 300 72" preserveAspectRatio="none">
+                <svg class="mt-4 h-44 w-full" viewBox="0 0 300 72" preserveAspectRatio="none">
                   <For each={[18, 24, 31, 22, 27, 39, 33, 20, 12, 26, 34, 29, 41, 36, 24, 30, 22, 17, 28, 35]}>
                     {(v, i) => (
                       <rect
@@ -173,8 +174,10 @@ function Login() {
           </div>
         </div>
 
-        {/* Fades the preview out toward the form so the eye lands on the button. */}
-        <div class="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-transparent to-transparent" />
+        {/* A short fade off the left edge only, so the board meets the form
+            without a hard seam. It used to wash out half the column, which is
+            invisible under 7% opacity and very visible at full strength. */}
+        <div class="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-background to-transparent" />
       </div>
     </div>
   );
