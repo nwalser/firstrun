@@ -17,7 +17,9 @@ export interface Firstrun {
   event(name: string, attributes?: Attrs): void;
   error(err: unknown, attributes?: Attrs): void;
   log(entry: Entry): void;
-  identify(userId?: string | null): void;
+  user(userId?: string | null): void;
+  device(deviceId?: string | null): void;
+  session(sessionId: string): void;
   consent(granted: boolean): void;
   page(): void;
   navigated(): void;
@@ -31,7 +33,9 @@ export {
   error,
   event,
   flush,
-  identify,
+  user,
+  device,
+  session,
   init,
   log,
   navigated,

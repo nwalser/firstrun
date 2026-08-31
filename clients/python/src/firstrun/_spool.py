@@ -32,8 +32,9 @@ from . import _ids
 
 FILE_NAME = "queue.jsonl"
 
-#: One queued entry: the distinct id it belongs to, and the wire entry itself.
-Item = Tuple[str, Dict[str, Any]]
+#: One queued entry: the wire entry itself, and nothing beside it. Identity
+#: travels in the resource, which belongs to the process rather than the queue.
+Item = Dict[str, Any]
 
 
 def resolve_path(app_folder: str) -> str:
@@ -44,7 +45,7 @@ def resolve_path(app_folder: str) -> str:
     - Linux and other Unix: ``$XDG_DATA_HOME/firstrun/{app}/queue.jsonl``, or
       ``~/.local/share/firstrun/{app}/queue.jsonl`` when XDG_DATA_HOME is unset
     """
-    return os.path.join(os.path.dirname(_ids.resolve_path(app_folder)), FILE_NAME)
+    return os.path.join(_ids.app_dir(app_folder), FILE_NAME)
 
 
 class Spool:
@@ -94,10 +95,9 @@ class Spool:
                 # A truncated last line, or a file somebody edited, loses itself
                 # rather than the entries around it.
                 record = json.loads(line)
-                distinct_id = record["d"]
                 entry = record["e"]
-                if isinstance(distinct_id, str) and distinct_id and isinstance(entry, dict):
-                    items.append((distinct_id, entry))
+                if isinstance(entry, dict):
+                    items.append(entry)
             except BaseException:
                 continue
 
@@ -123,10 +123,10 @@ class Spool:
         total = 0
         dropped = 0
         # Backwards, so the entries that survive a bound are the newest ones.
-        for distinct_id, entry in reversed(items):
+        for entry in reversed(items):
             try:
                 line = json.dumps(
-                    {"d": distinct_id, "e": entry},
+                    {"e": entry},
                     separators=(",", ":"),
                     ensure_ascii=False,
                     allow_nan=False,

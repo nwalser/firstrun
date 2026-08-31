@@ -1,5 +1,6 @@
 import { account } from "./messages/account.en.js";
 import { billing } from "./messages/billing.en.js";
+import { admin } from "./messages/admin.en.js";
 import { auth } from "./messages/auth.en.js";
 import { boards } from "./messages/boards.en.js";
 import { common } from "./messages/common.en.js";
@@ -69,6 +70,7 @@ export const en = {
   ...events,
   ...usage,
   ...billing,
+  ...admin,
 
   ...ui,
   ...docs,

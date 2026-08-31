@@ -19,17 +19,50 @@ import { cn } from "../../lib/cn.js";
  * would be drawn off-screen, so the ring buys nothing and the border is the
  * only hairline anyone can see. `shadow-lift-md` exists for exactly this, a
  * thing that already has its own edge.
+ *
+ * It is SIZED, and it is a CONTAINER.
+ *
+ * Those are one decision. A drawer used to be 384px wide whatever was put in
+ * it, while everything inside it sized itself against the viewport: a
+ * three-across row of field, operator and value read `sm:` off a 1280px window
+ * and drew three 62px controls inside 384px of drawer. Naming the width here
+ * and declaring `@container/panel` in the same class list is what stops the
+ * two from disagreeing: what a drawer is opened at is the number its contents
+ * reflow against.
  */
+
+/** How wide this drawer opens. See `--container-*-panel` in `styles.css`. */
+export type SheetSize = "sm" | "md" | "lg" | "xl";
+
+const SIZES: Record<SheetSize, string> = {
+  sm: "sm:max-w-sm-panel",
+  md: "sm:max-w-md-panel",
+  lg: "sm:max-w-lg-panel",
+  xl: "sm:max-w-xl-panel",
+};
 
 export const Sheet = Dialog;
 export const SheetTrigger = Dialog.Trigger;
 export const SheetClose = Dialog.CloseButton;
 
 export function SheetContent(
-  props: ComponentProps<typeof Dialog.Content> & { class?: string; side?: "right" | "left" }
+  props: ComponentProps<typeof Dialog.Content> & {
+    class?: string;
+    side?: "right" | "left";
+    size?: SheetSize;
+  }
 ) {
-  const [local, rest] = splitProps(props, ["class", "children", "side"]);
+  const [local, rest] = splitProps(props, ["class", "children", "side", "size"]);
   const side = () => local.side ?? "right";
+  /*
+   * `md` rather than the 384 this used to be fixed at.
+   *
+   * 384 is the width of a LIST, and the only drawer in the app that holds one
+   * is the palette. Everything else in here is a form, and a form at 384 with
+   * a label, a control and a hint on every row is the shape that produced the
+   * squeeze in the first place. A drawer that needs less says so.
+   */
+  const size = () => local.size ?? "md";
 
   return (
     <Dialog.Portal>
@@ -46,7 +79,13 @@ export function SheetContent(
         class={cn(
           "bg-popover text-popover-foreground fixed z-overlay flex h-full w-full flex-col gap-0",
           "border-l border-border shadow-lift-md outline-none",
-          "top-0 sm:max-w-sm",
+          // The panel is the container everything inside it answers, which is
+          // why the width and the container name are declared together. Only
+          // the inline size is contained: the column below still measures its
+          // own height against the viewport.
+          "@container/panel",
+          "top-0",
+          SIZES[size()],
           side() === "right" ? "right-0" : "left-0 border-l-0 border-r border-border",
           //
           // A drawer SLIDES where a modal zooms, because it comes from an edge
@@ -71,9 +110,19 @@ export function SheetContent(
   );
 }
 
+/**
+ * The gutter every part of the drawer keeps.
+ *
+ * 16 on a phone, where the drawer is the whole screen, and 24 once the panel
+ * is opened at a width worth padding. It is a CONTAINER query on the panel
+ * rather than a viewport one, so a narrow drawer on a wide screen pads like
+ * the narrow thing it is.
+ */
+const GUTTER = "px-4 @md-panel/panel:px-6";
+
 export function SheetHeader(props: { class?: string; children?: JSX.Element }) {
   return (
-    <div class={cn("flex flex-col gap-1 border-b border-border px-4 py-4", props.class)}>
+    <div class={cn("flex flex-col gap-1 border-b border-border py-4", GUTTER, props.class)}>
       {props.children}
     </div>
   );
@@ -97,14 +146,17 @@ export function SheetDescription(
 }
 
 export function SheetBody(props: { class?: string; children?: JSX.Element }) {
-  return <div class={cn("flex-1 overflow-y-auto px-4 py-4", props.class)}>{props.children}</div>;
+  return (
+    <div class={cn("flex-1 overflow-y-auto py-4", GUTTER, props.class)}>{props.children}</div>
+  );
 }
 
 export function SheetFooter(props: { class?: string; children?: JSX.Element }) {
   return (
     <div
       class={cn(
-        "flex items-center justify-end gap-2 border-t border-border px-4 py-4",
+        "flex items-center justify-end gap-2 border-t border-border py-4",
+        GUTTER,
         props.class
       )}
     >

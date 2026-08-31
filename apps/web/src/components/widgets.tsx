@@ -4,10 +4,12 @@ import {
   Match,
   Show,
   Switch,
+  createContext,
   createMemo,
   createSignal,
   onCleanup,
   onMount,
+  useContext,
   type JSX,
 } from "solid-js";
 import { cn } from "../lib/cn.js";
@@ -25,6 +27,7 @@ import {
   rowsAt,
   scalarOf,
   type BoardSnapshot,
+  type Field,
   type LogQuery,
   type QueryRow,
   type Visualisation,
@@ -134,6 +137,29 @@ const SPARK_SPACE: Record<Tier, string> = {
 // ---------------------------------------------------------------------------
 // Shared pieces
 // ---------------------------------------------------------------------------
+
+/**
+ * What clicking a printed VALUE does, when there is somewhere for it to go.
+ *
+ * A ranked list answers "which pages" and the next question is always "so what
+ * happened on that one": the value is the filter, and typing it back into a
+ * builder by hand is the reader doing the machine's work. Every card is drawn
+ * from a group value the row already carries, so the condition is derivable
+ * rather than guessable.
+ *
+ * A CONTEXT, and it holds an accessor rather than the function itself. The same
+ * components draw the explore preview and the project overview, where there is
+ * no board to filter and a clickable row would be a promise nothing keeps, so
+ * the default answer is null and those callers provide nothing. The accessor is
+ * what makes it reactive: a board withdraws the handler while it is being
+ * arranged, because a press on a card there is the start of a drag.
+ */
+export type DrillPick = { field: Field; value: string | null };
+export type Drill = (picks: readonly DrillPick[]) => void;
+
+const DrillContext = createContext<() => Drill | null>(() => null);
+export const DrillProvider = DrillContext.Provider;
+const useDrill = () => useContext(DrillContext);
 
 function Swatch(props: { colour: string }) {
   return (
@@ -263,9 +289,15 @@ function Measured(props: {
   const [box, setBox] = createSignal({ w: 0, h: 0 });
   let el: HTMLDivElement | undefined;
 
+  // Compared before writing rather than inside the updater. An updater runs
+  // while the signal is being computed, and anything it calls that writes
+  // another signal is a write during a read: Solid is entitled to throw, and it
+  // did. Nothing here may do more than return the next value.
   const measure = (w: number, h: number) => {
     const next = { w: Math.round(w), h: Math.round(h) };
-    setBox((held) => (held.w === next.w && held.h === next.h ? held : next));
+    const held = box();
+    if (held.w === next.w && held.h === next.h) return;
+    setBox(next);
   };
 
   onMount(() => {
@@ -362,6 +394,15 @@ export interface Rank {
   value: number;
   /** Of the total over EVERY group, not of the rows that fit. Null: no total. */
   share: number | null;
+  /**
+   * The raw group values behind the label, in `groupBy` order.
+   *
+   * The label is for reading and joins the groups into one string with the
+   * nulls spelled out; this is what the row MEANS, which is what a filter has
+   * to be built from. Kept beside the label rather than re-derived, because the
+   * two would then be two answers to the same question.
+   */
+  group: Array<string | null>;
 }
 
 /** Grouped rows as a ranking. Already ordered by the query, so never re-sorted. */
@@ -373,6 +414,7 @@ export function ranksFrom(rows: readonly QueryRow[], notSet: string, index = 0):
       label: groupLabel(row, notSet) || notSet,
       value,
       share: total && total > 0 ? value / total : null,
+      group: row.group,
     };
   });
 }
@@ -547,24 +589,128 @@ export function NumberView(props: {
   const change = () => delta(value(), props.previous ? scalarOf(props.previous) : null);
   const points = createMemo(() => {
     const series = seriesFrom(props.sparkline, i18n.t("dashboard.not_set"))[0]?.points ?? [];
-    // One point is a dot pretending to be a trend, and all zeroes draws as a
-    // line along the axis that reads as data. Both are worse than no chart.
-    return series.length > 1 && series.some((p) => (p.value ?? 0) > 0) ? series : [];
+    // One point is a dot pretending to be a trend, so a series has to have at
+    // least two. An all-zero series is NOT excluded: it draws as its own empty
+    // slots, which says "measured, and nothing happened" where drawing nothing
+    // says "not measured" and leaves the tile a different height from the one
+    // beside it.
+    return series.length > 1 ? series : [];
   });
   const label = () => labels.aggregation(props.query.aggregations[0] ?? { fn: "count" });
+
+  /**
+   * Which way round the tile reads: shape, not size.
+   *
+   * A stat tile stacks the figure over its own shape, which is right until the
+   * card is much wider than it is tall. Then the space under the number is a
+   * strip too short to read a chart in while a third of the card sits empty
+   * beside it, and the honest layout is the figure on the left with the shape
+   * filling the room to its right.
+   *
+   * Both conditions matter and they are not the same one. The ratio says the
+   * card is wide rather than square; the absolute width says there is enough of
+   * it left for a chart once the number has taken what it needs. A 300x160 tile
+   * is 1.9:1 and still wants stacking, because the number alone is most of its
+   * width; a 620x160 one is 3.9:1 and does not.
+   */
+  /** The window the shape covers, and its highest point. Only where both fit. */
+  const footer = () => (
+    <div
+      class={cn(
+        "mt-1.5 flex shrink-0 items-baseline justify-between gap-2",
+        "text-label-13 text-muted-foreground"
+      )}
+    >
+      <span class="truncate">
+        {i18n.t("dashboard.window_span", {
+          from: i18n.shortDate(points()[0]!.at),
+          to: i18n.shortDate(points()[points().length - 1]!.at),
+        })}
+      </span>
+      <span class="shrink-0">
+        {i18n.t("dashboard.peak")}{" "}
+        <span class={cn("font-semibold text-foreground", NUM)}>
+          {i18n.num(Math.max(0, ...points().map((p) => p.value ?? 0)))}
+        </span>
+      </span>
+    </div>
+  );
+
+  /*
+    A FUNCTION, not a value.
+
+    Written as a `const spark = (<Show .../>)` it was one set of DOM nodes
+    referenced from both branches of the layout switch below. JSX is evaluated
+    where it is written, so both branches held the same nodes: flipping the
+    switch disposed them under one parent and left the other holding what it had
+    just destroyed. Building them per branch is what makes the two layouts two
+    layouts rather than one moved around.
+  */
+  const spark = (beside: boolean) => (
+    <Show when={atLeast(props.tier, "small") && points().length > 0}>
+      <Measured class={beside ? "min-h-0 min-w-0 flex-1 self-stretch" : SPARK_SPACE[props.tier]}>
+        {(size) => (
+          <Show when={size().w > 0 && size().h > 0}>
+            <Sparkline points={points()} w={size().w} h={size().h} />
+          </Show>
+        )}
+      </Measured>
+    </Show>
+  );
 
   return (
     <Show
       when={value() !== null}
       fallback={<Empty>{i18n.t("dashboard.nothing_measured")}</Empty>}
     >
+      {/*
+        The tile measures ITSELF rather than asking the canvas how big its card
+        is. Two reasons, and the second is the one that matters: the same
+        component is rendered off the board (the explore preview, the project
+        overview) where there is no card to ask, and a context default would be
+        one guess standing in for every one of those boxes. Measuring is the
+        same answer everywhere.
+      */}
+      <Measured class="h-full min-h-0">
+        {(box) => {
+          /**
+           * Which way round the tile reads: shape, not size.
+           *
+           * A stat tile stacks the figure over its own shape, which is right
+           * until the card is much wider than it is tall. Then the space under
+           * the number is a strip too short to read a chart in while a third of
+           * the card sits empty beside it, and the honest layout is the figure
+           * on the left with the shape filling the room to its right.
+           *
+           * Both conditions matter and they are not the same one. The ratio
+           * says the card is wide rather than square; the absolute width says
+           * there is enough of it left for a chart once the number has taken
+           * what it needs. A 300x160 tile is 1.9:1 and still wants stacking,
+           * because the number alone is most of its width; a 620x160 one is
+           * 3.9:1 and does not.
+           */
+          const beside = () =>
+            atLeast(props.tier, "medium") &&
+            points().length > 0 &&
+            box().w >= 380 &&
+            box().w >= box().h * 2;
+
+          return (
       <div
         class={cn(
-          "flex h-full min-h-0 flex-col",
-          !atLeast(props.tier, "medium") && "justify-center"
+          "flex h-full min-h-0",
+          beside() ? "flex-row items-center gap-4" : "flex-col",
+          !beside() && !atLeast(props.tier, "medium") && "justify-center"
         )}
       >
-        <div class="min-w-0 shrink-0">
+        <div
+          class={cn(
+            "min-w-0 shrink-0",
+            // Beside the chart the text column takes what it needs and no more,
+            // so the shape gets every pixel the figure did not.
+            beside() && "max-w-[45%]"
+          )}
+        >
           {/*
             The change sits BESIDE the number on its baseline, which is where
             the reference puts it and the reason a stat tile reads in one
@@ -610,38 +756,30 @@ export function NumberView(props: {
           </Show>
         </div>
 
-        <Show when={atLeast(props.tier, "small") && points().length > 0}>
-          <Measured class={SPARK_SPACE[props.tier]}>
-            {(box) => (
-              <Show when={box().w > 0 && box().h > 0}>
-                <Sparkline points={points()} w={box().w} h={box().h} />
-              </Show>
-            )}
-          </Measured>
-        </Show>
-
-        <Show when={atLeast(props.tier, "large") && points().length > 0}>
-          <div
-            class={cn(
-              "mt-1.5 flex shrink-0 items-baseline justify-between gap-2",
-              "text-label-13 text-muted-foreground"
-            )}
-          >
-            <span class="truncate">
-              {i18n.t("dashboard.window_span", {
-                from: i18n.shortDate(points()[0]!.at),
-                to: i18n.shortDate(points()[points().length - 1]!.at),
-              })}
-            </span>
-            <span class="shrink-0">
-              {i18n.t("dashboard.peak")}{" "}
-              <span class={cn("font-semibold text-foreground", NUM)}>
-                {i18n.num(Math.max(0, ...points().map((p) => p.value ?? 0)))}
-              </span>
-            </span>
+        {/*
+          Stacked, the chart and the span under it are two rows of the tile.
+          Side by side they are one column of it, because a span printed across
+          the whole card would be describing a chart that only occupies half of
+          it. So the footer travels with the chart rather than with the figure.
+        */}
+        <Show
+          when={beside()}
+          fallback={
+            <>
+              {spark(false)}
+              <Show when={atLeast(props.tier, "large") && points().length > 0}>{footer()}</Show>
+            </>
+          }
+        >
+          <div class="flex h-full min-w-0 flex-1 flex-col justify-center">
+            {spark(true)}
+            <Show when={atLeast(props.tier, "large") && points().length > 0}>{footer()}</Show>
           </div>
         </Show>
       </div>
+          );
+        }}
+      </Measured>
     </Show>
   );
 }
@@ -665,32 +803,61 @@ function Sparkline(props: { points: Point[]; w: number; h: number }) {
   // pitch a fixed gap eats the bar it is separating, and thirty days of a
   // hundred-pixel tile is three pixels a day.
   const gap = () => Math.min(2, Math.max(0.5, pitch() * 0.25));
+  const width = () => Math.max(1, pitch() - gap());
+  const radius = () => Math.min(1.5, Math.max(0, width() / 3));
 
   return (
     <svg class="block" width={props.w} height={props.h} aria-hidden="true">
-      <For each={props.points}>
+      {/*
+        The slot every bar stands in, drawn whether or not there is a bar.
+
+        Without it a quiet window is an empty box: the tile loses its shape
+        entirely and reads as "this was never measured" rather than "this was
+        measured and nothing happened". The track also gives a busy window its
+        scale, because a bar half the height of its own slot is obviously half
+        of something rather than just short.
+
+        The neutral fill, the same one the ranked list stands its rows on, so a
+        board reads one background for "room for a value" everywhere.
+      */}
+      <Index each={props.points}>
+        {(_, i) => (
+          <rect
+            class="fill-muted"
+            x={i * pitch()}
+            y={0}
+            width={width()}
+            height={props.h}
+            rx={radius()}
+          />
+        )}
+      </Index>
+
+      <Index each={props.points}>
         {(point, i) => {
-          // A bucket nobody wrote to draws nothing at all. A one-pixel stub
-          // there would be a bar saying "a little", where the honest answer is
-          // that the question was not measured that day.
+          // A bucket nobody wrote to draws no BAR at all, only its slot. A
+          // one-pixel stub there would say "a little", where the honest answer
+          // is that the question was not measured that day.
           const height = () => {
-            const value = point.value;
+            const value = point().value;
             return value === null
               ? 0
               : Math.max(value > 0 ? 1 : 0, (value / max()) * props.h);
           };
           return (
-            <rect
-              class="fill-chart-1 opacity-80"
-              x={i() * pitch()}
-              y={props.h - height()}
-              width={Math.max(1, pitch() - gap())}
-              height={height()}
-              rx={Math.min(1.5, Math.max(0, (pitch() - gap()) / 3))}
-            />
+            <Show when={height() > 0}>
+              <rect
+                class="fill-chart-1"
+                x={i * pitch()}
+                y={props.h - height()}
+                width={width()}
+                height={height()}
+                rx={radius()}
+              />
+            </Show>
           );
         }}
-      </For>
+      </Index>
     </svg>
   );
 }
@@ -790,6 +957,8 @@ const X_TICK_PITCH_PX = 130;
 export function ChartView(props: {
   rows: readonly QueryRow[];
   previous: readonly QueryRow[] | null;
+  /** The comparison window itself, which is what the baseline is laid out against. */
+  compare: { from: Date; to: Date } | null;
   chart: "line" | "bar" | "area";
   query: LogQuery;
   tier: Tier;
@@ -823,26 +992,36 @@ export function ChartView(props: {
    * second reading of it. It is also the first thing to go on a small card.
    */
   const previous = () => {
-    if (!props.previous || !atLeast(props.tier, "medium")) return null;
+    if (!props.previous || !props.compare || !atLeast(props.tier, "medium")) return null;
     const points = seriesFrom(props.previous, notSet())[0]?.points ?? [];
-    const times = grid().times;
-    if (points.length === 0 || times.length === 0) return null;
+    const columns = grid().times.length;
+    if (points.length === 0 || columns === 0) return null;
 
-    const laid = new Array<number | null>(times.length).fill(null);
-    // The bucket width, read off the grid rather than off the query, so a
-    // series whose own buckets are irregular still lands on whole columns.
-    const step =
-      times.length > 1
-        ? Math.min(
-            ...times.slice(1).map((t, i) => t.getTime() - times[i]!.getTime())
-          )
-        : 0;
-    const origin = points[0]!.at.getTime();
+    /*
+      Placed by HOW FAR THROUGH ITS OWN WINDOW each baseline bucket sits.
+
+      Two earlier attempts at this were both wrong. Array index put the nth
+      returned ROW over the nth column, so one bucket with no rows in it shifted
+      everything after it. Dividing by a bucket width measured off this grid
+      fixed interior gaps and broke calendar buckets: a month is 28 to 31 days
+      and a spring-forward day is 23 hours, so the inferred step drifted and the
+      last column fell off the end.
+
+      A fraction of the window needs no calendar arithmetic and no gap-free
+      data. Both windows hold the same number of buckets, so the bucket covering
+      the kth part of the baseline belongs over the kth column here, whatever
+      the units are and however many rows came back. It is anchored on the
+      window the board was MEASURED with rather than on the first row that
+      happened to carry data, so a baseline that starts quiet no longer slides.
+    */
+    const from = props.compare.from.getTime();
+    const span = props.compare.to.getTime() - from;
+    const laid = new Array<number | null>(columns).fill(null);
 
     for (const point of points) {
-      const at =
-        step > 0 ? Math.round((point.at.getTime() - origin) / step) : points.indexOf(point);
-      if (at >= 0 && at < laid.length) laid[at] = point.value;
+      const through = span > 0 ? (point.at.getTime() - from) / span : 0;
+      const at = Math.round(through * columns);
+      if (at >= 0 && at < columns) laid[at] = point.value;
     }
     return laid;
   };
@@ -881,15 +1060,29 @@ export function ChartView(props: {
     2500 as "3K", and put the same label on two adjacent gridlines. An axis that
     misreports its own top by a third is worse than no axis.
 
-    One decimal is enough for every ladder `niceScale` can produce: its steps are
-    1, 2 or 5 times a power of ten and there are only three or four of them, so
-    a tick is never finer than a tenth of its own compact unit.
+    The digit count comes from the STEP, not from a constant and not from the
+    magnitude. `niceScale` steps at 1, 2 or 5 times a power of ten and that power
+    goes NEGATIVE now that the peak is no longer floored at one, so a fixed
+    single decimal turned a 0.005 ladder into five ticks all reading "0". One
+    place per decade of step is exactly enough to tell two neighbours apart, and
+    since it is a maximum rather than a minimum an integer ladder still prints
+    clean integers.
   */
+  const tickDigits = () => {
+    const ticks = scale().ticks;
+    const step = ticks.length > 1 ? ticks[1]! - ticks[0]! : scale().top;
+    if (!(step > 0)) return 0;
+    // Above a thousand Intl divides by the compact unit, so a step finer than
+    // that unit still needs one place: 1500 is "1.5K", never "2K".
+    if (step >= 1) return 1;
+    return Math.min(8, Math.ceil(-Math.log10(step)));
+  };
+
   const tickText = (value: number) =>
     i18n.num(value, {
       notation: "compact",
       compactDisplay: "short",
-      maximumFractionDigits: 1,
+      maximumFractionDigits: tickDigits(),
     });
   const valueText = (value: number) => formatValue(i18n, props.query, 0, value);
   const widest = () =>
@@ -1104,9 +1297,29 @@ function XTicks(props: {
   const shown = () =>
     tickIndices(props.count, Math.max(2, Math.floor(props.plot.width / X_TICK_PITCH_PX)));
 
-  /** Characters per label, with a character of air between two neighbours. */
-  const chars = () =>
-    Math.max(2, Math.floor(props.plot.width / Math.max(1, shown().length) / CHAR_PX) - 1);
+  const at = () => shown().map((index) => props.at(index));
+
+  /**
+   * Characters per label, from the SMALLEST gap between two drawn ticks.
+   *
+   * How much of a gap one label may claim depends on how it is ANCHORED. A
+   * centred label spends half its width toward each neighbour; the first and
+   * last are pulled onto the plot edges so they do not fall off it, and spend
+   * the whole of it inward. So a gap between an edge label and a centred one
+   * holds one and a half budgets, and a gap between the only two labels there
+   * are holds two.
+   *
+   * The gap rather than the width over the count, because `tickIndices` walks a
+   * fixed stride and then pulls the final tick onto the last column, so the last
+   * gap can be shorter than every other one.
+   */
+  const chars = () => {
+    const xs = at();
+    if (xs.length < 2) return Math.max(2, Math.floor(props.plot.width / CHAR_PX));
+    const room = Math.min(...xs.slice(1).map((x, i) => x - xs[i]!));
+    const share = xs.length === 2 ? 1 / 2 : 2 / 3;
+    return Math.max(2, Math.floor((room * share) / CHAR_PX));
+  };
 
   return (
     <Index each={shown()}>
@@ -1119,7 +1332,7 @@ function XTicks(props: {
         return (
           <text
             class={cn("fill-muted-foreground text-caption", NUM)}
-            x={props.at(index())}
+            x={at()[nth]!}
             y={props.plot.top + props.plot.height + AXIS_ROW_H - 4}
             text-anchor={first() ? "start" : last() ? "end" : "middle"}
           >
@@ -1630,8 +1843,22 @@ const LIST_ROWS: Record<Tier, number> = {
   tiny: 2,
   small: 4,
   medium: 7,
-  large: Number.POSITIVE_INFINITY,
+  large: 12,
 };
+
+/**
+ * What one row costs, height plus the air under it.
+ *
+ * The measured ranked row is a 32px track on a 40px pitch. The two steps below
+ * it are for cards that cannot afford that, and both have to agree with the
+ * classes on the row itself: this number is what decides how many rows fit, so
+ * a row that draws taller than it claims overflows and one that draws shorter
+ * leaves a gap.
+ */
+const ROW_PITCH: Record<Tier, number> = { tiny: 24, small: 32, medium: 40, large: 40 };
+
+/** The line the "and N more" caption needs when there is anything left over. */
+const MORE_ROW_PX = 18;
 
 export function ListView(props: {
   rows: readonly QueryRow[];
@@ -1645,7 +1872,39 @@ export function ListView(props: {
   // ranking is visible even when the leader holds 4% of a long tail. The
   // printed figure is the real share either way.
   const top = () => Math.max(...ranks().map((r) => r.value), 1);
-  const shown = () => ranks().slice(0, LIST_ROWS[props.tier]);
+  /*
+    A row is a group value, so a row is a filter: clicking one asks the board
+    the same question about that value alone. An UNGROUPED list has nothing to
+    say about any particular value, and off a board there is nothing holding a
+    filter, so in both cases the row stays a row.
+  */
+  const drill = useDrill();
+  const groups = () => props.query.groupBy ?? [];
+  const drillable = () => Boolean(drill()) && groups().length > 0;
+  const pickup = (rank: Rank) =>
+    drill()?.(groups().map((field, i) => ({ field, value: rank.group[i] ?? null })));
+  /**
+   * How many rows FIT, not how many the tier allows.
+   *
+   * A ranking is the one visualisation whose content is a whole number of
+   * things, so a tier constant either leaves a band of empty card under the
+   * last row or hides rows a taller card had room for. Measuring the box and
+   * dividing is the same answer the reader would get by counting.
+   *
+   * The tier constant survives as the answer BEFORE a measurement exists: on
+   * the server, and for the first frame of a card rendered outside the canvas.
+   * Without it the server draws one row and the client immediately draws seven,
+   * which is a visible jump on every load.
+   */
+  const fits = (height: number) => {
+    if (height <= 0) return LIST_ROWS[props.tier];
+    const pitch = ROW_PITCH[props.tier];
+    const whole = Math.max(1, Math.floor(height / pitch));
+    // The overflow caption is drawn inside the same box, so it has to be paid
+    // for out of it -- but only when there is actually something left over.
+    const spills = whole < ranks().length && atLeast(props.tier, "medium");
+    return spills ? Math.max(1, Math.floor((height - MORE_ROW_PX) / pitch)) : whole;
+  };
   /** Whether the share column is drawn at all at this size. */
   const showsShare = () =>
     atLeast(props.tier, "small") && ranks().some((r) => r.share !== null);
@@ -1674,12 +1933,31 @@ export function ListView(props: {
           </div>
         </Show>
 
-        <div class="min-h-0 flex-1 overflow-auto">
+        <Measured class="min-h-0 flex-1 overflow-hidden">
+          {(box) => {
+            const shown = () => ranks().slice(0, fits(box().h));
+            return (
+              <>
           <For each={shown()}>
             {(rank) => (
               <div
+                // A div that behaves as a button rather than a button element:
+                // the row is a track with two absolutely placed layers on it,
+                // and the name it announces is the label it already prints.
+                role={drillable() ? "button" : undefined}
+                tabindex={drillable() ? 0 : undefined}
+                title={drillable() ? i18n.t("dashboard.filter_by", { value: rank.label }) : rank.label}
+                onClick={() => drillable() && pickup(rank)}
+                onKeyDown={(e) => {
+                  if (!drillable() || (e.key !== "Enter" && e.key !== " ")) return;
+                  // Space scrolls the board otherwise, and the board is what
+                  // the row is asking to change.
+                  e.preventDefault();
+                  pickup(rank);
+                }}
                 class={cn(
                   "group/row relative flex items-center justify-between gap-3 rounded-sm",
+                  drillable() && "focus-ring cursor-pointer",
                   // A 32px bar on a 40px pitch, which is the measured ranked
                   // row, stepped down twice for the cards that cannot afford
                   // it. Stated as a height rather than as padding so a row with
@@ -1715,7 +1993,6 @@ export function ListView(props: {
                     "relative truncate text-foreground",
                     atLeast(props.tier, "small") ? "text-label-13" : "text-caption"
                   )}
-                  title={rank.label}
                 >
                   {rank.label}
                 </span>
@@ -1757,13 +2034,19 @@ export function ListView(props: {
               </div>
             )}
           </For>
-        </div>
 
-        <Show when={atLeast(props.tier, "medium") && ranks().length > shown().length}>
-          <div class="shrink-0 px-3 pt-1.5 text-caption text-muted-foreground">
-            {i18n.t("dashboard.more", { count: ranks().length - shown().length })}
-          </div>
-        </Show>
+          {/* The rows that did not fit, counted rather than scrolled to. The
+              box is exactly full by construction, so a scrollbar here would be
+              hiding the one row it had just made room for. */}
+          <Show when={atLeast(props.tier, "medium") && ranks().length > shown().length}>
+            <div class="px-3 pt-0.5 text-caption text-muted-foreground">
+              {i18n.t("dashboard.more", { count: ranks().length - shown().length })}
+            </div>
+          </Show>
+              </>
+            );
+          }}
+        </Measured>
       </div>
     </Show>
   );
@@ -1786,6 +2069,15 @@ export function TableView(props: { rows: readonly QueryRow[]; query: LogQuery; t
   const groups = () => props.query.groupBy ?? [];
   const aggregations = () => props.query.aggregations;
   const notSet = () => i18n.t("dashboard.not_set");
+  /*
+    A CELL, not a row: a table prints each group in its own column, so the
+    value under the pointer is one of them and filtering by the whole row would
+    be answering a question nobody pointed at. The aggregate columns are not
+    values anything can be filtered by, and the time column belongs to the
+    board's range rather than to its filter.
+  */
+  const drill = useDrill();
+  const drillable = () => Boolean(drill());
 
   return (
     <Show when={props.rows.length > 0} fallback={<Empty>{i18n.t("dashboard.no_events")}</Empty>}>
@@ -1827,11 +2119,33 @@ export function TableView(props: { rows: readonly QueryRow[]; query: LogQuery; t
                     </TableCell>
                   </Show>
                   <For each={groups()}>
-                    {(_, i) => (
-                      <TableCell class="max-w-[16rem] truncate" title={row.group[i()] ?? notSet()}>
-                        {row.group[i()] ?? notSet()}
-                      </TableCell>
-                    )}
+                    {(field, i) => {
+                      const value = () => row.group[i()] ?? null;
+                      const pickup = () => drill()?.([{ field, value: value() }]);
+                      return (
+                        <TableCell
+                          class={cn(
+                            "max-w-[16rem] truncate",
+                            drillable() && "focus-ring cursor-pointer hover:underline"
+                          )}
+                          role={drillable() ? "button" : undefined}
+                          tabindex={drillable() ? 0 : undefined}
+                          title={
+                            drillable()
+                              ? i18n.t("dashboard.filter_by", { value: value() ?? notSet() })
+                              : (value() ?? notSet())
+                          }
+                          onClick={() => drillable() && pickup()}
+                          onKeyDown={(e) => {
+                            if (!drillable() || (e.key !== "Enter" && e.key !== " ")) return;
+                            e.preventDefault();
+                            pickup();
+                          }}
+                        >
+                          {value() ?? notSet()}
+                        </TableCell>
+                      );
+                    }}
                   </For>
                   <For each={aggregations()}>
                     {(_, i) => (
@@ -1922,6 +2236,7 @@ export function VisualisationBody(props: {
         <ChartView
           rows={props.rows}
           previous={props.previous ?? null}
+          compare={props.compare ?? null}
           chart={props.viz as "line" | "bar" | "area"}
           query={props.query}
           tier={tier()}

@@ -6,21 +6,26 @@ import {
   AlertTitle,
   Brandmark,
   Button,
-  Card,
   CodeBlock,
   GithubIcon,
 } from "../components/ui/index.js";
+import { LoginPreview } from "../components/login-preview.js";
 import { getSession } from "../lib/api.js";
 import { useI18n } from "../lib/i18n/index.js";
 
 /**
  * Sign in.
  *
- * Split layout: the form on the left, and the product on the right. The
- * preview is drawn at full strength and fills its column: it is what somebody
- * is signing in to see, so showing it faintly and shrunk was hiding the one
- * thing on the page worth looking at. It stays inert and `aria-hidden`, and
- * the numbers stay small enough that nobody reads them as their own.
+ * Split layout: the form on the left, and the product RUNNING on the right.
+ * The preview is a live-looking instance of firstrun (entries landing, the edge
+ * accepting them, meters rolling, the window sliding) because somebody signing
+ * in is about to look at a board, and showing them one working says what this
+ * is better than any sentence on the left could. It is inert, `aria-hidden` and
+ * deterministic, its numbers are badged as sample data, and it can be stopped
+ * by a real control that remembers the choice in the browser.
+ *
+ * It lives in `components/login-preview.tsx` rather than here: it is several
+ * hundred nodes and one clock, and this route is a form and a button.
  */
 export const Route = createFileRoute("/login")({
   loader: async () => {
@@ -30,28 +35,6 @@ export const Route = createFileRoute("/login")({
   },
   component: Login,
 });
-
-/**
- * Five cards of the kind a board is made of.
- *
- * Named after events a customer would have chosen, because that is the claim:
- * nothing here is a built-in step, and none of these names means anything to
- * the server. The source line is there so the point that sources sit side by
- * side lands without a sentence explaining it.
- */
-const PREVIEW_CARDS = [
-  { label: "page_view", source: "themia.app", value: 3402 },
-  { label: "download_clicked", source: "themia.app", value: 891 },
-  { label: "app_install", source: "Themia for Windows", value: 446 },
-  { label: "project_created", source: "Themia for Windows", value: 132 },
-  { label: "checkout_completed", source: "api.themia.app", value: 13 },
-];
-
-/** The series the preview's bar chart is captioned with. An event name, not a word. */
-const PREVIEW_SERIES = "app_install";
-
-/** Drawn as a bar and printed under it. A fraction, so `percent` writes the sign. */
-const PREVIEW_RETENTION = 0.38;
 
 function Login() {
   const session = Route.useLoaderData();
@@ -112,71 +95,18 @@ function Login() {
         </div>
       </div>
 
-      {/* The preview. Decorative, and told so. */}
-      <div
-        aria-hidden="true"
-        class="relative hidden select-none overflow-hidden border-l bg-sidebar lg:block"
-      >
-        <div class="pointer-events-none absolute inset-0 flex flex-col justify-center p-10">
-          <div class="w-full">
-            {/* `gap-px` over the border colour is what draws the hairlines
-                between these five, so the container spends its ring instead of
-                a border: one edge, not two. */}
-            <div class="grid grid-cols-5 gap-px overflow-hidden rounded-md bg-border shadow-sm">
-              <For each={PREVIEW_CARDS}>
-                {(card) => (
-                  <div class="bg-card p-4">
-                    <div class="truncate font-mono text-mono text-muted-foreground">
-                      {card.label}
-                    </div>
-                    <div class="mt-1.5 text-h2">{i18n.num(card.value)}</div>
-                    <div class="mt-1.5 text-small uppercase tracking-wider text-muted-foreground">
-                      {card.source}
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
+      {/*
+        The preview column.
 
-            <div class="mt-4 grid grid-cols-3 gap-4">
-              <Card class="col-span-2 p-4">
-                <div class="text-small font-semibold uppercase tracking-wider text-muted-foreground">
-                  {i18n.t("auth.preview_per_day", { name: PREVIEW_SERIES })}
-                </div>
-                <svg class="mt-4 h-44 w-full" viewBox="0 0 300 72" preserveAspectRatio="none">
-                  <For each={[18, 24, 31, 22, 27, 39, 33, 20, 12, 26, 34, 29, 41, 36, 24, 30, 22, 17, 28, 35]}>
-                    {(v, i) => (
-                      <rect
-                        x={i() * 15}
-                        y={72 - v * 1.6}
-                        width="13"
-                        height={v * 1.6}
-                        rx="1"
-                        class="fill-chart-1"
-                      />
-                    )}
-                  </For>
-                </svg>
-              </Card>
-              <Card class="p-4">
-                <div class="text-small font-semibold uppercase tracking-wider text-muted-foreground">
-                  {i18n.t("auth.preview_retention")}
-                </div>
-                {/* One bar, one number. A second tinted segment here used to
-                    say how much of the figure was a guess, and no number in
-                    this product is a guess any more. */}
-                <div class="mt-4 flex h-2 overflow-hidden rounded-full bg-muted">
-                  <i class="block h-full w-[38%] bg-chart-1" />
-                </div>
-                <div class="mt-4 text-h2">{i18n.percent(PREVIEW_RETENTION)}</div>
-              </Card>
-            </div>
-          </div>
-        </div>
+        Its own `overflow-hidden` is a real crop: the tail runs off the bottom
+        edge on purpose, because a log that ends in white space looks finished
+        and a log that runs off the screen looks like it is still arriving.
+      */}
+      <div class="relative hidden overflow-hidden border-l bg-sidebar lg:block">
+        <LoginPreview />
 
         {/* A short fade off the left edge only, so the board meets the form
-            without a hard seam. It used to wash out half the column, which is
-            invisible under 7% opacity and very visible at full strength. */}
+            without a hard seam. */}
         <div class="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-background to-transparent" />
       </div>
     </div>

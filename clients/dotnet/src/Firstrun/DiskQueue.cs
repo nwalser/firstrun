@@ -51,8 +51,6 @@ namespace Firstrun
         // cannot appear inside a serialised value and splitting on it is unambiguous.
         private const char FieldSeparator = (char)0x1f;
         private const char LineFeed = (char)10;
-        private const char CarriageReturn = (char)13;
-        private const char Escape = (char)92;
 
         private readonly string _path;
         private readonly int _maxEntries;
@@ -70,13 +68,13 @@ namespace Firstrun
 
         /// <summary>
         /// The queue file, beside the anonymous id: <c>%LOCALAPPDATA%\firstrun\{app}\queue.ndjson</c>
-        /// on Windows, and the same folder <see cref="DistinctIdStore.ResolvePath"/> uses
+        /// on Windows, and the same folder <see cref="DeviceIdStore.ResolvePath"/> uses
         /// everywhere else.
         /// </summary>
         internal static string ResolvePath(string appFolder)
         {
-            return Path.Combine(DistinctIdStore.RootDirectory(), "firstrun",
-                                DistinctIdStore.Slug(appFolder), FileName);
+            return Path.Combine(DeviceIdStore.RootDirectory(), "firstrun",
+                                DeviceIdStore.Slug(appFolder), FileName);
         }
 
         internal string FilePath { get { return _path; } }
@@ -267,8 +265,6 @@ namespace Firstrun
 
         private static void WriteLine(StringBuilder sb, QueuedEntry e)
         {
-            AppendEscaped(sb, e.DistinctId);
-            sb.Append(FieldSeparator);
             sb.Append(e.ResourceJson ?? "");
             sb.Append(FieldSeparator);
             BatchWriter.WriteEntry(sb, e);
@@ -288,15 +284,11 @@ namespace Firstrun
             if (line.Length == 0) return null;
 
             int first = line.IndexOf(FieldSeparator);
-            if (first <= 0) return null;
-            int second = line.IndexOf(FieldSeparator, first + 1);
-            if (second < 0) return null;
+            if (first < 0) return null;
 
-            string distinctId = Unescape(line.Substring(0, first));
-            string resource = line.Substring(first + 1, second - first - 1);
-            string entry = line.Substring(second + 1);
+            string resource = line.Substring(0, first);
+            string entry = line.Substring(first + 1);
 
-            if (distinctId.Length == 0 || distinctId.Length > Wire.IdMaxLength) return null;
             // A line the writer did not finish, or one a text editor has been through.
             if (entry.Length < 2 || entry[0] != '{' || entry[entry.Length - 1] != '}') return null;
             if (resource.Length > 0 && (resource[0] != '{' || resource[resource.Length - 1] != '}')) return null;
@@ -306,42 +298,9 @@ namespace Firstrun
                 FirstrunNames.Log,
                 0,
                 0,
-                distinctId,
                 null,
                 resource.Length == 0 ? null : resource,
                 entry);
-        }
-
-        // The distinct id is the one field on a line that is raw customer text rather
-        // than JSON, so it is the one that could contain a separator or a newline.
-        private static void AppendEscaped(StringBuilder sb, string value)
-        {
-            foreach (char c in value)
-            {
-                if (c == Escape) sb.Append(Escape).Append(Escape);
-                else if (c == FieldSeparator) sb.Append(Escape).Append('u');
-                else if (c == LineFeed) sb.Append(Escape).Append('n');
-                else if (c == CarriageReturn) sb.Append(Escape).Append('r');
-                else sb.Append(c);
-            }
-        }
-
-        private static string Unescape(string value)
-        {
-            if (value.IndexOf(Escape) < 0) return value;
-            var sb = new StringBuilder(value.Length);
-            for (int i = 0; i < value.Length; i++)
-            {
-                char c = value[i];
-                if (c != Escape || i + 1 >= value.Length) { sb.Append(c); continue; }
-                char next = value[++i];
-                if (next == Escape) sb.Append(Escape);
-                else if (next == 'u') sb.Append(FieldSeparator);
-                else if (next == 'n') sb.Append(LineFeed);
-                else if (next == 'r') sb.Append(CarriageReturn);
-                else sb.Append(next);
-            }
-            return sb.ToString();
         }
     }
 }

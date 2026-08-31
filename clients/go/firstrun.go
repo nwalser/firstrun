@@ -82,8 +82,8 @@ type Diagnostic struct {
 type Stats struct {
 	// Queued is events waiting in the channel. Approximate by nature.
 	Queued int
-	// Rejected is events refused before the queue: bad name, no distinct id,
-	// or a closed client.
+	// Rejected is events refused before the queue: bad name, over-long id, or
+	// a closed client.
 	Rejected int64
 	// Dropped is events discarded because a buffer was full or a batch was
 	// abandoned.
@@ -100,8 +100,7 @@ type Stats struct {
 }
 
 // Entry is one log entry: the raw escape hatch, and the shape every helper in
-// this package builds. The zero value is valid for a client that has a
-// DistinctID configured.
+// this package builds. The zero value is valid: identity is optional.
 //
 // The model is OpenTelemetry's log data model, so if you already know that one
 // you already know this. There is nothing Event, Error or the level helpers can
@@ -115,7 +114,7 @@ type Entry struct {
 	Name string
 
 	// Body is the human-readable line, when there is one. It travels as the
-	// body attribute, because this product promotes five columns and no more.
+	// body attribute, because this product promotes four columns and no more.
 	Body string
 
 	// Severity is 1..24 on the OpenTelemetry ladder. Zero means you had nothing
@@ -131,18 +130,24 @@ type Entry struct {
 	// Copied on the way in, so the caller may reuse the map.
 	Attributes Attributes
 
-	// DistinctID is REQUIRED unless Options.DistinctID is set.
+	// UserID, DeviceID and SessionID are the three identity attributes, and all
+	// three are OPTIONAL. An entry carrying none of them is a legal entry, and
+	// on a server it is the ordinary one: it counts as an entry and in no
+	// unique. Nothing here is ever inferred, derived or looked up.
 	//
-	// A server has no persistent per-user identity of its own, so there is
-	// nothing sensible to default it to. An entry without one is dropped and
-	// reported. The quiet failure would be defaulting to a per-process id,
-	// which silently collapses every entry in a fleet onto a handful of
-	// uniques.
-	DistinctID string
-	// UserID is the customer's own id for this person. Lands in the user.id
-	// attribute. Only ever the string you passed: never inferred, never derived.
-	UserID string
-	// SessionID lands in the session.id attribute. Optional.
+	// IDENTITY IS ONE UNIT. Setting any of the three means this entry's identity
+	// comes from this entry, and neither the surrounding Scoped handle nor the
+	// client Options are consulted for the other two. Resolving them field by
+	// field is how a background job that names its own device keeps the
+	// requester's user.id, and since a unique coalesces user.id first, that job
+	// is then counted as that customer.
+	//
+	// UserID is the customer's own id for this person, and lands in user.id.
+	// DeviceID names a machine, when there is one to name, and lands in
+	// device.id: a server process is not a machine, so this stays empty unless
+	// the caller genuinely has one. SessionID lands in session.id.
+	UserID    string
+	DeviceID  string
 	SessionID string
 
 	// Time is when it happened. Zero means now. Authoritative: the server
@@ -165,20 +170,29 @@ type Entry struct {
 // Options configures a Client. Every field except SourceKey and Host has a
 // working default.
 type Options struct {
-	// SourceKey is fr_server_… . Public by necessity: it identifies a
+	// SourceKey is fr_<16 hex>. Public by necessity: it identifies a
 	// destination and authorises nothing.
 	SourceKey string
 	// Host is the origin of the firstrun edge, e.g. https://t.example.com.
 	// No path.
 	Host string
 
-	// DistinctID is a default for calls that omit one. Leave it empty in a
-	// multi-tenant server: passing the id per call is the whole point. Set it
-	// only where the process genuinely is the subject, such as a CLI or a
-	// single-tenant worker.
-	DistinctID string
-	// UserID is a default user id. Same caveat as DistinctID.
-	UserID string
+	// UserID, DeviceID and SessionID are client-level defaults for calls and
+	// scopes that state no identity of their own.
+	//
+	// NOTHING is on by default. This client generates no id of any kind: there
+	// is no per-process id, no persisted file, and no fallback. A server that
+	// sets none of these sends entries carrying no identity, which is the
+	// honest answer for a backend.
+	//
+	// Leave them empty in a multi-tenant server: passing identity per call, or
+	// per scope through Ctx, is the whole point. Set them only where the
+	// process genuinely is the subject, such as a CLI or a single-tenant
+	// worker. They are a unit here too: a call or a scope that states any
+	// identity replaces all three.
+	UserID    string
+	DeviceID  string
+	SessionID string
 
 	// ServiceName and ServiceVersion name the customer's own software. They are
 	// sent as the service.name and service.version resource attributes.
@@ -527,22 +541,18 @@ func (c *Client) Log(e Entry) {
 		return
 	}
 
-	distinctID := firstNonEmpty(e.DistinctID, c.opts.DistinctID)
-	if distinctID == "" {
-		c.rejected.Add(1)
-		c.diag(Diagnostic{
-			Code:    CodeRejected,
-			Level:   LevelError,
-			Message: "no DistinctID for " + e.Name + ": set it per call, or in Options",
-		})
-		return
+	// Identity is one unit, taken from one layer: the entry if it states any of
+	// the three, otherwise the client defaults. Scoped.fill has already applied
+	// the same rule for a scope, so by here there are only two layers left.
+	userID, deviceID, sessionID := e.UserID, e.DeviceID, e.SessionID
+	if userID == "" && deviceID == "" && sessionID == "" {
+		userID, deviceID, sessionID = c.opts.UserID, c.opts.DeviceID, c.opts.SessionID
 	}
 
-	userID := firstNonEmpty(e.UserID, c.opts.UserID)
 	// Over-length ids are refused rather than truncated. Truncating two ids to
 	// the same 512 bytes would merge two people into one unique, and that is a
 	// wrong number nobody would ever find.
-	if len(distinctID) > maxIDLen || len(userID) > maxIDLen || len(e.SessionID) > maxIDLen {
+	if len(userID) > maxIDLen || len(deviceID) > maxIDLen || len(sessionID) > maxIDLen {
 		c.rejected.Add(1)
 		c.diag(Diagnostic{
 			Code:    CodeRejected,
@@ -555,16 +565,19 @@ func (c *Client) Log(e Entry) {
 	// Identity sits UNDER the caller's own attributes, so an entry that names
 	// user.id explicitly wins over the client-level default. Anything else would
 	// make a per-call override silently ineffective.
-	identity := make(Attributes, 2)
+	identity := make(Attributes, 3)
 	if userID != "" {
 		identity[AttrUserID] = userID
 	}
-	if e.SessionID != "" {
-		identity[AttrSessionID] = e.SessionID
+	if deviceID != "" {
+		identity[AttrDeviceID] = deviceID
+	}
+	if sessionID != "" {
+		identity[AttrSessionID] = sessionID
 	}
 
 	// body, trace_id and span_id are attributes, not columns: this product
-	// promotes five columns and no more, and the spec's vocabulary is not ours
+	// promotes four columns and no more, and the spec's vocabulary is not ours
 	// to promote. The dedicated field wins over a same-named attribute, because
 	// naming it explicitly is the more specific statement.
 	spec := make(Attributes, 3)
@@ -585,8 +598,7 @@ func (c *Client) Log(e Entry) {
 
 	resource := c.resourceFor(e)
 	c.enqueue(item{
-		group:      distinctID + "\x00" + resourceKey(resource),
-		distinctID: distinctID,
+		group:      resourceKey(resource),
 		resource:   resource,
 		// An unclassified entry is never urgent: severity 0 means the caller
 		// said nothing, and treating silence as ERROR would flush on every
@@ -613,6 +625,24 @@ func (c *Client) Log(e Entry) {
 // shape, not a schema: nothing it produces is privileged, and nothing you send
 // without it is second class.
 func (c *Client) Event(name string, attrs Attributes, e Entry) {
+	// The clamping below reads the caller's own values, and an attribute that
+	// is an error has its Error method called: the caller's code, on this
+	// goroutine, BEFORE c.Log and therefore outside Log's guard. A typed-nil
+	// error in an attribute map panics on its nil receiver. This is also the
+	// helper the scoped handle and Page and User all funnel through, so an
+	// unguarded panic here lands in a request handler. The entry is lost
+	// instead, which is the trade this package is always allowed to make.
+	defer func() {
+		if r := recover(); r != nil {
+			c.rejected.Add(1)
+			c.diag(Diagnostic{
+				Code:    CodeRejected,
+				Level:   LevelError,
+				Message: "recovered a panic while recording " + name,
+			})
+		}
+	}()
+
 	e.Name = name
 	e.Attributes = mergeAttributes(clampAttributes(e.Attributes), clampAttributes(attrs))
 	if e.Severity == 0 {
@@ -702,6 +732,19 @@ func (c *Client) Fatal(body string, attrs Attributes, e Entry) {
 }
 
 func (c *Client) line(severity int, body string, attrs Attributes, e Entry) {
+	// Same hazard as Event, and the same trade: the clamping calls the Error
+	// method of anything in the map that is one, before Log's guard is in scope.
+	defer func() {
+		if r := recover(); r != nil {
+			c.rejected.Add(1)
+			c.diag(Diagnostic{
+				Code:    CodeRejected,
+				Level:   LevelError,
+				Message: "recovered a panic while recording " + NameLog,
+			})
+		}
+	}()
+
 	// A free-form line still needs a name, because name is the column a
 	// dashboard groups on. NameLog is this client's convention for "a line, not
 	// an occurrence of a thing"; pass your own name to Log for anything you want
@@ -715,14 +758,13 @@ func (c *Client) line(severity int, body string, attrs Attributes, e Entry) {
 	c.Log(e)
 }
 
-// Identify attaches the customer's own id to this client's anonymous id.
+// User records a conventional identify entry carrying user.id.
 //
-// Both ids are explicit because a server process is not a person: it handles
-// many at once, and any remembered "current user" would be whoever was served
-// last. Nothing is merged and nothing is back-filled; from here on, entries
-// carrying this userID count as the same unique.
-func (c *Client) Identify(distinctID, userID string, e Entry) {
-	e.DistinctID = distinctID
+// The id is explicit and is not remembered, because a server process is not a
+// person: it handles many at once, and any stored "current user" would be
+// whoever was served last. Nothing is merged and nothing is back-filled; from
+// here on, entries carrying this userID count as the same unique.
+func (c *Client) User(userID string, e Entry) {
 	e.UserID = userID
 	c.Event(NameIdentify, nil, e)
 }
@@ -730,7 +772,7 @@ func (c *Client) Identify(distinctID, userID string, e Entry) {
 // Page records a server-rendered page view.
 //
 // The path travels as the conventional url.path attribute. There is no url
-// column: everything that is not one of the five promoted columns lives in
+// column: everything that is not one of the four promoted columns lives in
 // attributes and is queried from there.
 func (c *Client) Page(path string, e Entry) {
 	var attrs Attributes
@@ -1218,10 +1260,9 @@ func (c *Client) group(pending []item) []batch {
 			head := chunk[0]
 			out = append(out, batch{
 				body: logBatch{
-					SourceKey:  c.opts.SourceKey,
-					DistinctID: head.distinctID,
-					Resource:   head.resource,
-					Entries:    entries,
+					SourceKey: c.opts.SourceKey,
+					Resource:  head.resource,
+					Entries:   entries,
 				},
 				items: chunk,
 			})

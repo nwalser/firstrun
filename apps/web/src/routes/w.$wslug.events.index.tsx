@@ -596,7 +596,10 @@ function Events() {
         footer only offers the way out and the way back to nothing.
       */}
       <Sheet open={building()} onOpenChange={setBuilding}>
-        <SheetContent>
+        {/* The same width the board's filter opens at, because it is the same
+            editor: a condition row that fits on one line in one drawer and
+            wraps in the other is one control with two shapes. */}
+        <SheetContent size="lg">
           <SheetHeader>
             <SheetTitle>{i18n.t("events.filter_title")}</SheetTitle>
             <SheetDescription>{i18n.t("events.filter_body")}</SheetDescription>

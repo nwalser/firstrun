@@ -268,9 +268,7 @@ export type Attributes = Record<string, AttributeValue>;
 export interface LogBatch {
   /** source key */
   k: string;
-  /** distinct id */
-  d: string;
-  /** resource attributes */
+  /** resource attributes, identity included */
   r?: Attributes;
   /** entries */
   e: WireEntry[];
@@ -281,7 +279,7 @@ export interface LogBatch {
  *
  * Five fields, and there is no sixth. `body`, `trace_id` and `span_id` are not
  * fields here: they are attributes, under the spec's own names, because this
- * product promotes five columns and no more. `observed_timestamp` is not sent
+ * product promotes four columns and no more. `observed_timestamp` is not sent
  * at all, because the edge stamps `ingested_at` itself and would overwrite
  * anything a client claimed.
  */

@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 /// The longest entry name the server accepts.
 pub const LOG_NAME_MAX: usize = 128;
 
-/// The longest a `distinct_id` or an id-shaped attribute may be.
+/// The longest a `device_id` or an id-shaped attribute may be.
 pub const ID_MAX: usize = 512;
 
 /// How many entries one `POST /v1/e` may carry.
@@ -184,6 +184,7 @@ pub const ATTR_EXCEPTION_MESSAGE: &str = "exception.message";
 pub const ATTR_EXCEPTION_STACKTRACE: &str = "exception.stacktrace";
 pub const ATTR_SESSION_ID: &str = "session.id";
 pub const ATTR_USER_ID: &str = "user.id";
+pub const ATTR_DEVICE_ID: &str = "device.id";
 pub const ATTR_SERVICE_NAME: &str = "service.name";
 pub const ATTR_SERVICE_VERSION: &str = "service.version";
 pub const ATTR_OS_TYPE: &str = "os.type";

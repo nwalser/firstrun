@@ -29,7 +29,7 @@ import type { SimpleKey, TFn } from "../../lib/i18n/index.js";
 /**
  * The sections, in the order the contents shows them.
  *
- * `DocsSection` is a union of these four strings rather than a free string, so
+ * `DocsSection` is a union of these strings rather than a free string, so
  * two pages cannot land in "Getting started" and "Getting Started" and split
  * the contents in half. A page writes the literal:
  *
@@ -50,6 +50,9 @@ export const DOCS_SECTIONS = [
   "Install guides",
   "How firstrun works",
   "Reference",
+  // Last because it is a catalogue rather than a read: somebody arrives here
+  // from a board, already knowing which name they are looking up.
+  "Premade events",
 ] as const;
 
 export type DocsSection = (typeof DOCS_SECTIONS)[number];
@@ -68,6 +71,7 @@ const SECTION_KEYS: Record<DocsSection, SimpleKey> = {
   "Install guides": "docs.section_install_guides",
   "How firstrun works": "docs.section_how_it_works",
   Reference: "docs.section_reference",
+  "Premade events": "docs.section_premade_events",
 };
 
 /** Call it inside JSX, so a change of language re-renders the contents. */
@@ -157,12 +161,11 @@ export function buildRenderContext(input: {
     };
   }
 
-  // `assetName` is free text on the source and is used here for one thing: a
-  // plausible application name in the SDK snippets. It is not load-bearing any
-  // more (it named an installer file back when there was a download to name),
-  // so a source without one falls back to the project name.
-  const label = source.assetName?.trim() ?? "";
-  const app = label.replace(/[-_ ]?setup$/i, "") || source.projectName || "App";
+  // The name the SDK snippets put in their app field. The project's, because
+  // that is the only name a source has that means anything to a reader copying
+  // a snippet: a source is named for where it writes from, and the thing being
+  // installed is the project.
+  const app = source.projectName || "App";
 
   return {
     source,
@@ -330,6 +333,65 @@ const TOPIC_KEYS: Record<string, { title: SimpleKey; summary: SimpleKey }> = {
   "log-entries": {
     title: "docs.topic_log_events_title",
     summary: "docs.topic_log_events_summary",
+  },
+  "premade-events": {
+    title: "docs.topic_premade_events_title",
+    summary: "docs.topic_premade_events_summary",
+  },
+  // One entry per premade event. The title is the literal `name` value, so it
+  // is the same string in every language; only the summary is translated.
+  "event-page-view": {
+    title: "docs.topic_event_page_view_title",
+    summary: "docs.topic_event_page_view_summary",
+  },
+  "event-session-start": {
+    title: "docs.topic_event_session_start_title",
+    summary: "docs.topic_event_session_start_summary",
+  },
+  "event-page-leave": {
+    title: "docs.topic_event_page_leave_title",
+    summary: "docs.topic_event_page_leave_summary",
+  },
+  "event-outbound-click": {
+    title: "docs.topic_event_outbound_click_title",
+    summary: "docs.topic_event_outbound_click_summary",
+  },
+  "event-file-download": {
+    title: "docs.topic_event_file_download_title",
+    summary: "docs.topic_event_file_download_summary",
+  },
+  "event-form-submit": {
+    title: "docs.topic_event_form_submit_title",
+    summary: "docs.topic_event_form_submit_summary",
+  },
+  "event-web-vital": {
+    title: "docs.topic_event_web_vital_title",
+    summary: "docs.topic_event_web_vital_summary",
+  },
+  "event-app-install": {
+    title: "docs.topic_event_app_install_title",
+    summary: "docs.topic_event_app_install_summary",
+  },
+  "event-app-launch": {
+    title: "docs.topic_event_app_launch_title",
+    summary: "docs.topic_event_app_launch_summary",
+  },
+  "event-identify": {
+    title: "docs.topic_event_identify_title",
+    summary: "docs.topic_event_identify_summary",
+  },
+  "event-exception": {
+    title: "docs.topic_event_exception_title",
+    summary: "docs.topic_event_exception_summary",
+  },
+  "event-log": { title: "docs.topic_event_log_title", summary: "docs.topic_event_log_summary" },
+  "event-http-request": {
+    title: "docs.topic_event_http_request_title",
+    summary: "docs.topic_event_http_request_summary",
+  },
+  "event-measurement": {
+    title: "docs.topic_event_measurement_title",
+    summary: "docs.topic_event_measurement_summary",
   },
   privacy: { title: "docs.topic_privacy_title", summary: "docs.topic_privacy_summary" },
 };

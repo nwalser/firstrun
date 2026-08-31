@@ -36,7 +36,7 @@ export const topics: DocsTopic[] = [
           code={
             `import { Firstrun } from "@firstrun/node";\n\n` +
             `const firstrun = new Firstrun({\n` +
-            `  sourceKey: process.env.FIRSTRUN_SOURCE_KEY!,   // fr_server_...\n` +
+            `  sourceKey: process.env.FIRSTRUN_SOURCE_KEY!,   // fr_9f3a2b1c4d5e6f70\n` +
             `  host: "${ctx.vars.origin}",\n` +
             `  serviceVersion: process.env.GIT_SHA,\n` +
             `  onDiagnostic: (d) => log.warn({ firstrun: d }),\n` +

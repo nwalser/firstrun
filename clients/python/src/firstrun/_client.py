@@ -20,7 +20,7 @@ import weakref
 from collections import deque
 from typing import Any, Callable, Deque, Dict, List, Mapping, NamedTuple, Optional, Tuple
 
-from . import _ids, _spool, _wire
+from . import _context, _ids, _spool, _wire
 from ._transport import ACCEPTED, REJECTED, TRANSIENT, SendResult, Transport, build_batch
 
 __all__ = [
@@ -173,8 +173,9 @@ class Firstrun:
         default_attributes: Optional[Mapping[str, Any]] = None,
         test_mode: bool = False,
         min_severity: int = 0,
-        distinct_id: Optional[str] = None,
-        persist_distinct_id: bool = True,
+        user_id: Optional[str] = None,
+        device_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         track_lifecycle: Optional[bool] = None,
         delivery: str = INTERVAL,
         persistence: str = MEMORY,
@@ -378,24 +379,17 @@ class Firstrun:
         # When the `interval` schedule next fires. Only that schedule has a tick.
         self._next_tick_at = time.monotonic() + self.flush_interval
 
-        # Identity. Anonymous, scoped to this source, never joined to another's.
-        self._user_id: Optional[str] = None
-        self._session_id = str(uuid.uuid4())
-
-        explicit = _wire.clamp_id(distinct_id)
-        self.distinct_id_path: Optional[str] = None
-        if explicit is not None:
-            self._distinct_id = explicit
-            self.is_first_run = False
-        elif persist_distinct_id:
-            folder = app_name or self.source_key or "default"
-            self._distinct_id, self.is_first_run, self.distinct_id_path = _ids.load_or_create(
-                folder,
-                lambda exc: self._report(INTERNAL_ERROR, "could not persist the anonymous id", error=exc),
-            )
-        else:
-            self._distinct_id = str(uuid.uuid4())
-            self.is_first_run = True
+        # Identity: three optional strings, none of them generated here.
+        #
+        # NOTHING is on by default. This client used to mint an anonymous id and
+        # persist it to disk so every entry had something to be attributed to,
+        # and that id was a fiction: a server process is not a machine and not a
+        # person. A client that states none of these sends entries with no
+        # identity, which counts them as entries and in no unique, and that is
+        # the honest answer for a backend.
+        self._user_id = _wire.clamp_id(user_id)
+        self._device_id = _wire.clamp_id(device_id)
+        self._session_id = _wire.clamp_id(session_id)
 
         self._transport = Transport(self.host, self.timeout, ssl_context) if self._enabled else None
 
@@ -442,18 +436,18 @@ class Firstrun:
         return self._enabled and not self._closed
 
     @property
-    def distinct_id(self) -> str:
-        """The anonymous per-install id being sent. Not a person, not joined to anything."""
-        return self._distinct_id
-
-    @property
     def user_id(self) -> Optional[str]:
-        """The id the host passed to :meth:`identify`, or None."""
+        """The id the host passed to :meth:`user`, or None. Never inferred."""
         return self._user_id
 
     @property
-    def session_id(self) -> str:
-        """The current session id. Rotated by :meth:`new_session` and :meth:`reset`."""
+    def device_id(self) -> Optional[str]:
+        """The id the host passed to :meth:`device`, or None. Never derived."""
+        return self._device_id
+
+    @property
+    def session_id(self) -> Optional[str]:
+        """The id the host passed to :meth:`session`, or None. Nothing rotates it."""
         return self._session_id
 
     def stats(self) -> Stats:
@@ -480,8 +474,8 @@ class Firstrun:
         body: Optional[str] = None,
         severity: Any = None,
         attributes: Optional[Mapping[str, Any]] = None,
-        distinct_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        device_id: Optional[str] = None,
         session_id: Optional[str] = None,
         timestamp: Optional[float] = None,
         trace_id: Optional[str] = None,
@@ -509,9 +503,16 @@ class Firstrun:
         questions. The ``ATTR_*`` names in this package are the conventional
         spellings, so two projects that mean the same thing agree.
 
-        ``distinct_id`` and ``user_id`` override this client's own for one call,
-        which is what a server wants: the anonymous id belongs to the request,
-        not to the box the process runs on.
+        ``user_id``, ``device_id`` and ``session_id`` override this client's own
+        for one call, which is what a server wants: an identity belongs to the
+        request, not to the box the process runs on. They are ONE UNIT, so
+        naming any of them means all three come from this call and neither the
+        surrounding context nor the client is consulted for the other two.
+        Naming them on every call in a handler is what ``firstrun.context()``
+        exists to stop: an identity set there is used by any call that states
+        none of its own, and this client's is the last resort rather than the
+        second one. All three may be absent, on every layer, and then the entry
+        simply carries no identity.
 
         ``timestamp`` is seconds since the epoch, for something you are recording
         after the fact. It is authoritative on the server, so an entry that
@@ -533,27 +534,46 @@ class Firstrun:
             if resolved_severity is not None and resolved_severity < self.min_severity:
                 return
 
-            resolved_distinct = _wire.clamp_id(distinct_id) or self._distinct_id
-            resolved_user = _wire.clamp_id(user_id) or self._user_id
-            resolved_session = _wire.clamp_id(session_id) or self._session_id
-
-            if not resolved_distinct:
-                with self._lock:
-                    self._refused += 1
-                self._report(EVENT_REFUSED, "no distinct id")
-                return
+            # Three levels, most specific first: what this call named, then the
+            # ambient context a middleware put around this request, then this
+            # client's own. The middle level is what lets a view call event()
+            # with nothing but a name, and it is read here rather than at send
+            # time so the entry keeps the identity of where it was recorded.
+            # EMPTY stands in for "no context" so this stays one `or` chain.
+            # IDENTITY IS ONE UNIT, TAKEN FROM ONE LAYER. The innermost layer
+            # that states ANY of the three supplies all three, and the layers
+            # below it are not consulted. Resolving them one `or` chain each is
+            # how a background job recorded inside a request keeps the
+            # requester's `user.id` while naming its own device, and since a
+            # unique coalesces `user.id` first, that job is then counted as that
+            # customer.
+            ambient = _context.current_context() or _context.EMPTY
+            call = (_wire.clamp_id(user_id), _wire.clamp_id(device_id), _wire.clamp_id(session_id))
+            layers = (
+                call,
+                (ambient.user_id, ambient.device_id, ambient.session_id),
+                (self._user_id, self._device_id, self._session_id),
+            )
+            resolved_user, resolved_device, resolved_session = next(
+                (layer for layer in layers if any(layer)), (None, None, None)
+            )
 
             # Identity sits UNDER the caller's own attributes, so an entry that
             # names `user.id` explicitly wins over the client-level default.
             # Anything else would make a per-call override silently ineffective.
+            #
+            # All three may be absent, and that is not reported: an entry with no
+            # identity is a legal entry and on a server it is the ordinary one.
             identity: Dict[str, Any] = {}
             if resolved_user:
                 identity[_wire.ATTR_USER_ID] = resolved_user
+            if resolved_device:
+                identity[_wire.ATTR_DEVICE_ID] = resolved_device
             if resolved_session:
                 identity[_wire.ATTR_SESSION_ID] = resolved_session
 
             # `body`, `trace_id` and `span_id` are attributes, not columns: this
-            # product promotes five columns and no more, and the spec's
+            # product promotes four columns and no more, and the spec's
             # vocabulary is not ours to promote. The dedicated argument wins over
             # a same-named attribute, because naming it is the more specific
             # statement.
@@ -568,8 +588,15 @@ class Firstrun:
             if clamped_span is not None:
                 spec[_wire.ATTR_SPAN_ID] = clamped_span
 
+            # The ambient attributes sit between the two: they describe THIS
+            # request, so they beat what is true of the whole process, and the
+            # entry's own still beats them. They stay under `identity` because
+            # the three ids have already been resolved by the precedence above,
+            # and a `user.id` written into a context's attribute bag must not be
+            # able to reach around a `user_id=` named on the call itself.
             merged = _wire.merge_attributes(
                 self.default_attributes,
+                ambient.attributes,
                 identity,
                 _wire.clean_attributes(attributes),
                 spec,
@@ -597,7 +624,7 @@ class Firstrun:
                 and resolved_severity is not None
                 and resolved_severity >= self.flush_on_severity
             )
-            self._enqueue((resolved_distinct, entry), urgent=urgent)
+            self._enqueue(entry, urgent=urgent)
 
         except BaseException as exc:  # noqa: BLE001 - the whole point of this method
             # The contract is that log never raises. That has to hold even for
@@ -725,31 +752,43 @@ class Firstrun:
             bag[_wire.ATTR_URL_PATH] = path
         self.event(_wire.PAGE_VIEW, bag, **kwargs)
 
-    def identify(self, user_id: Optional[str], attributes: Optional[Mapping[str, Any]] = None) -> None:
+    def user(self, user_id: Optional[str], attributes: Optional[Mapping[str, Any]] = None) -> None:
         """Attach the customer's own user id to everything sent from now on.
 
         This is the only way a ``user.id`` ever appears. Nothing is inferred,
         nothing is merged, and this source is never linked to another source's
-        ids. Pass None to go back to anonymous.
+        ids. Pass None to go back to anonymous, which is a sign-out.
+
+        Naming a DIFFERENT person starts a new session, because a sign-in is a
+        boundary and one session spanning two accounts belongs to neither.
+        Naming the same one again does nothing at all.
         """
         clamped = _wire.clamp_id(user_id)
+        if clamped == self._user_id:
+            return
         self._user_id = clamped
+        if self._session_id is not None:
+            self._session_id = str(uuid.uuid4())
         if clamped is not None:
             self.event(_wire.IDENTIFY, attributes)
 
-    def reset(self) -> None:
-        """Forget the user id and start a new session.
+    def device(self, device_id: Optional[str]) -> None:
+        """Name the machine these entries come from, when you know it.
 
-        The anonymous id is kept: it belongs to this installation, not to
-        whoever was signed in.
+        Nothing here derives one. A server has no device, so this stays None
+        unless the host has a real machine to name: a worker pinned to a host,
+        or an id its own protocol already carries.
         """
-        self._user_id = None
-        self.new_session()
+        self._device_id = _wire.clamp_id(device_id)
 
-    def new_session(self) -> str:
-        """Start a new session id without touching the user id."""
-        self._session_id = str(uuid.uuid4())
-        return self._session_id
+    def session(self, session_id: Optional[str]) -> None:
+        """Set the session id, or clear it with None.
+
+        There is no separate new-session call: rotating a session is calling
+        this with a new id. Nothing rotates it on its own, because a process is
+        not a visit and a run that lasts a month is not a session.
+        """
+        self._session_id = _wire.clamp_id(session_id)
 
     def flush(self, timeout: Optional[float] = None) -> bool:
         """Ask the worker to send now.
@@ -859,7 +898,7 @@ class Firstrun:
     # The queue
     # ------------------------------------------------------------------
 
-    def _enqueue(self, item: Tuple[str, Dict[str, Any]], urgent: bool = False) -> None:
+    def _enqueue(self, item: Dict[str, Any], urgent: bool = False) -> None:
         dropped = 0
         with self._wake:
             self._queue.append(item)
@@ -916,7 +955,7 @@ class Firstrun:
                 return True
         return False
 
-    def _requeue_front_locked(self, items: List[Tuple[str, Dict[str, Any]]]) -> int:
+    def _requeue_front_locked(self, items: List[Dict[str, Any]]) -> int:
         dropped = 0
         for item in reversed(items):
             self._queue.appendleft(item)
@@ -1064,7 +1103,7 @@ class Firstrun:
         if now < self._next_attempt_at:
             return False
 
-        entries: List[Tuple[str, Dict[str, Any]]] = []
+        entries: List[Dict[str, Any]] = []
         markers: List[_Flush] = []
         with self._lock:
             # Consumed here rather than at the wake, so a request that arrived
@@ -1091,16 +1130,10 @@ class Firstrun:
             return False
 
         all_sent = True
-        settled: List[Tuple[str, Dict[str, Any]]] = []
+        settled: List[Dict[str, Any]] = []
 
         for group in _group(entries, self.max_batch_size):
-            distinct_id = group[0][0]
-            body = build_batch(
-                self.source_key,
-                distinct_id,
-                self.resource,
-                [item[1] for item in group],
-            )
+            body = build_batch(self.source_key, self.resource, group)
 
             assert self._transport is not None
             result: SendResult = self._transport.send(body)
@@ -1127,8 +1160,8 @@ class Firstrun:
             break
 
         if not all_sent:
-            settled_ids = {item[1]["i"] for item in settled}
-            remaining = [item for item in entries if item[1]["i"] not in settled_ids]
+            settled_ids = {item["i"] for item in settled}
+            remaining = [item for item in entries if item["i"] not in settled_ids]
             with self._lock:
                 dropped = self._requeue_front_locked(remaining)
                 # Still owed a send, so the next wake is the retry delay expiring
@@ -1248,7 +1281,7 @@ class Firstrun:
         ``os.fork`` copies the memory but only the calling thread. So in the
         child the sender thread does not exist, and the lock it was holding at
         the moment of the fork is copied in its locked state, which would
-        deadlock the first ``track()`` the child makes. Both are replaced here
+        deadlock the first ``event()`` the child makes. Both are replaced here
         rather than reused.
 
         The queue is dropped rather than inherited: parent and child both
@@ -1328,37 +1361,21 @@ class Firstrun:
 
 
 def _group(
-    entries: List[Tuple[str, Dict[str, Any]]],
+    entries: List[Dict[str, Any]],
     max_batch: int,
-) -> List[List[Tuple[str, Dict[str, Any]]]]:
-    """Group by distinct id, because that sits on the batch, not on the entry.
+) -> List[List[Dict[str, Any]]]:
+    """Chunk into bodies of at most ``max_batch`` entries, in order.
 
-    The resource is the only other thing on the batch and it does not change
-    while the process runs, so it is not part of the key. ``user.id`` and
-    ``session.id`` are per-entry attributes in the log model and do not split a
-    batch: a server handling many people at once therefore sends one request per
-    person per flush, which is a property of the wire contract rather than a
-    choice this client makes.
-
-    Order within a group is preserved, and groups keep the order their first
-    entry appeared in.
+    There is nothing to group BY any more. The resource is the only thing that
+    sits on the batch rather than on the entry, and it does not change while the
+    process runs, so every entry in the queue belongs in the same body as the
+    one before it. Identity is three per-entry attributes and does not split a
+    batch: a server handling many people at once sends them in one request,
+    which is a property of the wire contract rather than a choice made here.
     """
-    order: List[str] = []
-    buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {}
-    for item in entries:
-        key = item[0]
-        bucket = buckets.get(key)
-        if bucket is None:
-            bucket = []
-            buckets[key] = bucket
-            order.append(key)
-        bucket.append(item)
-
-    out: List[List[Tuple[str, Dict[str, Any]]]] = []
-    for key in order:
-        bucket = buckets[key]
-        for start in range(0, len(bucket), max_batch):
-            out.append(bucket[start : start + max_batch])
+    out: List[List[Dict[str, Any]]] = []
+    for start in range(0, len(entries), max_batch):
+        out.append(entries[start : start + max_batch])
     return out
 
 

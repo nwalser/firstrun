@@ -54,6 +54,7 @@ export const docs: DocsMessages = {
   "docs.section_install_guides": "Installationsanleitungen",
   "docs.section_how_it_works": "So funktioniert firstrun",
   "docs.section_reference": "Referenz",
+  "docs.section_premade_events": "Vorgefertigte Events",
 
   "docs.index_lede_before": "firstrun ist",
   "docs.index_lede_strong":
@@ -129,6 +130,53 @@ export const docs: DocsMessages = {
   "docs.topic_log_events_title": "Referenz der Log-Events",
   "docs.topic_log_events_summary":
     "Eine Zeilenform für Fehler, Events und Messwerte, und die Konventionen, die wir vorschlagen.",
+  "docs.topic_premade_events_title": "Alle Events",
+  "docs.topic_premade_events_summary":
+    "Die Namen, die unsere Clients für Sie schreiben, und was jeder davon mitführt.",
+  // Die Titel der Event-Seiten sind der wörtliche Wert der Spalte `name` und
+  // bleiben deshalb in jeder Sprache gleich, wie ".NET" und "Astro" weiter oben.
+  "docs.topic_event_page_view_title": "page_view",
+  "docs.topic_event_page_view_summary":
+    "Eine Seite oder ein Screen wurde angesehen. Das Tag schreibt eines pro Navigation.",
+  "docs.topic_event_session_start_title": "session_start",
+  "docs.topic_event_session_start_summary":
+    "Der erste Eintrag eines Besuchs oder eines Laufs. Das, was eine Besuchszahl zählt.",
+  "docs.topic_event_page_leave_title": "page_leave",
+  "docs.topic_event_page_leave_summary":
+    "Eine Seite wurde verlassen. Enthält sichtbare Zeit und wie weit gescrollt wurde.",
+  "docs.topic_event_outbound_click_title": "outbound_click",
+  "docs.topic_event_outbound_click_summary":
+    "Einem Link auf eine andere Website wurde gefolgt. Gezählt, nie abgefangen.",
+  "docs.topic_event_file_download_title": "file_download",
+  "docs.topic_event_file_download_summary":
+    "Einem Link auf eine Datei wurde gefolgt. Eine Zählung, kein Proxy.",
+  "docs.topic_event_form_submit_title": "form_submit",
+  "docs.topic_event_form_submit_summary":
+    "Ein Formular wurde abgeschickt. Die Identität des Formulars, nichts von seinem Inhalt.",
+  "docs.topic_event_web_vital_title": "web_vital",
+  "docs.topic_event_web_vital_summary":
+    "Ein Core-Web-Vital-Messwert. Fünf Metriken, je ein Eintrag, einmal pro Dokument.",
+  "docs.topic_event_app_install_title": "app_install",
+  "docs.topic_event_app_install_summary":
+    "Diese Installation lief zum ersten Mal. Einmal pro Installation, für immer.",
+  "docs.topic_event_app_launch_title": "app_launch",
+  "docs.topic_event_app_launch_summary":
+    "Jeder Start einer installierten App, den ersten eingeschlossen.",
+  "docs.topic_event_identify_title": "identify",
+  "docs.topic_event_identify_summary":
+    "Ein Client hat erfahren, zu welchem Benutzer er gehört. Wird nur geschrieben, wenn Sie es sagen.",
+  "docs.topic_event_exception_title": "exception",
+  "docs.topic_event_exception_summary":
+    "Etwas hat geworfen. Ein Name für jede Exception, die Details in den Attributen.",
+  "docs.topic_event_log_title": "log",
+  "docs.topic_event_log_summary":
+    "Eine freie Zeile. So benennen die Level-Helfer einen Eintrag.",
+  "docs.topic_event_http_request_title": "http.request",
+  "docs.topic_event_http_request_summary":
+    "Ein ausgelieferter Request. Ein Name, den wir vorschlagen und den Sie schreiben.",
+  "docs.topic_event_measurement_title": "measurement",
+  "docs.topic_event_measurement_summary":
+    "Ein einfacher numerischer Messwert. Die Form, die jede Zahl hier annimmt.",
   "docs.topic_privacy_title": "Datenschutz und Einwilligung",
   "docs.topic_privacy_summary":
     "Was erfasst wird, was vor der Einwilligung geschieht, und wo die Daten liegen.",

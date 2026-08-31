@@ -64,9 +64,36 @@ export const topics: DocsTopic[] = [
               <code>event</code> writes at INFO and <code>error</code> at ERROR, both filling in
               the conventional attributes. <code>log</code> takes any event you like: any name, any
               severity, any attributes, and your own <code>time</code> if you are recording
-              something after the fact. Attribute values are JSON, so a number stays a number. Any
-              element carrying <code>data-fr-event="name"</code> fires that event when clicked, and
-              keeps its own behaviour whether or not the tag loaded.
+              something after the fact. Attribute values are JSON, so a number stays a number.
+            </>
+          }
+        />
+
+        <h2>Tracking from markup, with no JavaScript at all</h2>
+        <p>
+          Any element carrying <code>data-fr-event="name"</code> fires that event when it is
+          clicked, and keeps its own behaviour whether or not the tag loaded. Every other{" "}
+          <code>data-fr-*</code> attribute on the same element rides along as an attribute of the
+          entry, with the prefix stripped.
+        </p>
+        <Snippet
+          lang="html"
+          code={
+            `<button data-fr-event="checkout_started"\n` +
+            `        data-fr-plan="pro"\n` +
+            `        data-fr-seats="5">Upgrade</button>\n\n` +
+            `<form id="signup" data-fr-event="signed_up" data-fr-on="submit">…</form>`
+          }
+          note={
+            <>
+              The button writes <code>checkout_started</code> with{" "}
+              <code>{`{ plan: "pro", seats: 5 }`}</code>: a value that reads as a number is sent
+              as one, so averaging it is an aggregate rather than a cast.{" "}
+              <code>data-fr-on="submit"</code> moves the trigger to the form's own submit event,
+              which is what you want on a form, since one sent with the Enter key never produced
+              a click. Write the names in kebab-case: HTML lower-cases attribute names whatever
+              you type. Neither attribute reads a field or a value, and both keep working with
+              the matching automatic measurement turned off.
             </>
           }
         />

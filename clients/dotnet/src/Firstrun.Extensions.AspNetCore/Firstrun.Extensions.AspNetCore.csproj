@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      A third package rather than more files in Extensions.Hosting, because the
+      middleware needs ASP.NET Core's HttpContext and routing types and the console
+      services and WPF apps that call AddFirstrun today did not ask for a web
+      framework reference to get the DI wiring they already had.
+    -->
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Enum members and obvious constructors do not need prose to be understood. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <AssemblyName>Firstrun.Extensions.AspNetCore</AssemblyName>
+    <RootNamespace>Firstrun</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Firstrun.Extensions.AspNetCore</PackageId>
+    <Version>0.1.0</Version>
+    <Description>ASP.NET Core middleware for the firstrun analytics client: one request-scoped identity and one http.request entry per request.</Description>
+    <PackageTags>analytics;telemetry;firstrun;aspnetcore;middleware</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Firstrun/Firstrun.csproj" />
+    <!--
+      UseFirstrun without AddFirstrun does nothing at all, so the two travel together:
+      installing this one package is enough to wire a web app end to end rather than
+      leaving somebody to work out which second package makes the first one work.
+    -->
+    <ProjectReference Include="../Firstrun.Extensions.Hosting/Firstrun.Extensions.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      A FrameworkReference, not the Microsoft.AspNetCore.Http.Abstractions package.
+      That package is frozen at 2.2.0 and predates endpoint routing, so it has no
+      RouteEndpoint at all and would duplicate types the shared framework already
+      carries. Every host that can run this middleware has Microsoft.AspNetCore.App
+      by definition, which is also why this costs the consumer no dependency.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

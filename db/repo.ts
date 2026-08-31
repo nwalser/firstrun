@@ -1,6 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gte, lt, ne, sql as raw, type SQL } from "drizzle-orm";
-import { defaultBoard, mintSourceKey, parseBoard, type Board } from "@firstrun/schema";
+import {
+  defaultBoard,
+  mintSourceKey,
+  parseBoard,
+  type Board,
+} from "@firstrun/schema";
 import { ATTR } from "@firstrun/schema/conventions";
 import type { Database } from "./client.js";
 import {
@@ -938,6 +943,22 @@ export async function listProjects(db: Database, workspaceId: string): Promise<P
     .orderBy(projects.createdAt);
 }
 
+/**
+ * How many projects a workspace has, without listing them.
+ *
+ * Its own query because the one caller is the plan check on the way IN to
+ * creating one: `listProjects` would fetch every column of every row to take
+ * `.length` of it, and that is the sort of thing that is fine until somebody
+ * has forty projects and a slow link.
+ */
+export async function countProjects(db: Database, workspaceId: string): Promise<number> {
+  const rows = await db
+    .select({ n: raw<number>`count(*)::int` })
+    .from(projects)
+    .where(eq(projects.workspaceId, workspaceId));
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function projectForUser(
   db: Database,
   workspaceSlug: string,
@@ -1225,12 +1246,11 @@ export async function listSources(db: Database, projectId: string): Promise<Sour
 export async function createSource(
   db: Database,
   projectId: string,
-  name: string,
-  assetName: string | null
+  name: string
 ): Promise<Source> {
   const rows = await db
     .insert(sources)
-    .values({ projectId, name, assetName, ingestKey: mintSourceKey() })
+    .values({ projectId, name, ingestKey: mintSourceKey() })
     .returning();
   return rows[0]!;
 }

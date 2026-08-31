@@ -54,7 +54,6 @@ export const shell = {
   "shell.overview": "Overview",
   "shell.people": "People",
   "shell.settings": "Settings",
-  "shell.support": "Support",
   "shell.notifications": "Notifications",
   "shell.no_notifications": "Nothing to report yet",
   "shell.help": "Help",

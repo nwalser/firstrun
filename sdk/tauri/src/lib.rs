@@ -42,7 +42,7 @@
 //! conventional entry: examples of a good shape, not a schema.** Nothing they
 //! produce is privileged, and nothing you send without them is second class.
 //!
-//! Identity is two fields and nothing is inferred. `distinct_id` is anonymous,
+//! Identity is three optional attributes and nothing is inferred. `device.id` is anonymous,
 //! generated on this machine and persisted next to the queue; `user.id` is only
 //! ever the string the host passed to [`Analytics::identify`]. This client is
 //! never linked to a website visitor or to any other app.
@@ -52,7 +52,7 @@
 //! use std::time::Duration;
 //!
 //! let analytics = Analytics::start(Config {
-//!     source_key: "fr_desktop_9f3a2b1c4d5e6f70".into(),
+//!     source_key: "fr_9f3a2b1c4d5e6f70".into(),
 //!     host: "https://t.example.com".into(),
 //!     app_name: "Themia".into(),
 //!     service_version: Some(env!("CARGO_PKG_VERSION").into()),
@@ -79,14 +79,14 @@
 //!         .attr("layers", 12),
 //! );
 //!
-//! analytics.identify(Some("acct_8812"));
+//! analytics.user(Some("acct_8812"));
 //!
 //! // On the way out. Optional, and bounded by what you pass it.
 //! analytics.flush(Duration::from_secs(2));
 //! ```
 
 pub mod client;
-pub mod distinct_id;
+pub mod device_id;
 pub mod queue;
 pub mod wire;
 
@@ -105,9 +105,9 @@ use client::{Client, LogBatch, Outcome};
 use queue::{Queue, QueuedEntry};
 use wire::{
     clamp_attributes, clamp_body, Attributes, ATTR_BROWSER_LANGUAGE, ATTR_CHANNEL,
-    ATTR_EXCEPTION_MESSAGE, ATTR_EXCEPTION_STACKTRACE, ATTR_EXCEPTION_TYPE, ATTR_HOST_ARCH,
-    ATTR_OS_TYPE, ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_SESSION_ID, ATTR_TEST,
-    ATTR_URL_PATH,
+    ATTR_DEVICE_ID, ATTR_EXCEPTION_MESSAGE, ATTR_EXCEPTION_STACKTRACE, ATTR_EXCEPTION_TYPE,
+    ATTR_HOST_ARCH, ATTR_OS_TYPE, ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_SESSION_ID,
+    ATTR_TEST, ATTR_URL_PATH,
     ATTR_USER_ID, SEVERITY_DEBUG, SEVERITY_ERROR, SEVERITY_FATAL, SEVERITY_INFO, SEVERITY_TRACE,
     SEVERITY_WARN,
 };
@@ -333,7 +333,7 @@ impl LogEntry {
 /// have to be set; every other default is safe in production.
 #[derive(Clone)]
 pub struct Config {
-    /// The public source key for this app, e.g. `fr_desktop_9f3a2b1c4d5e6f70`.
+    /// The public source key for this app, e.g. `fr_9f3a2b1c4d5e6f70`.
     ///
     /// It ships inside the binary, names which ingestion site is sending, and
     /// authorises nothing. The server is the only thing that knows which project
@@ -380,7 +380,7 @@ pub struct Config {
     /// application data directory under `firstrun/<app_name>`.
     pub app_dir: Option<PathBuf>,
     /// Supply the anonymous id yourself instead of persisting one.
-    pub distinct_id: Option<String>,
+    pub device_id: Option<String>,
     /// Emits `app_install` on the run that creates the anonymous id, and
     /// `session_start` then `app_launch` on every run. Nothing else is ever
     /// sent for you.
@@ -484,7 +484,7 @@ impl Default for Config {
             default_attributes: Attributes::new(),
             test_mode: false,
             app_dir: None,
-            distinct_id: None,
+            device_id: None,
             track_lifecycle: true,
             min_severity: 0,
             max_queued_entries: 5_000,
@@ -576,7 +576,7 @@ pub struct Analytics {
     /// Behind a `Mutex` only because a bare `Receiver` is `!Sync`, and Tauri's
     /// managed state requires `Send + Sync`. It is read once, from `Drop`.
     finished: Mutex<Receiver<()>>,
-    distinct_id: String,
+    device_id: String,
     session_id: String,
     default_attributes: Attributes,
     min_severity: u8,
@@ -635,14 +635,14 @@ impl Analytics {
         let app_dir = config
             .app_dir
             .clone()
-            .or_else(|| distinct_id::default_app_dir(&config.app_name));
+            .or_else(|| device_id::default_app_dir(&config.app_name));
 
-        // Resolve the id before deciding whether to run, so `distinct_id()` is
+        // Resolve the id before deciding whether to run, so `device_id()` is
         // answerable on a disabled client too.
-        let (id, first_run) = match (config.distinct_id.as_deref().and_then(wire::clamp_id), &app_dir) {
+        let (id, first_run) = match (config.device_id.as_deref().and_then(wire::clamp_id), &app_dir) {
             (Some(supplied), _) => (supplied, false),
             (None, Some(dir)) => {
-                let (resolved, error) = distinct_id::load_or_create(dir);
+                let (resolved, error) = device_id::load_or_create(dir);
                 if let Some(error) = error {
                     report(&hook, DiagnosticCode::Internal, 0, || {
                         format!("could not persist the anonymous id: {error}")
@@ -675,7 +675,7 @@ impl Analytics {
             tx,
             worker: None,
             finished: Mutex::new(finished),
-            distinct_id: id.clone(),
+            device_id: id.clone(),
             session_id: session_id.clone(),
             default_attributes,
             min_severity,
@@ -693,7 +693,7 @@ impl Analytics {
             return analytics;
         }
 
-        let worker = Worker::new(config, app_dir, id, Arc::clone(&counters));
+        let worker = Worker::new(config, app_dir, Arc::clone(&counters));
         let spawned = thread::Builder::new()
             .name("firstrun-sender".into())
             .spawn(move || {
@@ -732,8 +732,8 @@ impl Analytics {
     }
 
     /// The anonymous id being sent. Not a person, and not joined to anything.
-    pub fn distinct_id(&self) -> &str {
-        &self.distinct_id
+    pub fn device_id(&self) -> &str {
+        &self.device_id
     }
 
     /// The id for this run of the app. One launch is one session. Travels as the
@@ -812,6 +812,10 @@ impl Analytics {
         // call that names a key explicitly wins. Anything else would make an
         // override silently ineffective.
         let mut attributes = self.default_attributes.clone();
+        // A desktop install IS a machine, which is why this client fills
+        // `device.id` in for itself and the browser tag does not. One run is one
+        // session, so both ride on every entry.
+        attributes.insert(ATTR_DEVICE_ID.into(), Value::String(self.device_id.clone()));
         attributes.insert(ATTR_SESSION_ID.into(), Value::String(self.session_id.clone()));
         for (key, value) in entry.attributes {
             attributes.insert(key, value);
@@ -930,9 +934,9 @@ impl Analytics {
     /// The id becomes the `user.id` attribute of every later entry. This is the
     /// only way a user id ever appears. Nothing is inferred, nothing is derived,
     /// nothing is merged, and this source is never linked to any other. Pass
-    /// `None` to go back to anonymous; the anonymous id is kept, because it
-    /// belongs to this installation rather than to whoever signed in.
-    pub fn identify(&self, user_id: Option<&str>) {
+    /// `None` to sign out; `device.id` is kept, because it belongs to this
+    /// installation rather than to whoever signed in.
+    pub fn user(&self, user_id: Option<&str>) {
         let clamped = user_id.and_then(wire::clamp_id);
         // Ordered ahead of the entry on the same channel, so the `identify`
         // entry is the first one that carries the new id.
@@ -1148,7 +1152,6 @@ struct Worker {
     client: Client,
     queue: Queue,
     counters: Arc<Counters>,
-    distinct_id: String,
     /// What is true of this installation and this build. Built once: it cannot
     /// change while the process runs, and it sits once per body on the wire.
     resource: Option<Attributes>,
@@ -1162,12 +1165,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(
-        config: Config,
-        dir: Option<PathBuf>,
-        distinct_id: String,
-        counters: Arc<Counters>,
-    ) -> Worker {
+    fn new(config: Config, dir: Option<PathBuf>, counters: Arc<Counters>) -> Worker {
         // `resolve_policy` has already settled disk against whether there is a
         // directory, so this pairing cannot disagree with the reported policy.
         let queue = match (config.persistence, dir) {
@@ -1186,7 +1184,6 @@ impl Worker {
             client,
             queue,
             counters,
-            distinct_id,
             resource,
             user_id: None,
             next_attempt: now,
@@ -1407,10 +1404,10 @@ impl Worker {
                 }
             };
 
-            // No grouping pass. The distinct id and the resource are the only
-            // things that sit on the batch, and neither changes while the
-            // process runs, so the whole peeked run is one request. `user.id`
-            // varies per entry and rides in that entry's attributes.
+            // No grouping pass. The resource is the only thing that sits on the
+            // batch, and it does not change while the process runs, so the whole
+            // peeked run is one request. The three identity keys vary per entry
+            // and ride in that entry's own attributes.
             let count = batch.len();
 
             // Evaluated into a local so the batch's borrow of `self.config` ends
@@ -1418,7 +1415,6 @@ impl Worker {
             let outcome = {
                 let payload = LogBatch {
                     k: &self.config.source_key,
-                    d: &self.distinct_id,
                     r: self.resource.as_ref(),
                     e: client::wire_entries(&batch),
                 };
@@ -1653,7 +1649,7 @@ mod tests {
         analytics.event("anything", &[]);
         analytics.warn("a line", &[]);
         analytics.log(LogEntry::new("raw"));
-        analytics.identify(Some("u_1"));
+        analytics.user(Some("u_1"));
         assert!(!analytics.flush(Duration::from_millis(1)));
     }
 

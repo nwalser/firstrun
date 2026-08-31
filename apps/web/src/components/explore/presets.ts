@@ -117,35 +117,35 @@ export const PRESETS: Preset[] = [
     key: "event-count",
     labelKey: "dashboard.preset_event_count",
     hintKey: "dashboard.preset_event_count_hint",
-    size: { w: 320, h: 180 },
+    size: { w: 400, h: 180 },
     build: (ctx) => counter(ctx, "entries"),
   },
   {
     key: "event-uniques",
     labelKey: "dashboard.preset_event_uniques",
     hintKey: "dashboard.preset_event_uniques_hint",
-    size: { w: 320, h: 180 },
+    size: { w: 400, h: 180 },
     build: (ctx) => counter(ctx, "uniques"),
   },
   {
     key: "uniques",
     labelKey: "dashboard.preset_uniques",
     hintKey: "dashboard.preset_uniques_hint",
-    size: { w: 320, h: 180 },
+    size: { w: 400, h: 180 },
     build: () => query("number", totalQuery("uniques"), { compare: true, sparkline: true }),
   },
   {
     key: "entries-over-time",
     labelKey: "dashboard.preset_over_time",
     hintKey: "dashboard.preset_over_time_hint",
-    size: { w: 620, h: 300 },
+    size: { w: 800, h: 300 },
     build: () => query("line", seriesQuery("entries", localTimezone()), { compare: true }),
   },
   {
     key: "names",
     labelKey: "dashboard.preset_names",
     hintKey: "dashboard.preset_names_hint",
-    size: { w: 440, h: 320 },
+    size: { w: 540, h: 320 },
     build: () =>
       query(
         "list",
@@ -156,14 +156,14 @@ export const PRESETS: Preset[] = [
     key: "errors",
     labelKey: "dashboard.preset_errors",
     hintKey: "dashboard.preset_errors_hint",
-    size: { w: 620, h: 300 },
+    size: { w: 800, h: 300 },
     build: () => query("bar", seriesQuery("entries", localTimezone(), atLeast("ERROR"))),
   },
   {
     key: "exception-types",
     labelKey: "dashboard.preset_exceptions",
     hintKey: "dashboard.preset_exceptions_hint",
-    size: { w: 440, h: 320 },
+    size: { w: 540, h: 320 },
     build: () =>
       query(
         "list",
@@ -183,7 +183,7 @@ export const PRESETS: Preset[] = [
     key: "exception-messages",
     labelKey: "dashboard.preset_exception_messages",
     hintKey: "dashboard.preset_exception_messages_hint",
-    size: { w: 620, h: 320 },
+    size: { w: 800, h: 320 },
     build: () =>
       query(
         "list",
@@ -199,14 +199,14 @@ export const PRESETS: Preset[] = [
     key: "pages",
     labelKey: "dashboard.preset_pages",
     hintKey: "dashboard.preset_pages_hint",
-    size: { w: 440, h: 320 },
+    size: { w: 540, h: 320 },
     build: () => query("list", rankingQuery({ by: attr(ATTR.URL_PATH), filter: nameIs(NAME.PAGE_VIEW) })),
   },
   {
     key: "referrers",
     labelKey: "dashboard.preset_referrers",
     hintKey: "dashboard.preset_referrers_hint",
-    size: { w: 440, h: 320 },
+    size: { w: 540, h: 320 },
     build: () =>
       query("list", rankingQuery({ by: attr(ATTR.REFERRER_HOST), filter: nameIs(NAME.PAGE_VIEW) })),
   },
@@ -214,21 +214,21 @@ export const PRESETS: Preset[] = [
     key: "vitals",
     labelKey: "dashboard.preset_vitals",
     hintKey: "dashboard.preset_vitals_hint",
-    size: { w: 440, h: 240 },
+    size: { w: 540, h: 240 },
     build: () => query("table", vitalsQuery(NAME.WEB_VITAL)),
   },
   {
     key: "versions",
     labelKey: "dashboard.preset_versions",
     hintKey: "dashboard.preset_versions_hint",
-    size: { w: 620, h: 300 },
+    size: { w: 800, h: 300 },
     build: () => query("list", rankingQuery({ by: attr(ATTR.SERVICE_VERSION), limit: 20 })),
   },
   {
     key: "slow-routes",
     labelKey: "dashboard.preset_slow_routes",
     hintKey: "dashboard.preset_slow_routes_hint",
-    size: { w: 620, h: 300 },
+    size: { w: 800, h: 300 },
     build: () =>
       query(
         "table",

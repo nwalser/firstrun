@@ -50,6 +50,13 @@ export interface SessionInfo {
   workspaces: WorkspaceSummary[];
   /** False when GitHub OAuth is not configured, so /login can say so. */
   loginConfigured: boolean;
+  /**
+   * Whether this account operates the DEPLOYMENT, which is a different question
+   * from administering a workspace and is answered by `FIRSTRUN_ADMINS` rather
+   * than by any row. Here only so the nav can show the link; `/admin` re-checks
+   * server-side on every call.
+   */
+  admin: boolean;
 }
 
 export interface ProjectSummary {
@@ -127,6 +134,156 @@ export interface BillingView {
   period: { from: string; to: string; entries: number };
 }
 
+/**
+ * One workspace as the operator sees it: what it is on, and what it is using.
+ *
+ * A plan belongs to a WORKSPACE and to nothing else. Not to a project, not to a
+ * person, not to a source. Everything on this row is therefore counted across
+ * every project inside it, and `entriesThisMonth` is the same number the
+ * workspace's own meter draws.
+ *
+ * `entriesLimit` and `projectsLimit` are the EFFECTIVE ceilings with the
+ * per-workspace override already applied, not the tier's published numbers.
+ * `overridden` says whether the two differ.
+ */
+export interface AdminWorkspaceView {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  plan: string;
+  billingStatus: string;
+  /** Whether this workspace has ever been through Stripe. The id stays server-side. */
+  hasStripeCustomer: boolean;
+  overridden: boolean;
+  members: number;
+  projects: number;
+  sources: number;
+  entriesThisMonth: number;
+  entriesLastMonth: number;
+  entriesLimit: number | null;
+  projectsLimit: number | null;
+  /** The last day anything ARRIVED. Null for a workspace that has never sent. */
+  lastBilledDay: string | null;
+}
+
+export interface AdminView {
+  /** False on a self-hosted install, where every row is uncapped and unbilled. */
+  cloud: boolean;
+  period: { from: string; to: string };
+  workspaces: AdminWorkspaceView[];
+}
+
+/**
+ * What every operator page needs before it draws anything.
+ *
+ * Loaded once by the `/admin` layout route, because the shell around those
+ * pages says which edition this is and who is operating it, and a page that
+ * re-answered that per route would let the two disagree mid-navigation.
+ *
+ * Null means "not an operator of this deployment", which the layout renders as
+ * a not-found rather than as a denial: the page does not confirm its own
+ * existence to somebody guessing at the URL.
+ */
+export interface AdminContext {
+  /** False on a self-hosted install, where nothing below is enforced or billed. */
+  cloud: boolean;
+  /** The GitHub login this session is operating as, shown in the shell. */
+  login: string;
+}
+
+/** One table, as the catalogue describes it. Sizes are heap plus indexes plus toast. */
+export interface AdminRelationView {
+  name: string;
+  partitioned: boolean;
+  partitions: number;
+  totalBytes: number;
+  tableBytes: number;
+  indexBytes: number;
+  rows: number;
+  /** False when `rows` is the planner's estimate rather than a count. */
+  exact: boolean;
+  deadRows: number;
+  lastVacuum: string | null;
+  lastAnalyze: string | null;
+}
+
+/**
+ * The deployment at a glance: what it is running on, and how much of it there is.
+ *
+ * `entriesStored` is an ESTIMATE and the page says so. It is `reltuples` summed
+ * across every partition of `log_entries`, which costs a catalogue read;
+ * counting the rows would read the whole table, which is the one thing an
+ * operator page about storage must not do.
+ */
+export interface AdminInstanceView {
+  cloud: boolean;
+  server: {
+    database: string;
+    bytes: number;
+    version: string;
+    startedAt: string | null;
+    now: string;
+  };
+  /** Exact counts for the small tables, keyed by table name. */
+  counts: Record<string, number>;
+  entriesStored: number;
+  /** Entries that ARRIVED in the current billing month, across every workspace. */
+  entriesThisMonth: number;
+  period: { from: string; to: string };
+  /** The last 30 days of arrivals, one entry per day, zeroes included. */
+  arrivals: { day: string; entries: number }[];
+  workspaces: number;
+  paying: number;
+}
+
+export interface AdminDatabaseView {
+  server: AdminInstanceView["server"];
+  relations: AdminRelationView[];
+  connections: {
+    total: number;
+    active: number;
+    idle: number;
+    idleInTransaction: number;
+    max: number;
+  };
+  activity: {
+    commits: number;
+    rollbacks: number;
+    blocksRead: number;
+    blocksHit: number;
+    cacheHitRatio: number | null;
+    tempFiles: number;
+    tempBytes: number;
+    deadlocks: number;
+    statsReset: string | null;
+  };
+}
+
+/** One partition of `log_entries`. `rows` is the planner's estimate, never a count. */
+export interface AdminPartitionView {
+  name: string;
+  /** Null for the default partition, which has no bound. */
+  from: string | null;
+  to: string | null;
+  rows: number;
+  bytes: number;
+}
+
+/**
+ * Retention, as it actually works: dropping a partition, never a bulk DELETE.
+ *
+ * The three numbers are the policy constants the maintenance job runs on, sent
+ * to the page so the operator reads the deployment's own settings rather than
+ * the documentation's example of them.
+ */
+export interface AdminPartitionsView {
+  partitions: AdminPartitionView[];
+  monthsBack: number;
+  monthsAhead: number;
+  retentionMonths: number;
+}
+
 export interface WorkspaceView {
   workspace: WorkspaceSummary;
   projects: ProjectListItem[];
@@ -138,7 +295,6 @@ export interface WorkspaceView {
 export interface SourceSummary {
   id: string;
   name: string;
-  assetName: string | null;
   ingestKey: string;
   /** On `time`, not `ingested_at`: last active, not last heard from. */
   lastSeenAt: string | null;
@@ -185,7 +341,6 @@ export interface WorkspaceSourceSummary extends SourceSummary {
 export interface SourceDetailView {
   id: string;
   name: string;
-  assetName: string | null;
   ingestKey: string;
   projectName: string;
   projectSlug: string;
@@ -313,7 +468,6 @@ export interface ProjectView {
 export interface DocsSource {
   id: string;
   name: string;
-  assetName: string | null;
   ingestKey: string;
   projectName: string;
   projectSlug: string;
@@ -612,6 +766,76 @@ export const renameWorkspaceFn = createServerFn({ method: "POST" })
   });
 
 /**
+ * The operator's view of every workspace on this deployment.
+ *
+ * Answers null for anybody who is not named in `FIRSTRUN_ADMINS`, including an
+ * admin of every workspace on the box. Administering a workspace and operating
+ * the deployment are two different questions with two different mechanisms.
+ */
+export const getAdminOverview = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AdminView | null> => {
+    const { loadAdminOverview } = await import("./api.server.js");
+    return loadAdminOverview();
+  }
+);
+
+/**
+ * The three operator reads: the shell's context, the deployment, the database.
+ *
+ * Split rather than one call, so a page pays for what it draws. Each one
+ * re-checks `requireInstanceAdmin` on the server: the layout's guard is what
+ * stops the pages being reachable, not what makes them safe.
+ */
+export const getAdminContext = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AdminContext | null> => {
+    const { loadAdminContext } = await import("./api.server.js");
+    return loadAdminContext();
+  }
+);
+
+export const getAdminInstance = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AdminInstanceView | null> => {
+    const { loadAdminInstance } = await import("./api.server.js");
+    return loadAdminInstance();
+  }
+);
+
+export const getAdminDatabase = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AdminDatabaseView | null> => {
+    const { loadAdminDatabase } = await import("./api.server.js");
+    return loadAdminDatabase();
+  }
+);
+
+export const getAdminPartitions = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AdminPartitionsView | null> => {
+    const { loadAdminPartitions } = await import("./api.server.js");
+    return loadAdminPartitions();
+  }
+);
+
+/**
+ * Force a plan with no payment, or move a workspace's ceiling.
+ *
+ * By workspace id rather than slug: a slug can be renamed out from under an
+ * open page, and forcing the plan of the wrong workspace is not a mistake worth
+ * leaving reachable.
+ */
+export const forceWorkspacePlanFn = createServerFn({ method: "POST" })
+  .validator((input: { workspaceId: string; plan: string; status: string }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { forceWorkspacePlan } = await import("./api.server.js");
+    return forceWorkspacePlan(data);
+  });
+
+export const overrideWorkspaceLimitFn = createServerFn({ method: "POST" })
+  .validator((input: { workspaceId: string; entriesPerMonth: number | null }) => input)
+  .handler(async ({ data }): Promise<Result> => {
+    const { overrideWorkspaceLimit } = await import("./api.server.js");
+    return overrideWorkspaceLimit(data);
+  });
+
+/**
  * Start a subscription, or manage an existing one.
  *
  * Both answer with a URL rather than redirecting, so the caller decides when to
@@ -700,7 +924,6 @@ export const createSourceFn = createServerFn({ method: "POST" })
       workspace: string;
       project: string;
       name: string;
-      assetName?: string;
     }) => input
   )
   .handler(async ({ data }): Promise<Result<{ sourceId: string; ingestKey: string }>> => {

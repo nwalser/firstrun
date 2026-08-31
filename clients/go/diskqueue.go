@@ -28,9 +28,8 @@ import (
 // Both are derived from configuration, and a stored copy would be a stale
 // opinion from a run configured differently.
 type diskRecord struct {
-	DistinctID string     `json:"d"`
-	Resource   Attributes `json:"r,omitempty"`
-	Entry      wireEntry  `json:"e"`
+	Resource Attributes `json:"r,omitempty"`
+	Entry    wireEntry  `json:"e"`
 }
 
 // maxRecordLine bounds one line on the way back in. An entry cannot legitimately
@@ -82,15 +81,14 @@ func (q *diskQueue) load(max int, flushOnSeverity int) []item {
 			continue
 		}
 		var rec diskRecord
-		if err := json.Unmarshal(line, &rec); err != nil || rec.DistinctID == "" || rec.Entry.Name == "" {
+		if err := json.Unmarshal(line, &rec); err != nil || rec.Entry.Name == "" {
 			// A half-written tail is the expected shape of a crash. One
 			// unreadable line costs itself and nothing else.
 			skipped++
 			continue
 		}
 		out = append(out, item{
-			group:      rec.DistinctID + "\x00" + resourceKey(rec.Resource),
-			distinctID: rec.DistinctID,
+			group:    resourceKey(rec.Resource),
 			resource:   rec.Resource,
 			urgent:     rec.Entry.Severity != 0 && rec.Entry.Severity >= flushOnSeverity,
 			entry:      rec.Entry,
@@ -275,9 +273,8 @@ func (q *diskQueue) diagnose(level DiagnosticLevel, code, message string) {
 // produces, and dropping one line is still better than losing the file.
 func encodeRecord(it item) []byte {
 	b, err := json.Marshal(diskRecord{
-		DistinctID: it.distinctID,
-		Resource:   it.resource,
-		Entry:      it.entry,
+		Resource: it.resource,
+		Entry:    it.entry,
 	})
 	if err != nil {
 		return nil

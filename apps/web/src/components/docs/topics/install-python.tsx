@@ -37,7 +37,7 @@ export const topics: DocsTopic[] = [
             `import os\n` +
             `import firstrun\n\n` +
             `firstrun.configure(\n` +
-            `    source_key=os.environ["FIRSTRUN_SOURCE_KEY"],   # fr_server_...\n` +
+            `    source_key=os.environ["FIRSTRUN_SOURCE_KEY"],   # fr_9f3a2b1c4d5e6f70\n` +
             `    host="${ctx.vars.origin}",\n` +
             `    service_name="etl",\n` +
             `    persist_distinct_id=False,      # on a server the id belongs to the request\n` +

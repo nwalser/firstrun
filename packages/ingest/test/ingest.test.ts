@@ -328,7 +328,7 @@ describe("an unknown source key", () => {
   test("is rejected, and nothing is written", async () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
-        k: "fr_web_0123456789abcdef",
+        k: "fr_0123456789abcdef",
         d: "v_unknown",
         e: [entry("page_view")],
       }),

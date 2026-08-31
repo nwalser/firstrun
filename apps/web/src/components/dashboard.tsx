@@ -46,9 +46,11 @@ import {
 } from "./explore/presets.js";
 import type { Board, BoardWidget, QueryWidget } from "@firstrun/schema/board";
 import {
+  conditionFor,
   countConditions,
   emptyDiscovery,
   emptyFilter,
+  withConditions,
   type BoardSnapshot,
   type Discovery,
   type Filter,
@@ -83,7 +85,7 @@ import {
   Textarea,
 } from "./ui/index.js";
 import { LIVE_INTERVAL_MS, LIVE_TIMEOUT_MS, LiveBadge } from "./live-badge.js";
-import { WidgetBody, defaultTitle } from "./widgets.js";
+import { DrillProvider, WidgetBody, defaultTitle, type Drill } from "./widgets.js";
 
 /**
  * The board, and the editor for it.
@@ -126,6 +128,41 @@ const TYPING_DEBOUNCE_MS = 500;
  * the two are meant to agree.
  */
 const PALETTE_PANE_PX = 1024;
+
+/**
+ * A promise that cannot outlive the board.
+ *
+ * `fetch` has no timeout, so a request nobody answers and nobody resets is
+ * indistinguishable from one still on its way. Everything the board awaits sits
+ * behind a flag that gates the live refresh, so one unanswered call is not a
+ * slow save: it is a board that stops reading for the life of the page.
+ */
+function deadline<T>(work: Promise<T>): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("the request took too long")), LIVE_TIMEOUT_MS)
+    ),
+  ]);
+}
+
+/** The longest a failure may be before the toolbar keeps the rest on its `title`. */
+const ERROR_MAX = 120;
+
+/**
+ * A thrown value, cut to something one row of chrome can hold.
+ *
+ * The status line sits beside the mode toggle in a fixed-height row, and what
+ * lands here is not always a sentence somebody wrote: a schema refusal is a
+ * multi-line dump and a proxy failure is a page of HTML. Both used to push the
+ * toolbar wider than the pane and taller than its own step.
+ */
+function shortError(cause: unknown, fallback: string): string {
+  const text = cause instanceof Error ? cause.message.trim() : "";
+  if (!text) return fallback;
+  const line = text.split(/\r?\n/)[0]!.trim();
+  return line.length > ERROR_MAX ? `${line.slice(0, ERROR_MAX - 1)}…` : line;
+}
 
 export interface DashboardProps {
   workspaceSlug: string;
@@ -170,39 +207,23 @@ export function Dashboard(props: DashboardProps) {
   /** When the loader last answered. Read by the live badge, nothing else. */
   const [measuredAt, setMeasuredAt] = createSignal(new Date());
   /**
-   * An edit this browser has made and the server has not confirmed.
+   * How many edits this browser has made, and how many the server has confirmed.
    *
-   * True from the moment `persist` changes the local board until the save that
-   * carries the change comes back. It covers the DEBOUNCE as well as the
-   * request, which `state()` does not: a drag commit sits on a timer for 250ms
-   * and a keystroke for 500ms, and for that whole interval the change exists
-   * only in local state and in a closure.
+   * A COUNTER PAIR, not a boolean. A boolean is owned by whichever save settles
+   * last, and two can be outstanding at once: `clearTimeout` cancels a pending
+   * debounce, it does not recall a request already in flight. An un-debounced
+   * save (a range change, a filter, a card toggle) landing while a drag sits on
+   * its 250ms timer would clear the flag and reopen the window it exists to
+   * close.
+   *
+   * Confirming edit n confirms every edit before it, because each payload is
+   * derived from the board the previous one already applied, so `confirmed`
+   * only ever moves forward. `unsaved()` is then simply "the server has not
+   * seen my most recent change".
    */
-  const [unsaved, setUnsaved] = createSignal(false);
-
-  /**
-   * The loader is the source of truth, EXCEPT over an edit it has not seen.
-   *
-   * A loader answer arriving while a save is pending is an older board than the
-   * one on screen, and taking it would revert the card somebody just moved. The
-   * next `persist` would then derive its payload from the reverted copy and
-   * cancel the pending save on the way through, so the edit would be gone from
-   * the screen and from the server at once. The live poll makes that a real
-   * event rather than a theoretical one: it is a refetch every thirty seconds,
-   * forever, on every open board.
-   *
-   * The pending save always finishes by writing what the screen shows, so
-   * skipping the answer loses nothing: `setState("saved")` is followed by the
-   * loader's own invalidation on any change that needs one.
-   */
-  createEffect(
-    on(
-      () => props.layout,
-      (next) => {
-        if (!unsaved()) setBoard(next);
-      }
-    )
-  );
+  const [edits, setEdits] = createSignal(0);
+  const [confirmed, setConfirmed] = createSignal(0);
+  const unsaved = () => confirmed() < edits();
 
   let debounce: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(debounce));
@@ -217,27 +238,34 @@ export function Dashboard(props: DashboardProps) {
    */
   async function persist(next: Board, opts: PersistOptions = {}) {
     setBoard(next);
-    setUnsaved(true);
+    const edit = edits() + 1;
+    setEdits(edit);
     clearTimeout(debounce);
 
     const run = async () => {
       setState("saving");
       setError(null);
       try {
-        const result = await saveDashboard({
-          data: {
-            workspace: props.workspaceSlug,
-            project: props.projectSlug,
-            dashboardId: props.dashboardId,
-            layout: next,
-          },
-        });
+        const result = await deadline(
+          saveDashboard({
+            data: {
+              workspace: props.workspaceSlug,
+              project: props.projectSlug,
+              dashboardId: props.dashboardId,
+              layout: next,
+            },
+          })
+        );
         if (!result.ok) {
           setState("error");
           setError(result.error);
           return;
         }
-        if (opts.refetch) await router.invalidate();
+        // Raced like every other request here. This one used to be bare, which
+        // made it the single call able to strand the board: the confirmation
+        // below is in the `finally`, so a loader that never came back left the
+        // board refusing every future answer from it.
+        if (opts.refetch) await deadline(router.invalidate());
         setState("saved");
         setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 1600);
       } catch (cause) {
@@ -252,12 +280,18 @@ export function Dashboard(props: DashboardProps) {
           is in flight, never ran again.
         */
         setState("error");
-        setError(cause instanceof Error ? cause.message : i18n.t("common.error"));
+        setError(shortError(cause, i18n.t("common.error")));
       } finally {
-        // Whatever happened, this browser is no longer holding a change the
-        // server has not been told about. Leaving it set would freeze the board
-        // against every future loader answer.
-        setUnsaved(false);
+        /*
+          This edit is answered for, one way or the other.
+
+          `Math.max` rather than an assignment: an earlier save settling after a
+          later one must not walk the count backwards and reopen a window the
+          later save has already closed. Leaving it unconfirmed would freeze the
+          board against every future loader answer, which is why every await
+          above it now has a deadline on it.
+        */
+        setConfirmed((held) => Math.max(held, edit));
       }
     };
 
@@ -283,6 +317,35 @@ export function Dashboard(props: DashboardProps) {
     onPreview: (id, rect) => setBoard({ ...board(), widgets: withRect(id, rect) }),
     onCommit: (id, rect) =>
       void setWidgets(withRect(id, rect), { debounceMs: DRAG_SAVE_DEBOUNCE_MS }),
+  });
+
+  /**
+   * The loader is the source of truth, EXCEPT over something it has not seen.
+   *
+   * An answer arriving while an edit is pending is an older board than the one
+   * on screen, and taking it would revert the card somebody just moved: the
+   * next `persist` would then derive its payload from the reverted copy and
+   * cancel the pending save on the way through, so the edit would be gone from
+   * the screen and from the server at once. An answer arriving mid-GESTURE is
+   * worse still, because a drag writes the board on every pointer move without
+   * going through `persist` at all, so there is no pending save to notice.
+   *
+   * DEFERRED, not dropped. `on()` fires once per change, so a skipped answer
+   * used to be lost for good -- and that is not only a stale number: the
+   * component is not remounted between boards (the route renders it under a
+   * plain `Show`), so navigating to another board while a title keystroke was
+   * still on its debounce left the previous board's widgets under the new
+   * board's id. Tracking the last layout actually APPLIED means the effect
+   * re-runs when the gate opens and takes whatever is current then, and a save
+   * that produced no new answer is a no-op because the reference has not moved.
+   */
+  let applied: Board = props.layout;
+  createEffect(() => {
+    const next = props.layout;
+    const settled = !unsaved() && canvas.active() === null;
+    if (!settled || next === applied) return;
+    applied = next;
+    setBoard(next);
   });
 
   /**
@@ -321,12 +384,19 @@ export function Dashboard(props: DashboardProps) {
   /** The last beat failed or never came back. Cleared by the next one that does. */
   const [stalled, setStalled] = createSignal(false);
 
+  /**
+   * Whether this tab is in front, as a SIGNAL.
+   *
+   * `document.hidden` read inline is not reactive, so the badge could not
+   * follow it: the gate answered whatever was true the last time some other
+   * signal happened to change, and a board backgrounded while idle went on
+   * drawing a green dot over a board that had stopped reading. The listener
+   * below is the only thing that writes it.
+   */
+  const [visible, setVisible] = createSignal(true);
+
   const live = () =>
-    !canArrange() &&
-    canvas.active() === null &&
-    !unsaved() &&
-    state() !== "saving" &&
-    !(typeof document !== "undefined" && document.hidden);
+    !canArrange() && canvas.active() === null && !unsaved() && state() !== "saving" && visible();
 
   createEffect(
     on(
@@ -369,9 +439,12 @@ export function Dashboard(props: DashboardProps) {
       }
     }
 
+    setVisible(!document.hidden);
+
     const timer = setInterval(() => void beat(), LIVE_INTERVAL_MS);
     // Coming back to the tab is the one moment worth not waiting for.
     const wake = () => {
+      setVisible(!document.hidden);
       if (!document.hidden) void beat();
     };
     document.addEventListener("visibilitychange", wake);
@@ -450,6 +523,32 @@ export function Dashboard(props: DashboardProps) {
     the picker already offers, not a guess from a label on the source.
   */
   const palette = () => PRESETS;
+
+  /**
+   * Clicking a value on a card filters the BOARD by it.
+   *
+   * The board's filter rather than the card's, because the question a click
+   * asks is "show me this one", and answering it on the card that was clicked
+   * would leave every other card on the board still counting everything: one
+   * number narrowed and eight around it not, with nothing on screen saying
+   * which is which. As a board filter it lands in the toolbar's count, it is
+   * one control to take back off again, and it reaches the cards that were not
+   * clicked.
+   *
+   * It saves, like every other edit here, and it refetches, because a filter
+   * changes what the numbers mean. `withConditions` returns the same object
+   * when the board is already filtered by that value, so clicking the same row
+   * twice writes nothing.
+   */
+  const drill: Drill = (picks) => {
+    const held = board().filter;
+    const next = withConditions(
+      held,
+      picks.map((pick) => conditionFor(pick.field, pick.value))
+    );
+    if (next === held) return;
+    void persist({ ...board(), filter: next }, { refetch: true });
+  };
 
   const filterCount = () => countConditions(board().filter);
 
@@ -562,11 +661,15 @@ export function Dashboard(props: DashboardProps) {
           </p>
 
           <Show when={state() !== "idle"}>
+            {/* Truncated, and the whole of it on the `title`. This row does not
+                wrap and has one height, so a failure long enough to need two
+                lines would push the mode toggle off the end of it. */}
             <span
               class={cn(
-                "shrink-0 text-label-13",
+                "max-w-56 shrink-0 truncate text-label-13",
                 state() === "error" ? "text-negative" : "text-muted-foreground"
               )}
+              title={state() === "error" ? (error() ?? undefined) : undefined}
             >
               {state() === "saving"
                 ? i18n.t("common.saving")
@@ -586,6 +689,17 @@ export function Dashboard(props: DashboardProps) {
           */}
           <LiveBadge at={measuredAt()} now={now()} paused={!live() || stalled()} />
 
+          {/*
+            The mode toggle is the LAST thing in this row, permanently.
+
+            "Add card" used to appear beside it on entering arrange mode, and a
+            control that appears in a right-aligned row pushes every control
+            before it sideways: the toggle you had just clicked moved out from
+            under the pointer, along with the live badge and the save state. The
+            toolbar is the one part of this screen that must not move when the
+            mode does, because the mode is changed from it. Adding a card is on
+            the canvas now, where the card is going.
+          */}
           <Show when={props.canEdit}>
             <ModeToggle
               arranging={editing()}
@@ -594,19 +708,6 @@ export function Dashboard(props: DashboardProps) {
                 if (!arranging) setPaletteOpen(false);
               }}
             />
-            {/* Only while arranging: adding a card to a board you are only
-                looking at is the one action that implies the other mode. */}
-            <Show when={editing()}>
-              <Button
-                variant={paletteOpen() ? "secondary" : "outline"}
-                size="toolbar"
-                aria-expanded={paletteOpen()}
-                onClick={() => setPaletteOpen((open) => !open)}
-              >
-                <Plus size={14} />
-                {i18n.t("dashboard.add_card")}
-              </Button>
-            </Show>
           </Show>
         </div>
 
@@ -630,6 +731,24 @@ export function Dashboard(props: DashboardProps) {
             "@lg-page/page:flex-row @lg-page/page:items-start @lg-page/page:gap-6"
           )}
         >
+          {/*
+            The canvas, and the one control that belongs to it.
+
+            `relative` so the add button can be pinned to the board rather than
+            to the toolbar: it is an action on the canvas, it appears only while
+            the canvas is arrangeable, and appearing costs no layout anywhere.
+          */}
+          <div class="relative min-w-0 flex-1">
+          {/*
+            Cards can be clicked THROUGH into the board's filter, but only while
+            the board is being read and only by somebody who can change it.
+
+            Arrange mode withdraws it because a press on a card there is the
+            start of a drag, and a reader is not offered it because the filter
+            is saved: an edit they cannot make is a click that would fail on the
+            server. Rule 8 says the same thing on the other side of the wire.
+          */}
+          <DrillProvider value={() => (props.canEdit && !editing() ? drill : null)}>
           <Canvas
             class="min-w-0 flex-1"
             height={canvasHeight(occupied())}
@@ -695,6 +814,29 @@ export function Dashboard(props: DashboardProps) {
               </div>
             </Show>
           </Canvas>
+          </DrillProvider>
+
+          {/*
+            Sticky to the bottom of the viewport while the board is in view, so
+            it is reachable from anywhere on a board taller than the screen
+            without ever sitting over the row of cards at the top. It fades in
+            rather than appearing, matching the card chrome that arrives with it.
+          */}
+          <Show when={canArrange()}>
+            <div class="pointer-events-none sticky bottom-6 z-40 flex justify-end pr-1">
+              <Button
+                variant={paletteOpen() ? "secondary" : "default"}
+                size="toolbar"
+                aria-expanded={paletteOpen()}
+                class="pointer-events-auto shadow-lg animate-in fade-in-0 zoom-in-95 duration-150"
+                onClick={() => setPaletteOpen((open) => !open)}
+              >
+                <Plus size={14} />
+                {i18n.t("dashboard.add_card")}
+              </Button>
+            </div>
+          </Show>
+          </div>
 
           {/*
             The palette as a rail, whenever the pane is wide enough to hold one.
@@ -751,12 +893,19 @@ export function Dashboard(props: DashboardProps) {
         open={paletteOpen() && canArrange() && !paletteIsRail()}
         onOpenChange={setPaletteOpen}
       >
-        <SheetContent>
+        {/* A list of one-line rows, so it is opened at the width of a list.
+            The rail beside a wide board is 404px and this is the same shape at
+            the same reading width: a preset whose name is cut in half is a
+            preset somebody has to open to find out what it is. */}
+        <SheetContent size="md">
           <SheetHeader>
             <SheetTitle>{i18n.t("dashboard.palette_title")}</SheetTitle>
             <SheetDescription>{paletteHint()}</SheetDescription>
           </SheetHeader>
-          <SheetBody class="px-2">
+          {/* The rows keep their own gutter at both panel widths: a row that
+              highlights on hover has to reach nearly to the edge, and the
+              drawer's 16/24 would leave the fill floating. */}
+          <SheetBody class="px-2 @md-panel/panel:px-2">
             <PresetList presets={palette()} onPick={add} />
           </SheetBody>
         </SheetContent>
@@ -764,7 +913,9 @@ export function Dashboard(props: DashboardProps) {
 
       {/* The board's own filter. Applied to every card before any key is derived. */}
       <Sheet open={filtering()} onOpenChange={setFiltering}>
-        <SheetContent>
+        {/* Wide enough for the condition row to keep field, operator and value
+            on one line. See the note on that row in `explore/builder.tsx`. */}
+        <SheetContent size="lg">
           <SheetHeader>
             <SheetTitle>{i18n.t("dashboard.board_filter_title")}</SheetTitle>
             <SheetDescription>{i18n.t("dashboard.board_filter_body")}</SheetDescription>
@@ -796,7 +947,7 @@ export function Dashboard(props: DashboardProps) {
 
       {/* Per-card settings: the query builder itself. Never inline. */}
       <Sheet open={configuring() !== null} onOpenChange={(open) => !open && setConfiguring(null)}>
-        <SheetContent class="sm:max-w-2xl">
+        <SheetContent size="xl">
           <Show when={current()}>
             {(widget) => (
               <>
@@ -1051,18 +1202,36 @@ function BoardCard(props: {
       active={dragging()}
       class={cn(
         "group/card rounded-md",
-        // The dashed frame is the CELL: the outer wall the card is padded
-        // inside, which is the thing a drag moves and the thing the handles sit
-        // on. Drawn only while arranging, so nothing about a board being read
-        // says there is a box around each card.
-        //
-        // An outline, not a border: a border would take part in layout and push
-        // the card a pixel off its own wall. The colour is transitioned because
-        // the control strip in the same corner fades rather than appearing, and
-        // a frame that snaps while the buttons on top of it fade reads as two
-        // separate answers to one hover.
-        props.arranging &&
-          "outline-1 outline-dashed outline-offset-0 outline-border transition-colors hover:outline-ring"
+        /*
+          The dashed frame is the CELL: the outer wall the card is padded
+          inside, which is the thing a drag moves and the thing the handles sit
+          on. An outline, not a border: a border would take part in layout and
+          push the card a pixel off its own wall.
+
+          ON HOVER ONLY. Drawn on every card at once it was a second edge
+          around something that already has one: the card's own hairline is a
+          ring two gutters inside this, so arrange mode boxed every card twice
+          and the board read as a wireframe of itself. What the frame is for is
+          saying WHICH card a press will pick up and how far out its grab area
+          reaches, and that is a question about one card at a time.
+
+          IT IS ALWAYS DECLARED, and only its colour changes with the mode.
+
+          Drawn conditionally it flashed blue on every switch into arrange mode.
+          The base layer gives every element `outline-color: var(--ring)`, so a
+          card with no outline rule of its own is already holding the focus blue
+          as its outline colour; adding one that transitions its colour animated
+          FROM that blue to the hairline, on every card at once. Declaring the
+          transparent state as well means the transition runs between two
+          colours this component actually chose.
+
+          The colour is still transitioned, because the control strip in the
+          same corner fades rather than appearing, and a frame that snaps while
+          the buttons on top of it fade reads as two separate answers to one
+          hover.
+        */
+        "outline-1 outline-dashed outline-offset-0 outline-transparent transition-colors",
+        props.arranging && "hover:outline-ring"
       )}
       aria-label={title()}
       {...props.canvas.focusProps(id())}

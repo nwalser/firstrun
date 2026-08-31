@@ -41,7 +41,6 @@ export interface FeedRow {
   time: Date;
   /** Ours, for debugging. Shown beside `time`, never sorted or bucketed on. */
   ingestedAt: Date;
-  distinctId: string;
   severity: number | null;
   name: string;
   /**
@@ -105,7 +104,16 @@ export const FEED_MAX_ROWS = 200;
  * `packages/schema/src/log.ts`), and no client of ours emits it, so there is no
  * convention entry to point at.
  */
-const SEARCHED = [ATTR.EXCEPTION_MESSAGE, "body"] as const;
+const SEARCHED = [
+  ATTR.EXCEPTION_MESSAGE,
+  "body",
+  // The three identity keys, which used to be reachable through the
+  // `distinct_id` column. They are attributes now, and all three are optional,
+  // so a row that carries none of them simply never matches an id search.
+  ATTR.USER_ID,
+  ATTR.DEVICE_ID,
+  ATTR.SESSION_ID,
+] as const;
 
 /**
  * A compiled fragment, put back onto drizzle's own binder.
@@ -174,7 +182,6 @@ export async function feedEntries(db: Database, params: FeedParams): Promise<Fee
     const pattern = `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     const fields = [
       raw`${logEntries.name}`,
-      raw`${logEntries.distinctId}`,
       ...SEARCHED.map((key) => raw`${logEntries.attributes} ->> ${key}`),
     ];
     conditions.push(
@@ -280,7 +287,6 @@ async function selectRows(
     entry_id: string;
     time: string;
     ingested_at: string;
-    distinct_id: string;
     severity: number | string | null;
     name: string;
     attributes: Record<string, AttributeValue> | null;
@@ -291,7 +297,6 @@ async function selectRows(
            ${logEntries.entryId}     as entry_id,
            ${logEntries.time}        as time,
            ${logEntries.ingestedAt}  as ingested_at,
-           ${logEntries.distinctId}  as distinct_id,
            ${logEntries.severity}    as severity,
            ${logEntries.name}        as name,
            ${logEntries.attributes}  as attributes
@@ -313,7 +318,6 @@ async function selectRows(
     // as `max(time)` in `sourceLastSeen`.
     time: new Date(r.time),
     ingestedAt: new Date(r.ingested_at),
-    distinctId: r.distinct_id,
     severity: r.severity === null ? null : Number(r.severity),
     attributes: r.attributes ?? {},
     name: r.name,

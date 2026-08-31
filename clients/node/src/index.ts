@@ -1,4 +1,6 @@
 export { Firstrun } from "./client.js";
+export { currentContext, runWithContext, updateContext } from "./context.js";
+export type { RequestContext } from "./context.js";
 export { DELIVERY_DEFAULTS } from "./delivery.js";
 export type {
   DeliveryMode,

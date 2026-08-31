@@ -1,7 +1,9 @@
 {
   "name": "@firstrun/analytics",
   "version": "0.1.0",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -28,6 +30,18 @@
       "types": "./types/vue.d.ts",
       "default": "./dist/vue.js"
     },
+    "./nuxt": {
+      "types": "./types/nuxt.d.ts",
+      "default": "./dist/nuxt.js"
+    },
+    "./solid": {
+      "types": "./types/solid.d.ts",
+      "default": "./dist/solid.js"
+    },
+    "./angular": {
+      "types": "./types/angular.d.ts",
+      "default": "./dist/angular.js"
+    },
     "./astro": "./frameworks/astro/Analytics.astro",
     "./package.json": "./package.json"
   },
@@ -38,26 +52,33 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun run build.ts"
-  },
-  "dependencies": {
-    "@firstrun/web-tag": "workspace:*"
+    "build": "bun run build.ts",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
+    "@angular/core": ">=19",
+    "@angular/router": ">=19",
     "astro": ">=4",
     "next": ">=13.4",
+    "nuxt": ">=3",
     "react": ">=17",
+    "solid-js": ">=1.8",
     "svelte": ">=4",
     "vue": ">=3"
   },
   "peerDependenciesMeta": {
+    "@angular/core": { "optional": true },
+    "@angular/router": { "optional": true },
     "astro": { "optional": true },
     "next": { "optional": true },
+    "nuxt": { "optional": true },
     "react": { "optional": true },
+    "solid-js": { "optional": true },
     "svelte": { "optional": true },
     "vue": { "optional": true }
   },
   "devDependencies": {
+    "@firstrun/web-tag": "workspace:*",
     "esbuild": "^0.24.2"
   }
 }

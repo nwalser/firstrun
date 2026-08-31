@@ -36,7 +36,7 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
-  hairlineBottom,
+  ShellTopbar,
   useSidebar,
 } from "../ui/index.js";
 import { OnThisPage } from "./on-this-page.js";
@@ -229,60 +229,48 @@ export function DocsShell(props: {
 
         <SidebarInset>
           {/*
-            The app's topbar, unchanged: 56px, three columns at 1 / 2 / 1 so the
-            middle cell is centred on the pane rather than on whatever the left
-            cell happens to be wide, and one device pixel of separation from the
-            content.
+            The app's topbar, and literally the app's component: 56px, three
+            columns at 1 / 2 / 1, one device pixel of separation. The cell the
+            app fills with the project switcher carries only the sidebar toggle
+            here, because the documentation has no second scope to switch and
+            the way back into the app is in the sidebar with every other back
+            control. The cell itself remains so the centred breadcrumb keeps its
+            centre.
+
+            The trailing cell holds the source, and the notice that goes with
+            it.
+
+            Not in the navigation column, which is the mistake this replaces.
+            The picker is not navigation: it does not change what page you are
+            on, it changes what the page in front of you SAYS -- and a control
+            that rewrites the thing you are reading belongs next to the thing
+            you are reading, not in the list of places you could go instead. It
+            also has to stay put while the column is collapsed to a strip, and a
+            row that is a 36px square with no label cannot say which source is
+            selected.
+
+            The notice is the same idea one step earlier -- these keys are not
+            real yet -- so it sits immediately before the control that fixes it,
+            and drops off first when the bar runs out of room.
           */}
-          <header
-            class={cn(
-              "@container/bar sticky top-0 z-chrome grid h-14 shrink-0 items-center gap-2",
-              "bg-card md:bg-background",
-              "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]",
-              hairlineBottom
-            )}
+          <ShellTopbar
+            leading={<ExpandSidebar />}
+            trailing={
+              <>
+                <Show when={!selection.source()}>
+                  <PlaceholderNotice class="hidden @3xl/bar:flex" />
+                </Show>
+                <SourcePicker
+                  sources={sources()}
+                  signedIn={props.context.signedIn}
+                  selected={selection.source()}
+                  onSelect={selection.setSource}
+                />
+              </>
+            }
           >
-            {/*
-              The cell the app fills with the project switcher stays empty here.
-              The documentation has no second scope to switch, and the way back into the
-              app is in the sidebar with every other back control. The cell
-              itself remains so the centred breadcrumb keeps its centre.
-            */}
-            <div class="z-10 flex min-w-0 items-center overflow-hidden pl-4">
-              <ExpandSidebar />
-            </div>
-
             <DocsBreadcrumb />
-
-            {/*
-              The source, and the notice that goes with it, in the topbar's
-              trailing cell.
-
-              Not in the navigation column, which is the mistake this replaces.
-              The picker is not navigation: it does not change what page you are
-              on, it changes what the page in front of you SAYS -- and a control
-              that rewrites the thing you are reading belongs next to the thing
-              you are reading, not in the list of places you could go instead.
-              It also has to stay put while the column is collapsed to a strip,
-              and a row that is a 36px square with no label cannot say which
-              source is selected.
-
-              The notice is the same idea one step earlier -- these keys are not
-              real yet -- so it sits immediately before the control that fixes
-              it, and drops off first when the bar runs out of room.
-            */}
-            <div class="flex min-w-0 items-center justify-self-end gap-2 pr-4">
-              <Show when={!selection.source()}>
-                <PlaceholderNotice class="hidden @3xl/bar:flex" />
-              </Show>
-              <SourcePicker
-                sources={sources()}
-                signedIn={props.context.signedIn}
-                selected={selection.source()}
-                onSelect={selection.setSource}
-              />
-            </div>
-          </header>
+          </ShellTopbar>
 
           {/*
             The only scroll container on the page, and the container QUERY

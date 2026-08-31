@@ -31,7 +31,7 @@ export interface Entry {
 }
 
 export interface AnalyticsConfig {
-  /** The source key from the workspace's Sources page, `fr_web_…`. */
+  /** The source key from the workspace's Sources page, `fr_9f3a2b1c4d5e6f70`. */
   sourceKey: string;
   /** Ingest origin, e.g. `https://t.themia.app`. */
   host: string;
@@ -62,7 +62,9 @@ export declare function stop(): void;
 export declare function event(name: string, attributes?: Attrs): void;
 export declare function error(err: unknown, attributes?: Attrs): void;
 export declare function log(entry: Entry): void;
-export declare function identify(userId?: string | null): void;
+export declare function user(userId?: string | null): void;
+export declare function device(deviceId?: string | null): void;
+export declare function session(sessionId: string): void;
 export declare function consent(granted: boolean): void;
 export declare function page(): void;
 export declare function navigated(): void;

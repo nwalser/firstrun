@@ -104,10 +104,6 @@ export const sources = {
   "sources.step_install": "Install",
   "sources.step_details_title": "Name it",
   "sources.step_details_hint": "Only ever shown to you and the people in this workspace.",
-  "sources.asset_label": "Application name",
-  "sources.asset_hint":
-    "Optional. Used in the install guide snippets so they arrive naming your app. Nothing " +
-    "sent by a client refers to it.",
   "sources.make_board": "Make a board for it",
   "sources.ready": "{name} is ready",
   "sources.ready_hint":

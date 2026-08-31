@@ -76,7 +76,6 @@ export const ENTRY_COLUMNS = [
   "time",
   "name",
   "severity",
-  "distinct_id",
   "entry_id",
   "ingested_at",
 ] as const;
@@ -87,12 +86,14 @@ const isEntryColumn = (s: unknown): s is EntryColumn =>
   typeof s === "string" && (ENTRY_COLUMNS as readonly string[]).includes(s);
 
 /**
- * The one attribute key this file names, because the unique definition names
- * it. `ATTR_SEGMENT_RE` and `MAX_ATTR_PATH` come from the contract too: the
+ * The only attribute keys this file names, because the unique definition names
+ * them. `ATTR_SEGMENT_RE` and `MAX_ATTR_PATH` come from the contract too: the
  * compiler and the validator have to agree on what a path is, and two copies of
  * a regex is how they stop agreeing.
+ *
+ * Order matters and is the definition: best available identity first.
  */
-const USER_ID_ATTR = ATTR.USER_ID;
+const UNIQUE_ATTRS = [ATTR.USER_ID, ATTR.DEVICE_ID, ATTR.SESSION_ID] as const;
 
 export type Scalar = string | number | boolean | null;
 
@@ -100,11 +101,19 @@ export type Scalar = string | number | boolean | null;
  * Where a value comes from.
  *
  * `unique` is not a column and not an attribute: it is the ONE definition of a
- * unique in this product, `coalesce(attributes ->> 'user.id', distinct_id)`. An
- * identified client folds into its user; an anonymous one stands alone; nothing
- * else ever merges two ids. It is a case in the AST rather than something a
- * caller assembles, because a caller who assembled it slightly differently
- * would produce a number that looked like a unique count and was not.
+ * unique in this product, `coalesce` over `user.id`, `device.id` and
+ * `session.id` in that order. Best available identity wins: an identified
+ * client folds into its user, an anonymous one falls back on its machine, and a
+ * client that knows neither is counted once per visit. Nothing else ever merges
+ * two ids, and two sources are never folded together at all.
+ *
+ * An entry carrying none of the three yields NULL and is counted in no unique.
+ * `count(distinct ...)` already ignores nulls, so a server that never set an
+ * identity reports zero uniques on however many entries, which is the truth.
+ *
+ * It is a case in the AST rather than something a caller assembles, because a
+ * caller who assembled it slightly differently would produce a number that
+ * looked like a unique count and was not.
  */
 export type Field =
   | { kind: "column"; column: EntryColumn }
@@ -374,7 +383,6 @@ const COLUMN_SQL: Record<EntryColumn, string> = {
   time: `"time"`,
   name: `"name"`,
   severity: `"severity"`,
-  distinct_id: `"distinct_id"`,
   entry_id: `"entry_id"`,
   ingested_at: `"ingested_at"`,
 };
@@ -395,8 +403,10 @@ function textExpr(field: Field, p: Params): string {
       return `${p.col(field.column)}::text`;
     case "attribute":
       return `${p.attributes} #>> ${p.bind(field.path, "::text[]")}`;
-    case "unique":
-      return `coalesce(${p.attributes} ->> ${p.bind(USER_ID_ATTR)}, ${p.col("distinct_id")})`;
+    case "unique": {
+      const reads = UNIQUE_ATTRS.map((key) => `${p.attributes} ->> ${p.bind(key)}`);
+      return `coalesce(${reads.join(", ")})`;
+    }
   }
 }
 
@@ -596,10 +606,13 @@ function inExpr(field: Field, values: readonly Scalar[], p: Params): string {
  *
  * A single-segment path is `?`, which the GIN index answers directly. A deeper
  * one has to walk, and says so. A promoted column is a plain NOT NULL, and
- * `distinct_id`, `name`, `time` and `entry_id` are NOT NULL in the schema, so
- * asking whether they exist is always true -- left as written rather than
- * folded to TRUE, because a filter that vanished would be harder to debug than
- * one that reads as trivially satisfied in the plan.
+ * `name`, `time` and `entry_id` are NOT NULL in the schema, so asking whether
+ * they exist is always true -- left as written rather than folded to TRUE,
+ * because a filter that vanished would be harder to debug than one that reads
+ * as trivially satisfied in the plan.
+ *
+ * `unique` is the interesting case: it is nullable now, so "is set" over it
+ * really does ask whether this entry carries any identity at all.
  */
 function existsExpr(field: Field, p: Params): string {
   if (field.kind === "attribute") {
@@ -618,7 +631,7 @@ const escapeLike = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
  * The value bound against a promoted column, in the type the column has.
  *
  * `pg` sends a JS string as text and lets Postgres infer, which is right for
- * `name` and `distinct_id` and wrong for `time`: a filter on time wants a
+ * `name` and wrong for `time`: a filter on time wants a
  * timestamp so the btree is usable rather than a string comparison that is not.
  */
 function columnValue(column: EntryColumn, value: unknown): unknown {

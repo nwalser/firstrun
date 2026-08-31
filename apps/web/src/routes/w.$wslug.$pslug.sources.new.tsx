@@ -62,7 +62,6 @@ function NewSource() {
 
   const [step, setStep] = createSignal(0);
   const [name, setName] = createSignal("");
-  const [assetName, setAssetName] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [created, setCreated] = createSignal<{ sourceId: string; ingestKey: string } | null>(null);
@@ -77,7 +76,6 @@ function NewSource() {
         workspace: view().workspace.slug,
         project: view().project.slug,
         name: name().trim(),
-        ...(assetName().trim() ? { assetName: assetName().trim() } : {}),
       },
     });
     setBusy(false);
@@ -220,22 +218,6 @@ function NewSource() {
                   placeholder="themia.app"
                   value={name()}
                   onInput={(e) => setName(e.currentTarget.value)}
-                />
-              </Field>
-
-              {/*
-                A label, not a mechanism. It is what the install guides put in
-                the SDK snippet's app name, so a reader copying one gets their
-                own application named back at them instead of "YourApp".
-              */}
-              <Field
-                label={i18n.t("sources.asset_label")}
-                description={i18n.t("sources.asset_hint")}
-              >
-                <Input
-                  placeholder="Themia"
-                  value={assetName()}
-                  onInput={(e) => setAssetName(e.currentTarget.value)}
                 />
               </Field>
 

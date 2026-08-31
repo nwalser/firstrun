@@ -62,6 +62,16 @@ namespace Firstrun
         /// The overload for a server: the anonymous id is not a property of the machine,
         /// so it is not persisted and every call is expected to pass its own.
         /// </summary>
+        /// <remarks>
+        /// <see cref="FirstrunOptions.SessionPerProcess"/> goes off for the same reason
+        /// the anonymous id does. A desktop process is one sitting and its lifetime really
+        /// is a session; a server process serves thousands of unrelated callers for weeks,
+        /// so a session id minted at construction would put one value on every entry the
+        /// box ever sends and make <c>count(distinct session.id)</c> answer "how many
+        /// restarts". With it off, <c>session.id</c> appears only where something names
+        /// one: a per-call argument, or the scope
+        /// <c>FirstrunMiddlewareOptions.SessionId</c> opens per request.
+        /// </remarks>
         public static IServiceCollection AddFirstrunServer(this IServiceCollection services,
                                                            string sourceKey, string host,
                                                            Action<FirstrunOptions>? configure = null)
@@ -70,8 +80,9 @@ namespace Firstrun
             {
                 options.SourceKey = sourceKey;
                 options.Host = host;
-                options.PersistDistinctId = false;
+                options.PersistDeviceId = false;
                 options.TrackLifecycleEvents = false;
+                options.SessionPerProcess = false;
                 configure?.Invoke(options);
             });
         }

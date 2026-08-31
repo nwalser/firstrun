@@ -10,9 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminDatabaseRouteImport } from './routes/admin.database'
+import { Route as AdminPartitionsRouteImport } from './routes/admin.partitions'
+import { Route as AdminWorkspacesRouteImport } from './routes/admin.workspaces'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsTopicRouteImport } from './routes/docs.$topic'
 import { Route as WWslugRouteImport } from './routes/w.$wslug'
@@ -43,6 +48,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
@@ -57,6 +67,26 @@ const NewRoute = NewRouteImport.update({
   id: '/new',
   path: '/new',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDatabaseRoute = AdminDatabaseRouteImport.update({
+  id: '/database',
+  path: '/database',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminPartitionsRoute = AdminPartitionsRouteImport.update({
+  id: '/partitions',
+  path: '/partitions',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminWorkspacesRoute = AdminWorkspacesRouteImport.update({
+  id: '/workspaces',
+  path: '/workspaces',
+  getParentRoute: () => AdminRoute,
 } as any)
 const DocsIndexRoute = DocsIndexRouteImport.update({
   id: '/',
@@ -183,11 +213,16 @@ const WWslugPslugSourcesNewRoute = WWslugPslugSourcesNewRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
+  '/admin/database': typeof AdminDatabaseRoute
+  '/admin/partitions': typeof AdminPartitionsRoute
+  '/admin/workspaces': typeof AdminWorkspacesRoute
   '/docs/$topic': typeof DocsTopicRoute
   '/w/$wslug': typeof WWslugRouteWithChildren
+  '/admin/': typeof AdminIndexRoute
   '/docs/': typeof DocsIndexRoute
   '/w/$wslug/$pslug': typeof WWslugPslugRouteWithChildren
   '/w/$wslug/events': typeof WWslugEventsRouteWithChildren
@@ -215,7 +250,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
+  '/admin/database': typeof AdminDatabaseRoute
+  '/admin/partitions': typeof AdminPartitionsRoute
+  '/admin/workspaces': typeof AdminWorkspacesRoute
   '/docs/$topic': typeof DocsTopicRoute
+  '/admin': typeof AdminIndexRoute
   '/docs': typeof DocsIndexRoute
   '/w/$wslug/members': typeof WWslugMembersRoute
   '/w/$wslug/sources': typeof WWslugSourcesRoute
@@ -238,11 +277,16 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/docs': typeof DocsRouteWithChildren
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
+  '/admin/database': typeof AdminDatabaseRoute
+  '/admin/partitions': typeof AdminPartitionsRoute
+  '/admin/workspaces': typeof AdminWorkspacesRoute
   '/docs/$topic': typeof DocsTopicRoute
   '/w/$wslug': typeof WWslugRouteWithChildren
+  '/admin/': typeof AdminIndexRoute
   '/docs/': typeof DocsIndexRoute
   '/w/$wslug/$pslug': typeof WWslugPslugRouteWithChildren
   '/w/$wslug/events': typeof WWslugEventsRouteWithChildren
@@ -270,11 +314,16 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/docs'
     | '/login'
     | '/new'
+    | '/admin/database'
+    | '/admin/partitions'
+    | '/admin/workspaces'
     | '/docs/$topic'
     | '/w/$wslug'
+    | '/admin/'
     | '/docs/'
     | '/w/$wslug/$pslug'
     | '/w/$wslug/events'
@@ -302,7 +351,11 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/new'
+    | '/admin/database'
+    | '/admin/partitions'
+    | '/admin/workspaces'
     | '/docs/$topic'
+    | '/admin'
     | '/docs'
     | '/w/$wslug/members'
     | '/w/$wslug/sources'
@@ -324,11 +377,16 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/docs'
     | '/login'
     | '/new'
+    | '/admin/database'
+    | '/admin/partitions'
+    | '/admin/workspaces'
     | '/docs/$topic'
     | '/w/$wslug'
+    | '/admin/'
     | '/docs/'
     | '/w/$wslug/$pslug'
     | '/w/$wslug/events'
@@ -355,6 +413,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   DocsRoute: typeof DocsRouteWithChildren
   LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
@@ -368,6 +427,13 @@ declare module '@tanstack/solid-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -390,6 +456,34 @@ declare module '@tanstack/solid-router' {
       fullPath: '/new'
       preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/database': {
+      id: '/admin/database'
+      path: '/database'
+      fullPath: '/admin/database'
+      preLoaderRoute: typeof AdminDatabaseRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/partitions': {
+      id: '/admin/partitions'
+      path: '/partitions'
+      fullPath: '/admin/partitions'
+      preLoaderRoute: typeof AdminPartitionsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/workspaces': {
+      id: '/admin/workspaces'
+      path: '/workspaces'
+      fullPath: '/admin/workspaces'
+      preLoaderRoute: typeof AdminWorkspacesRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/docs/': {
       id: '/docs/'
@@ -562,6 +656,22 @@ declare module '@tanstack/solid-router' {
   }
 }
 
+interface AdminRouteChildren {
+  AdminDatabaseRoute: typeof AdminDatabaseRoute
+  AdminPartitionsRoute: typeof AdminPartitionsRoute
+  AdminWorkspacesRoute: typeof AdminWorkspacesRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminDatabaseRoute: AdminDatabaseRoute,
+  AdminPartitionsRoute: AdminPartitionsRoute,
+  AdminWorkspacesRoute: AdminWorkspacesRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 interface DocsRouteChildren {
   DocsTopicRoute: typeof DocsTopicRoute
   DocsIndexRoute: typeof DocsIndexRoute
@@ -666,6 +776,7 @@ const WWslugRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   DocsRoute: DocsRouteWithChildren,
   LoginRoute: LoginRoute,
   NewRoute: NewRoute,

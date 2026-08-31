@@ -29,36 +29,7 @@ import (
 
 // sourceKeyRE matches fr_<16 hex>. The middle segment used to name the kind of
 // source the key belonged to; there are no kinds of source.
-var sourceKeyRE = regexp.MustCompile(`^fr_[0-9a-f]{16}package firstrun
-
-import (
-	cryptorand "crypto/rand"
-	"encoding/hex"
-	"math"
-	"regexp"
-	"sync/atomic"
-	"time"
-)
-
-// The parts of the wire contract this client has to know, copied by hand from
-// packages/schema/src/log.ts, severity.ts, attributes.ts and conventions.ts.
-//
-// A published client outlives the server it was built against: pinning the
-// shape here means an old binary keeps sending a body the edge still
-// understands, rather than one that drifted with a version bump nobody
-// redeployed. If the contract moves, this file moves with it.
-//
-// # One shape for everything
-//
-// There is no event type, no error type and no metric type. There is a LOG
-// ENTRY, and that is all there is. An error is an entry with a high severity
-// and exception.* attributes. A measurement is an entry carrying
-// firstrun.metric and firstrun.value. A product event is an entry with a name
-// and whatever attributes the caller thought were worth keeping. Meaning is
-// assigned by CONVENTION when it is written and by QUERY when it is read, never
-// by a closed set of types in the backend.
-
-)
+var sourceKeyRE = regexp.MustCompile(`^fr_[0-9a-f]{16}$`)
 
 // logNameRE is the only check any entry name gets. There is no allowlist:
 // ':' and '>' are excluded because the server reserves them as key delimiters,
@@ -68,7 +39,7 @@ var logNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 const (
 	// maxEntriesPerBatch is the server's hard limit. A larger body is rejected whole.
 	maxEntriesPerBatch = 500
-	// maxIDLen bounds distinct_id and the id-shaped attributes.
+	// maxIDLen bounds the three identity attributes.
 	maxIDLen = 512
 	// ingestPath is the one ingestion route. Every body shape goes to it.
 	ingestPath = "/v1/e"
@@ -149,6 +120,7 @@ const (
 
 	AttrSessionID = "session.id"
 	AttrUserID    = "user.id"
+	AttrDeviceID  = "device.id"
 
 	AttrServiceName    = "service.name"
 	AttrServiceVersion = "service.version"
@@ -192,8 +164,6 @@ type Attributes = map[string]any
 type logBatch struct {
 	// SourceKey identifies a destination and authorises nothing.
 	SourceKey string `json:"k"`
-	// DistinctID is the anonymous id every entry in this body is attributed to.
-	DistinctID string `json:"d"`
 	// Resource is what is true of the whole PROCESS rather than of one entry:
 	// the build, the operating system, the release channel. It sits once per
 	// body because it does not change between two entries in the same request,
@@ -228,15 +198,15 @@ type wireEntry struct {
 
 // item is one queued entry with the batch-level context it must travel with.
 //
-// The distinct id and the resource sit on the batch rather than on the entry, so
-// two entries may only share a request if both match. group is that pair
-// flattened into a comparable key.
+// The resource sits on the batch rather than on the entry, so two entries may
+// only share a request if their resources match. group is that resource
+// flattened into a comparable key. Identity lives in the resource, so grouping
+// on it is also what keeps two people out of one body.
 type item struct {
 	group string
-	// distinctID and resource are carried alongside the key so the batch can be
-	// built without parsing it back out.
-	distinctID string
-	resource   Attributes
+	// resource is carried alongside the key so the batch can be built without
+	// parsing it back out.
+	resource Attributes
 	// urgent means this entry is at or above Options.FlushOnSeverity and goes
 	// out at once whatever the schedule says.
 	urgent bool

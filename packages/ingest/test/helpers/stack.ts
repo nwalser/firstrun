@@ -51,8 +51,8 @@ export async function createTestStack(): Promise<TestStack> {
   });
   const workspace = await createWorkspace(store.db, `Test WS ${suffix}`, user.id);
   const project = await createProject(store.db, workspace.id, `Test ${suffix}`);
-  const web = await createSource(store.db, project.id, "site", null);
-  const app = await createSource(store.db, project.id, "app", null);
+  const web = await createSource(store.db, project.id, "site");
+  const app = await createSource(store.db, project.id, "app");
 
   let nowFn: () => number = () => Date.now();
 

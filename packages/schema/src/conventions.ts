@@ -32,12 +32,18 @@ export const ATTR = {
   /** Whether the exception escaped the scope it was recorded in. */
   EXCEPTION_ESCAPED: "exception.escaped",
 
-  /** The session this entry belongs to. Whatever the client calls a session. */
+  /**
+   * The session this entry belongs to: whatever the client last passed to
+   * `session()`. Optional, like the other two.
+   *
+   * There is no `session.previous_id` and no other breadcrumb linking one
+   * session to the one before it. Rotating a session ends it; if the customer
+   * wants two visits joined they call `user()` with the same id on both, which
+   * is the only join this product has.
+   */
   SESSION_ID: "session.id",
-  /** The previous session, when a client rotates one. */
-  SESSION_PREVIOUS_ID: "session.previous_id",
 
-  /** Whatever the customer passed to `identify()`. Their id, their meaning. */
+  /** Whatever the customer passed to `user()`. Their id, their meaning. */
   USER_ID: "user.id",
 
   /** The build of the customer's own software that emitted this. */
@@ -63,7 +69,22 @@ export const ATTR = {
 
   /** The BCP-47 tag the client reported. */
   BROWSER_LANGUAGE: "browser.language",
+
+  /**
+   * The machine this entry came from, when there honestly is one to name.
+   *
+   * Whatever the client last passed to `device()`. A desktop client fills it in
+   * from the id it persists to local storage, because an installation IS a
+   * machine there. A browser leaves it UNSET unless the customer has switched
+   * fingerprinting on and the visitor has consented, because in a browser there
+   * is no device to find out: a storage key is a storage key. A server leaves
+   * it unset unless the developer had one to give.
+   *
+   * Absent means we do not know, and that is a legitimate answer rather than a
+   * hole to fill with something derived. Nothing on the server ever infers it.
+   */
   DEVICE_ID: "device.id",
+
   CLIENT_ADDRESS: "client.address",
 
   // --- Ours. Namespaced, because OTel has not named these ----------------
@@ -102,6 +123,34 @@ export const ATTR = {
 
   /** How long something took, in milliseconds. */
   DURATION_MS: "firstrun.duration_ms",
+  /** How far down a page somebody got, 0 to 100. Written by `page_leave`. */
+  SCROLL_PCT: "firstrun.scroll_pct",
+
+  /** The lower-cased extension that made a link a download: `exe`, `zip`. */
+  FILE_EXT: "firstrun.file.ext",
+  /** The `id` of the submitted form. Never a field, and never a value. */
+  FORM_ID: "firstrun.form.id",
+  /** The `name` of the submitted form, when it has one. */
+  FORM_NAME: "firstrun.form.name",
+
+  /**
+   * How an uncaught throw reached us: currently only `unhandledrejection`.
+   *
+   * A rejected promise and a thrown error are both `exception`, because "all
+   * exceptions" has to stay one name. This tells the two apart with a filter
+   * rather than with a second name nobody would think to look for.
+   */
+  EXCEPTION_SOURCE: "firstrun.exception.source",
+
+  /**
+   * Entries a client's bounded buffer had to drop, cumulative.
+   *
+   * A resource attribute, so it rides on every entry of the batch that noticed.
+   * A queue that drops silently is a queue nobody can tell is dropping, and the
+   * count belongs in the data rather than only in a debugger.
+   */
+  DROPPED: "firstrun.dropped",
+
   /** A plain numeric sample, for entries that are a measurement. */
   VALUE: "firstrun.value",
   /** What that sample is called: `LCP`, `queue_depth`, `rss_bytes`. */
@@ -111,6 +160,33 @@ export const ATTR = {
 } as const;
 
 export type ConventionalAttribute = (typeof ATTR)[keyof typeof ATTR];
+
+/**
+ * The three identity keys, best first. The unique in `db/query.ts` coalesces
+ * exactly this list in exactly this order.
+ *
+ * A named user is one person, a device is one install, a session is one visit.
+ * All three are optional, so an entry may have none of them.
+ */
+export const IDENTITY_ATTRIBUTES = [ATTR.USER_ID, ATTR.DEVICE_ID, ATTR.SESSION_ID] as const;
+
+/**
+ * Who or what an entry says it came from, or undefined when it does not say.
+ *
+ * The UI reads this so a row, a link and a unique count all mean the same
+ * thing. Anything that reimplements the coalesce with its own order is showing
+ * a different number under the same word.
+ */
+export function entryIdentity(
+  attributes: Record<string, unknown> | undefined
+): { key: string; value: string } | undefined {
+  if (!attributes) return undefined;
+  for (const key of IDENTITY_ATTRIBUTES) {
+    const value = attributes[key];
+    if (typeof value === "string" && value.length > 0) return { key, value };
+  }
+  return undefined;
+}
 
 /** What an attribute picker shows before a project has sent anything. */
 export interface AttributeSuggestion {
@@ -130,7 +206,8 @@ export const CONVENTIONAL_ATTRIBUTES: AttributeSuggestion[] = [
   { key: ATTR.SERVICE_VERSION, label: "App version", description: "The build of your software that sent this." },
   { key: ATTR.CHANNEL, label: "Channel", description: "stable, beta, nightly." },
   { key: ATTR.SESSION_ID, label: "Session", description: "The session this entry belongs to." },
-  { key: ATTR.USER_ID, label: "User", description: "Whatever you passed to identify()." },
+  { key: ATTR.DEVICE_ID, label: "Device", description: "The machine this came from, when there is one." },
+  { key: ATTR.USER_ID, label: "User", description: "Whatever you passed to user()." },
   { key: ATTR.EXCEPTION_TYPE, label: "Exception type", description: "The class of the thrown thing." },
   { key: ATTR.EXCEPTION_MESSAGE, label: "Exception message", description: "The message on the thrown thing." },
   { key: ATTR.HTTP_ROUTE, label: "Route", description: "The route template, not the resolved path." },
@@ -160,7 +237,7 @@ export const NAME = {
   APP_INSTALL: "app_install",
   /** Any launch, including the first. */
   APP_LAUNCH: "app_launch",
-  /** `identify()` was called: this client now knows its user id. */
+  /** `user()` was called with a new id: this client now knows who it is. */
   IDENTIFY: "identify",
 
   /** A page was left. Carries a duration and a scroll depth. */
@@ -178,6 +255,14 @@ export const NAME = {
    * and no error pipeline.
    */
   EXCEPTION: "exception",
+  /**
+   * A free-form line, from a client's level helpers (`info`, `warn`, ...).
+   *
+   * A line still needs a name, because `name` is what a board groups on, and
+   * every client spells that name the same way. The sentence itself travels in
+   * the `body` attribute and the level is the severity.
+   */
+  LOG: "log",
   /** One Core Web Vital sample, in `firstrun.metric` and `firstrun.value`. */
   WEB_VITAL: "web_vital",
   /** One HTTP request served, with the `http.*` attributes. */
@@ -205,6 +290,7 @@ export const CONVENTIONAL_NAMES: NameSuggestion[] = [
   { name: NAME.FILE_DOWNLOAD, label: "File download", description: "A link to a file was followed." },
   { name: NAME.FORM_SUBMIT, label: "Form submit", description: "A form was submitted." },
   { name: NAME.EXCEPTION, label: "Exception", description: "Something threw." },
+  { name: NAME.LOG, label: "Log line", description: "A free-form line from a level helper." },
   { name: NAME.WEB_VITAL, label: "Web vital", description: "One Core Web Vital sample." },
   { name: NAME.HTTP_REQUEST, label: "HTTP request", description: "One request served." },
   { name: NAME.MEASUREMENT, label: "Measurement", description: "A plain numeric sample." },

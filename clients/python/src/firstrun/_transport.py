@@ -36,7 +36,6 @@ class SendResult(NamedTuple):
 
 def build_batch(
     source_key: str,
-    distinct_id: str,
     resource: Optional[Dict[str, Any]],
     entries: List[Dict[str, Any]],
 ) -> bytes:
@@ -45,8 +44,9 @@ def build_batch(
     The keys are one letter because this is the same body the browser tag posts
     from ``sendBeacon`` on a page being unloaded, where bytes are the constraint:
     one shape for every client rather than a compact browser dialect beside a
-    verbose SDK one. ``k`` is the source key, ``d`` the distinct id, ``r`` the
-    resource and ``e`` the entries.
+    verbose SDK one. ``k`` is the source key, ``r`` the resource and ``e`` the
+    entries. There is no top-level id field: identity is three optional
+    attributes and they travel in ``r`` like everything else about the client.
 
     ``r`` carries what is true of the whole PROCESS rather than of one entry: the
     service, the build, the operating system. It sits once per body because it
@@ -59,7 +59,7 @@ def build_batch(
 
     Source of truth: ``LogBatch`` in ``packages/schema/src/log.ts``.
     """
-    body: Dict[str, Any] = {"k": source_key, "d": distinct_id, "e": entries}
+    body: Dict[str, Any] = {"k": source_key, "e": entries}
     if resource:
         body["r"] = resource
 

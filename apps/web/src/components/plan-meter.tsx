@@ -178,6 +178,36 @@ export function PlanMeter(props: PlanMeterProps) {
 }
 
 /**
+ * The plan, beside the workspace name in the sidebar header.
+ *
+ * Cloud only, and it shows the FREE tier too: the point is that somebody can
+ * always see what the workspace they are looking at is on, and a badge that
+ * only appears once you are paying tells you nothing at the moment you are
+ * deciding whether to. Self hosted there is no plan, so there is no badge.
+ *
+ * It turns when something needs attention, which is the same signal the shell
+ * banner carries, at a glance and without taking a row of the page.
+ */
+export function PlanBadge(props: { billing: BillingView }) {
+  const i18n = useI18n();
+
+  const attention = () =>
+    props.billing.status === "past_due" ||
+    usageLevel(props.billing.period.entries, props.billing.entitlements.entriesPerMonth) === "over";
+
+  return (
+    <Show when={props.billing.cloud}>
+      <Badge
+        variant={attention() ? "destructive" : "secondary"}
+        class="ml-auto shrink-0 text-caption"
+      >
+        {i18n.t(PLAN_KEYS[props.billing.plan])}
+      </Badge>
+    </Show>
+  );
+}
+
+/**
  * The workspace-wide notice, rendered by the shell.
  *
  * Three things can put it there and they are ranked, because only one banner is

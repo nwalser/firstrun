@@ -47,8 +47,27 @@ export const topics: DocsTopic[] = [
           }
         />
 
+        <h2>Without a consent banner</h2>
+        <Snippet
+          filename="src/layouts/Layout.astro"
+          lang="astro"
+          code={`<Analytics sourceKey="${ctx.vars.key}" host="${ctx.vars.origin}" ephemeral />`}
+          note={
+            <>
+              <code>ephemeral</code> puts the visitor id in <code>sessionStorage</code>, so it is
+              gone when the tab closes and there is nothing persistent to ask about. The tag sends
+              from the first entry with no <code>consent</code> call. The cost is the returning
+              visitor: a unique becomes one tab rather than one browser. Counts of entries are
+              unaffected.
+            </>
+          }
+        />
+
         <h2>Send your own events</h2>
-        <p>Nothing is stored and nothing is sent until consent is granted.</p>
+        <p>
+          Without <code>ephemeral</code>, nothing is stored and nothing is sent until consent is
+          granted.
+        </p>
 
         <Snippet
           lang="js"
@@ -70,7 +89,7 @@ export const topics: DocsTopic[] = [
         />
 
         <p>
-          With consent granted the tag also writes <code>page_view</code> (view transitions
+          Once it is sending, the tag also writes <code>page_view</code> (view transitions
           included), <code>session_start</code>, <code>page_leave</code>,{" "}
           <code>outbound_click</code>, <code>file_download</code>, <code>form_submit</code> and{" "}
           <code>web_vital</code>. The props <code>autoPage</code>, <code>autoOutbound</code>,{" "}

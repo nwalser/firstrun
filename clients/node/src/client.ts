@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { currentContext } from "./context.js";
 import { clampInt, resolveDelivery, type ResolvedDelivery } from "./delivery.js";
 import {
   DiskStore,
@@ -55,6 +56,24 @@ function opt(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
   const s = v.trim();
   return s.length > 0 ? s : undefined;
+}
+
+/**
+ * What this call says about one identity field, or what it inherits when it
+ * says nothing at all.
+ *
+ * Three cases, and the middle one is the one that matters. A string is that
+ * string. `null` is "nobody, and I mean it": it clears the inherited value,
+ * because `userId: null` is the only way a caller can say this entry is not
+ * about a person, and a value that can be overruled says nothing. Undefined is
+ * silence, and silence inherits.
+ *
+ * `opt()` alone cannot do this: it folds `null` into `undefined`, which makes an
+ * explicit clear indistinguishable from having stated nothing.
+ */
+function stated(own: unknown, inherited: string | undefined): string | undefined {
+  if (own === null) return undefined;
+  return opt(own) ?? inherited;
 }
 
 /**
@@ -185,8 +204,9 @@ export class Firstrun {
   private readonly delivery: ResolvedDelivery;
   private readonly store: EntryStore;
   private readonly defaults: {
-    distinctId?: string;
     userId?: string;
+    deviceId?: string;
+    sessionId?: string;
     serviceName?: string;
     serviceVersion?: string;
     channel?: string;
@@ -272,8 +292,9 @@ export class Firstrun {
     this.sourceKey = options.sourceKey ?? "";
     this.url = String(options.host ?? "").replace(/\/+$/, "") + INGEST_PATH;
     this.defaults = {
-      distinctId: opt(options.distinctId),
       userId: opt(options.userId),
+      deviceId: opt(options.deviceId),
+      sessionId: opt(options.sessionId),
       serviceName: opt(options.serviceName),
       serviceVersion: opt(options.serviceVersion),
       channel: opt(options.channel),
@@ -284,6 +305,23 @@ export class Firstrun {
     this.baseResource = clampAttributes(options.resource);
     this.defaultAttributes = clampAttributes(options.defaultAttributes);
     this.testMode = options.testMode === true;
+
+    // A process-wide person is almost always a mistake on a server. It handles
+    // many people at once, so an id set once at boot rides on every entry of
+    // every visitor, and the unique count then reports the whole fleet as one
+    // person: a wrong number that looks entirely plausible and that nobody goes
+    // looking for. It is legitimate in a single-tenant worker or a CLI, which
+    // is why this is a warning at boot and not a refusal.
+    if (this.defaults.userId) {
+      this.diag(
+        "config",
+        "warn",
+        "options.userId puts one person on every entry this process sends. That is right for a " +
+          "CLI or a single-tenant worker and wrong for a server: pass userId per call, or open a " +
+          "request context with runWithContext().",
+        { userId: this.defaults.userId }
+      );
+    }
 
     this.store =
       this.delivery.persistence === "disk"
@@ -467,7 +505,7 @@ export class Firstrun {
    *   severity: "info",
    *   body: "nightly reindex finished",
    *   attributes: { "firstrun.duration_ms": 41_220, rows: 18_400, dry_run: false },
-   *   distinctId: tenantId,
+   *   userId: tenantId,
    * });
    * ```
    */
@@ -573,15 +611,19 @@ export class Firstrun {
   }
 
   /**
-   * Attaches the customer's own id to this client's anonymous id.
+   * Records that these entries are about this person: a conventional `identify`
+   * entry carrying `user.id`.
    *
-   * Both are explicit because a server process is not a person: it handles many
-   * at once, and any remembered "current user" would be whoever was served
-   * last. Nothing is merged and nothing is back-filled; from here on, entries
+   * The id is explicit and is not remembered, because a server process is not a
+   * person: it handles many at once, and any stored "current user" would be
+   * whoever was served last. Pass the rest of the identity here too when the
+   * call has one, or open a request context around the work instead.
+   *
+   * Nothing is merged and nothing is back-filled. From here on, entries
    * carrying this `userId` count as the same unique.
    */
-  identify(distinctId: string, userId: string, params: EntryParams = {}): void {
-    this.log({ ...params, name: NAME.IDENTIFY, severity: SEVERITY.INFO, distinctId, userId });
+  user(userId: string, params: EntryParams = {}): void {
+    this.log({ ...params, name: NAME.IDENTIFY, severity: SEVERITY.INFO, userId });
   }
 
   /**
@@ -725,25 +767,56 @@ export class Firstrun {
     // is unclassified rather than quiet, so it is never dropped here.
     if (severity !== undefined && severity < this.cfg.minSeverity) return;
 
-    const distinctId = opt(entry.distinctId) ?? this.defaults.distinctId;
-    if (!distinctId) {
-      this.counters.rejected++;
-      this.diag(
-        "rejected",
-        "error",
-        `no distinctId for ${name}: pass one per call, or set options.distinctId`,
-        { name }
-      );
-      return;
-    }
+    // The identity of the request this call is running inside, if a middleware
+    // opened one. It goes between the two sources that already existed, and the
+    // order is the same argument as everywhere else in this method: the most
+    // specific statement wins. Naming an id in the call is the most specific
+    // there is, a client-level default is a property of the whole process and
+    // therefore the least, and the request being served sits between them.
+    const ambient = currentContext();
 
-    const userId = opt(entry.userId) ?? this.defaults.userId;
-    const sessionId = opt(entry.sessionId);
+    // IDENTITY IS ONE UNIT, TAKEN FROM ONE LAYER.
+    //
+    // Three optional ids, three layers that may supply them, and exactly one
+    // rule: the innermost layer that states ANY of the three supplies all three,
+    // and the layers below it are not consulted at all. Nothing is merged
+    // across layers.
+    //
+    // The next person to touch this will reach for three independent `??`
+    // chains, and three independent chains are the bug. Resolving the fields
+    // separately is how an entry that names its own `deviceId` inside a request
+    // ends up carrying the REQUEST's person: a background job recorded from
+    // inside a handler arrives as `device.id = worker-7` with `user.id` set to
+    // whoever's request happened to start it, and since a unique coalesces
+    // `user.id` first, that job's entries are counted as that customer. Stating
+    // an identity has to replace the identity, not a third of it.
+    //
+    // `null` counts as stating one: it means "nobody", explicitly, and a call
+    // that clears the user has still spoken about identity and so does not fall
+    // through to the request's.
+    //
+    // A layer that states nothing is silent rather than empty, and silence
+    // inherits. That is what makes `runWithContext({ userId })` around a block
+    // mean "everything in here is about this person" while a call inside it that
+    // names its own device is left alone.
+    const identityOf = (
+      layer: { userId?: string | null; deviceId?: string | null; sessionId?: string | null } | undefined
+    ) => {
+      if (!layer) return undefined;
+      const speaks =
+        layer.userId !== undefined || layer.deviceId !== undefined || layer.sessionId !== undefined;
+      return speaks ? layer : undefined;
+    };
+
+    const source = identityOf(entry) ?? identityOf(ambient) ?? identityOf(this.defaults);
+    const userId = opt(source?.userId);
+    const deviceId = opt(source?.deviceId);
+    const sessionId = opt(source?.sessionId);
 
     // Over-length ids are refused rather than truncated. Truncating two ids to
     // the same 512 characters would merge two people into one unique, and that
     // is a wrong number nobody would ever find.
-    const tooLong = [distinctId, userId, sessionId].find(
+    const tooLong = [userId, deviceId, sessionId].find(
       (v) => typeof v === "string" && v.length > MAX_ID_LEN
     );
     if (tooLong !== undefined) {
@@ -755,12 +828,25 @@ export class Firstrun {
     // Identity attributes sit UNDER the caller's own, so an entry that names
     // `user.id` explicitly wins over the client-level default. Anything else
     // would make a per-call override silently ineffective.
+    //
+    // An entry with none of the three is fine and is not reported: a server
+    // that never states an identity is the ordinary case, and its entries are
+    // counted as entries and in no unique.
     const identity: Attributes = {};
     if (userId) identity[ATTR.USER_ID] = userId;
+    if (deviceId) identity[ATTR.DEVICE_ID] = deviceId;
     if (sessionId) identity[ATTR.SESSION_ID] = sessionId;
 
+    // The same ladder with one more rung: what is true of the process, then of
+    // the request, then the identity resolved above, then what this call said
+    // itself. The request's attributes describe one thing being served rather
+    // than the whole process, so they win over `defaultAttributes` and lose to
+    // everything more specific than they are.
     const attributes = mergeAttributes(
-      mergeAttributes(this.defaultAttributes, Object.keys(identity).length ? identity : undefined),
+      mergeAttributes(
+        mergeAttributes(this.defaultAttributes, clampAttributes(ambient?.attributes)),
+        Object.keys(identity).length ? identity : undefined
+      ),
       clampAttributes(entry.attributes)
     );
 
@@ -798,7 +884,7 @@ export class Firstrun {
 
     const resource = this.resourceFor(entry);
 
-    const item: Queued = { group: groupKey(distinctId, resource), distinctId, resource, wire };
+    const item: Queued = { group: groupKey(resource), resource, wire };
     const before = this.queue.dropped;
     this.queue.push(item);
     if (this.queue.dropped > before) this.reportDrops();
@@ -1033,8 +1119,8 @@ export class Firstrun {
   }
 
   /**
-   * Splits a slice into request bodies, one per identity-and-resource pair,
-   * each no larger than the server accepts.
+   * Splits a slice into request bodies, one per distinct resource (which is
+   * where identity lives), each no larger than the server accepts.
    */
   private groupIntoBatches(slice: Queued[]): Array<{ body: LogBatch; items: Queued[] }> {
     const byGroup = new Map<string, Queued[]>();
@@ -1049,11 +1135,7 @@ export class Firstrun {
       for (let i = 0; i < items.length; i += this.delivery.maxBatch) {
         const chunk = items.slice(i, i + this.delivery.maxBatch);
         const head = chunk[0]!;
-        const body: LogBatch = {
-          k: this.sourceKey,
-          d: head.distinctId,
-          e: chunk.map((c) => c.wire),
-        };
+        const body: LogBatch = { k: this.sourceKey, e: chunk.map((c) => c.wire) };
         if (head.resource) body.r = head.resource;
         out.push({ body, items: chunk });
       }
@@ -1136,6 +1218,29 @@ export class Firstrun {
   // -------------------------------------------------------------------------
   // Diagnostics
   // -------------------------------------------------------------------------
+
+  /**
+   * The diagnostic channel, reachable from the rest of this library.
+   *
+   * The HTTP adapters in `src/http/` are separate modules and cannot call
+   * `diag`, so without this every one of their failure paths is a bare `catch`
+   * that does nothing: a customer whose identity extractor throws on every
+   * request gets no rows, no warning, and no way to tell that apart from a
+   * firewall. Rule 7 requires silence toward the END USER, not toward the
+   * operator holding the hook, and the client already takes that view of itself
+   * (a corrected option says so at boot).
+   *
+   * It goes to `onDiagnostic` or nowhere, like everything else here. This
+   * library never writes to the host's stdout or stderr.
+   */
+  report(d: Diagnostic): void {
+    try {
+      if (!d || typeof d !== "object") return;
+      this.diag(d.code, d.level, String(d.message), d.detail);
+    } catch {
+      // A diagnostic that cannot even be assembled is not worth a second one.
+    }
+  }
 
   private diag(
     code: DiagnosticCode,

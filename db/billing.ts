@@ -18,6 +18,14 @@ import { workspaces } from "./schema.js";
 export interface BillingPatch {
   plan?: string;
   billingStatus?: string;
+  /**
+   * The per-workspace ceiling override, or `null` to clear it.
+   *
+   * Written only by the operator's page. Nothing in the Stripe path touches it,
+   * which is what makes it the lever that SURVIVES a subscription event: a
+   * forced plan is overwritten by the next webhook, an override is not.
+   */
+  planLimits?: unknown;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
 }

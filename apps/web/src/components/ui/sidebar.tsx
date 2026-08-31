@@ -859,3 +859,55 @@ export function SidebarInset(props: ComponentProps<"div">) {
     />
   );
 }
+
+/**
+ * The topbar, for every shell that has one.
+ *
+ * 56px, three columns at 1 / 2 / 1 so the middle cell is centred on the pane
+ * rather than on whatever the left cell happens to be wide, and one device
+ * pixel of separation from the content. Sticky, so it stays put while the pane
+ * scrolls under it.
+ *
+ * It lives here because there are three shells now -- the app, the
+ * documentation and the operator pages -- and this markup was written out
+ * identically in each of the first two. Three copies of a measured number is
+ * three chances for it to drift a pixel at a time, and the reason the
+ * documentation borrowed `ExpandSidebar` rather than rebuilding it is the same
+ * reason this is one component.
+ *
+ * The three cells are slots and every one of them is always in the markup, even
+ * empty. The trailing cell in particular: the reference reserves it, and
+ * removing it when a shell has nothing to put there moves the centred
+ * breadcrumb off centre.
+ *
+ * Each slot is read exactly once, in document order. Reading a markup prop
+ * BUILDS its nodes, so testing one with `Show` before rendering it claims the
+ * server's nodes out of order during hydration -- the failure described in
+ * `components/page-header.tsx`, which prints as `template2 is not a function`
+ * and renders the page twice.
+ */
+export function ShellTopbar(props: {
+  /** The left cell. Scope in the app, the sidebar toggle alone elsewhere. */
+  leading: JSX.Element;
+  /** The centred cell. The page breadcrumb, in every shell that has one. */
+  children: JSX.Element;
+  /** The trailing cell. Reserved, and empty is a legitimate value for it. */
+  trailing?: JSX.Element;
+}) {
+  return (
+    <header
+      class={cn(
+        "@container/bar sticky top-0 z-chrome grid h-14 shrink-0 items-center gap-2",
+        "bg-card md:bg-background",
+        "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]",
+        hairlineBottom
+      )}
+    >
+      <div class="z-10 flex min-w-0 items-center overflow-hidden pl-4">{props.leading}</div>
+
+      {props.children}
+
+      <div class="flex min-w-0 items-center justify-self-end gap-2 pr-4">{props.trailing}</div>
+    </header>
+  );
+}

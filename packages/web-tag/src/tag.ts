@@ -50,6 +50,16 @@ try {
     autoForms: enabled("data-auto-forms"),
     trackLeave: enabled("data-track-leave"),
     autoErrors: optIn("data-auto-errors"),
+    // The one attribute that changes what identity means, so it is spelled out
+    // in the snippet rather than inferred from anything. Opt in: a tag already
+    // running with a persisted id must not silently start over on a deploy.
+    // See `StartOptions.ephemeral` for what it costs.
+    ephemeral: optIn("data-ephemeral"),
+    // Opt in, and gated again by consent at runtime. Read here rather than left
+    // to `start()` because the site most likely to want a device id is a
+    // marketing site that pasted the snippet and has no build step to reach a
+    // config object through. See `StartOptions.fingerprint`.
+    fingerprint: optIn("data-fingerprint"),
     // The delivery policy, on the one line a customer has to configure with.
     // One attribute rather than five, because the defaults are already the
     // right answer for a page: `immediate` and coalesced, ERROR and above sent

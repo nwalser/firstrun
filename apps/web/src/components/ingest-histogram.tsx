@@ -24,8 +24,13 @@ import { useI18n } from "../lib/i18n/index.js";
  * the right one here. A card on a board, which has an axis to keep square,
  * measures its box instead.
  *
- * The viewBox is 32 tall and the element is 32px tall by default, so a bar's
- * minimum height lands on a real pixel rather than a fraction of one.
+ * ONLY THE WIDTH STRETCHES. The height is a number rather than a class, and the
+ * viewBox is exactly that tall, so the vertical scale is always 1:1 and every
+ * constant below is the pixel it says it is. Set as a class it was not: the
+ * same 32-tall box drawn at 64 or 48 scaled the bars by two or by one and a
+ * half against a width scaled by seven, so a chart that was right in a 120px
+ * column was a wall of squat blocks across a card, and the one-pixel stub for
+ * an empty day was two or three pixels of what looked like data.
  *
  * A day with nothing gets a one-unit stub rather than nothing at all: thirty
  * bars with gaps in them reads as thirty days, and thirty bars with days
@@ -34,6 +39,15 @@ import { useI18n } from "../lib/i18n/index.js";
 export function IngestHistogram(props: {
   /** Oldest first, zero-filled. One number per day. */
   daily: number[];
+  /**
+   * How tall to draw it, in pixels. The viewBox takes the same number.
+   *
+   * A prop rather than a height class, because the two have to agree: the
+   * element's height and the viewBox's are the vertical scale between them, and
+   * a caller who set one without the other got a chart stretched by whatever
+   * the ratio happened to be.
+   */
+  height?: number;
   /**
    * The accessible name, supplied by the caller.
    *
@@ -48,23 +62,25 @@ export function IngestHistogram(props: {
   // zero and draws thirty stubs.
   const max = createMemo(() => Math.max(1, ...props.daily));
   const width = createMemo(() => Math.max(1, props.daily.length * BAR_PITCH - BAR_GAP));
+  const space = createMemo(() => Math.max(1, Math.round(props.height ?? BAR_SPACE)));
 
   return (
     <svg
-      class={cn("block h-8 w-full", props.class)}
-      viewBox={`0 0 ${width()} ${BAR_SPACE}`}
+      class={cn("block w-full", props.class)}
+      style={{ height: `${space()}px` }}
+      viewBox={`0 0 ${width()} ${space()}`}
       preserveAspectRatio="none"
       role="img"
       aria-label={props.label}
     >
       <For each={props.daily}>
         {(value, i) => {
-          const height = () => (value > 0 ? Math.max(2, (value / max()) * BAR_SPACE) : 1);
+          const height = () => (value > 0 ? Math.max(2, (value / max()) * space()) : 1);
           return (
             <rect
               class={value > 0 ? "fill-chart-1" : "fill-border"}
               x={i() * BAR_PITCH}
-              y={BAR_SPACE - height()}
+              y={space() - height()}
               width={BAR_PITCH - BAR_GAP}
               height={height()}
             />
@@ -75,7 +91,7 @@ export function IngestHistogram(props: {
   );
 }
 
-/** The histogram's own units: a 3-wide bar every 4, in a 32-tall box. */
+/** The histogram's own units: a 3-wide bar every 4, in a box 32 tall by default. */
 const BAR_PITCH = 4;
 const BAR_GAP = 1;
 const BAR_SPACE = 32;

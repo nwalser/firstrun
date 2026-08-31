@@ -47,14 +47,17 @@ import { Route as ProjectRoute } from "./w.$wslug.$pslug.js";
  * the customer pointed the key at, and the install guide is a link into the
  * documentation index with this source preselected rather than a guess at which
  * client they are using.
+ *
+ * It only READS, apart from removing the source. What a source sends is decided
+ * by the software holding the key, and there is nothing on this page that
+ * reaches back into it.
  */
 export const Route = createFileRoute("/w/$wslug/$pslug/sources/$sid")({
   loader: async ({ params }) => {
     const session = await getSession();
     if (!session.user) throw redirect({ to: "/login" });
-    const view = await getSourceDetail({
-      data: { workspace: params.wslug, project: params.pslug, sourceId: params.sid },
-    });
+    const scope = { workspace: params.wslug, project: params.pslug, sourceId: params.sid };
+    const view = await getSourceDetail({ data: scope });
     // A deleted source, or an id belonging to another project. Both are a
     // not-found rather than an error: the safe direction to fail in.
     if (!view) throw notFound();
@@ -165,9 +168,11 @@ function SourcePage() {
               <span class="shrink-0 text-body tabular-nums">{i18n.num(total())}</span>
             </CardHeader>
             <CardContent class="flex flex-col gap-2">
+              {/* The tile has the card's whole width, so it gets a height to
+                  match it: at 64 a nine-hundred-pixel chart was a strip. */}
               <IngestHistogram
                 daily={view().daily}
-                class="h-16"
+                height={128}
                 label={i18n.t("sources.ingest_30d", { count: total() })}
               />
               {/*
@@ -191,14 +196,6 @@ function SourcePage() {
             <CardContent class="flex flex-col gap-3">
               <IngestKeyCell value={view().ingestKey} />
               <p class="text-caption text-muted-foreground">{i18n.t("sources.key_hint")}</p>
-              <Show when={view().assetName}>
-                {(asset) => (
-                  <div class="text-caption text-muted-foreground">
-                    <span>{i18n.t("sources.asset_label")}: </span>
-                    <span class="font-mono text-mono text-foreground">{asset()}</span>
-                  </div>
-                )}
-              </Show>
               <InstallGuideLink sourceId={view().id} />
             </CardContent>
           </Card>

@@ -16,21 +16,21 @@ namespace Firstrun
     /// flag written afterwards, so a crash between the two cannot make a second run
     /// look like a first one.
     /// </remarks>
-    public static class DistinctIdStore
+    public static class DeviceIdStore
     {
         /// <summary>The file name inside the per-app folder.</summary>
-        public const string FileName = "distinct_id";
+        public const string FileName = "device_id";
 
         /// <summary>
         /// The exact file the id is read from and written to.
         ///
         /// <list type="bullet">
-        /// <item>Windows: <c>%LOCALAPPDATA%\firstrun\{app}\distinct_id</c>
+        /// <item>Windows: <c>%LOCALAPPDATA%\firstrun\{app}\device_id</c>
         /// (local, NOT roaming, e.g.
-        /// <c>C:\Users\you\AppData\Local\firstrun\my-app\distinct_id</c>)</item>
-        /// <item>macOS: <c>~/Library/Application Support/firstrun/{app}/distinct_id</c></item>
-        /// <item>Linux and other Unix: <c>$XDG_DATA_HOME/firstrun/{app}/distinct_id</c>,
-        /// or <c>~/.local/share/firstrun/{app}/distinct_id</c> when XDG_DATA_HOME is unset</item>
+        /// <c>C:\Users\you\AppData\Local\firstrun\my-app\device_id</c>)</item>
+        /// <item>macOS: <c>~/Library/Application Support/firstrun/{app}/device_id</c></item>
+        /// <item>Linux and other Unix: <c>$XDG_DATA_HOME/firstrun/{app}/device_id</c>,
+        /// or <c>~/.local/share/firstrun/{app}/device_id</c> when XDG_DATA_HOME is unset</item>
         /// </list>
         ///
         /// <c>{app}</c> is <see cref="FirstrunOptions.AppName"/> slugged, or the source
@@ -49,8 +49,8 @@ namespace Firstrun
                 // LOCALAPPDATA, deliberately, and not APPDATA.
                 //
                 // A roaming profile syncs the roaming AppData folder between machines, so one
-                // person signing in to three of them would share a single distinct_id and read
-                // as one installation instead of three. distinct_id identifies an INSTALLATION,
+                // person signing in to three of them would share a single device_id and read
+                // as one installation instead of three. device_id identifies an INSTALLATION,
                 // and the Local folder is what means "this machine" on Windows. Tying somebody
                 // across machines is what identify() is for.
                 string? local = Environment.GetEnvironmentVariable("LOCALAPPDATA");

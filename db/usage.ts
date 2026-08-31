@@ -47,6 +47,19 @@ export function monthWindow(now: Date = new Date()): { from: string; to: string;
   };
 }
 
+/**
+ * The month before the one starting at `from`, as a `date` literal.
+ *
+ * Derived from the window rather than from `now`, so a caller that has already
+ * resolved a month cannot end up with a baseline belonging to a different one.
+ */
+export function previousMonthStart(from: string): string {
+  const [year, month] = from.split("-").map(Number) as [number, number];
+  const y = month === 1 ? year - 1 : year;
+  const m = month === 1 ? 12 : month - 1;
+  return `${y}-${String(m).padStart(2, "0")}-01`;
+}
+
 /** The UTC day a moment falls on, as a `date` literal. */
 export function utcDay(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);

@@ -18,7 +18,7 @@ namespace Firstrun
         private const char Separator = (char)1;
 
         internal QueuedEntry(string id, string name, long timestamp, int severity,
-                             string distinctId, Dictionary<string, object?>? attributes,
+                             Dictionary<string, object?>? attributes,
                              string? resourceJson, string? rawEntryJson = null,
                              bool durable = true)
         {
@@ -27,11 +27,10 @@ namespace Firstrun
             Name = name;
             Timestamp = timestamp;
             Severity = severity;
-            DistinctId = distinctId;
             Attributes = attributes;
             ResourceJson = resourceJson;
             RawEntryJson = rawEntryJson;
-            GroupKey = distinctId + Separator + (resourceJson ?? "");
+            GroupKey = resourceJson ?? "";
         }
 
         /// <summary>Client-generated, so a request that times out and is retried dedups.</summary>
@@ -44,11 +43,6 @@ namespace Firstrun
 
         /// <summary>1..24 on the ladder, or 0 for an entry nobody classified.</summary>
         internal int Severity { get; }
-
-        // The distinct id and the resource sit on the BATCH, not on the entry, so two
-        // entries may only share a request if both match. They are carried per entry
-        // because a server tracks for many different people from one client.
-        internal string DistinctId { get; }
 
         /// <summary>
         /// The resource object, already serialised, or null when there is nothing to say.
@@ -342,7 +336,6 @@ namespace Firstrun
             bool first = true;
 
             Json.WriteRequired(sb, "k", options.SourceKey, ref first);
-            Json.WriteRequired(sb, "d", batch[0].DistinctId, ref first);
 
             string? resource = batch[0].ResourceJson;
             if (!string.IsNullOrEmpty(resource))

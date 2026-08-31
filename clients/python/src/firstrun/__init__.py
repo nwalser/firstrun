@@ -2,8 +2,8 @@
 
     import firstrun
 
-    firstrun.configure(source_key="fr_server_9f3a2b1c4d5e6f70", host="https://t.example.com")
-    firstrun.track("exported_csv", {"rows": 1200})
+    firstrun.configure(source_key="fr_9f3a2b1c4d5e6f70", host="https://t.example.com")
+    firstrun.event("exported_csv", {"rows": 1200})
 
 **This library is never in your program's critical path.** Every call appends to
 a bounded in-memory queue and returns. Nothing blocks on the network, nothing
@@ -16,6 +16,22 @@ The module-level functions above are a convenience over a single process-wide
 that never configures one never notices this library exists. Construct
 :class:`Firstrun` directly when you want more than one, or when you would rather
 not have process-global state.
+
+On a server the identity belongs to the REQUEST rather than to the process, so
+:func:`context` puts one in scope for a block and every call inside it picks it
+up instead of naming it again::
+
+    with firstrun.context(user_id=account_id):
+        firstrun.event("order_placed", {"total": order.total})
+
+That works on any client, configured or not, because it sets a context variable
+rather than touching one. Nothing in it is inferred: a ``user.id`` is only ever
+a string you passed.
+
+``firstrun.integrations`` does that at the front door for Django, Flask and
+anything ASGI, and writes one ``http.request`` entry per request while it is
+there. The extractor that names the request is yours and is required, for the
+same reason: we do not go looking for an identity.
 """
 
 from __future__ import annotations
@@ -36,7 +52,14 @@ from ._client import (
     Firstrun,
     Stats,
 )
-from ._ids import resolve_path as distinct_id_path
+from ._context import (
+    RequestContext,
+    context,
+    current_context,
+    replace_context,
+    reset_context,
+    set_context,
+)
 from ._spool import resolve_path as queue_path
 from ._wire import (
     APP_INSTALL,
@@ -85,6 +108,7 @@ __all__ = [
     "Firstrun",
     "Diagnostic",
     "Stats",
+    "RequestContext",
     "configure",
     "get_client",
     "log",
@@ -97,12 +121,17 @@ __all__ = [
     "error_log",
     "fatal",
     "page",
-    "identify",
-    "reset",
+    "user",
+    "device",
+    "session",
+    "context",
+    "current_context",
+    "set_context",
+    "replace_context",
+    "reset_context",
     "flush",
     "shutdown",
     "stats",
-    "distinct_id_path",
     "queue_path",
     "IMMEDIATE",
     "INTERVAL",
@@ -255,18 +284,25 @@ def page(path: str, attributes: Optional[Mapping[str, Any]] = None, **kwargs: An
         client.page(path, attributes, **kwargs)
 
 
-def identify(user_id: Optional[str], attributes: Optional[Mapping[str, Any]] = None) -> None:
-    """Attach your own user id to everything sent from now on."""
+def user(user_id: Optional[str], attributes: Optional[Mapping[str, Any]] = None) -> None:
+    """Attach your own user id to everything sent from now on. None signs out."""
     client = _default
     if client is not None:
-        client.identify(user_id, attributes)
+        client.user(user_id, attributes)
 
 
-def reset() -> None:
-    """Forget the user id and start a new session. The anonymous id is kept."""
+def device(device_id: Optional[str]) -> None:
+    """Name the machine these entries come from. Never derived, never guessed."""
     client = _default
     if client is not None:
-        client.reset()
+        client.device(device_id)
+
+
+def session(session_id: Optional[str]) -> None:
+    """Set the session id, or clear it. Rotating one is calling this again."""
+    client = _default
+    if client is not None:
+        client.session(session_id)
 
 
 def flush(timeout: Optional[float] = None) -> bool:

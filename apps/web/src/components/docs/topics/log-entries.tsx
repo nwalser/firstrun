@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/solid-router";
 import ListIcon from "lucide-solid/icons/list";
 import { For } from "solid-js";
 import type { DocsTopic } from "../registry.js";
@@ -60,8 +61,9 @@ const NAMES: Array<{ name: string; from: string }> = [
   { name: "file_download", from: "Browser tag" },
   { name: "form_submit", from: "Browser tag" },
   { name: "exception", from: "Any client, on error()" },
+  { name: "log", from: "Any SDK, from a level helper" },
   { name: "web_vital", from: "Browser tag" },
-  { name: "http.request", from: "Server SDKs" },
+  { name: "http.request", from: "You, for a request you served" },
   { name: "measurement", from: "You, for a numeric sample" },
 ];
 
@@ -177,7 +179,12 @@ export const topics: DocsTopic[] = [
         <h2>Conventional names</h2>
         <p>
           Suggestions, not law. Any other name you send is stored, indexed and queried
-          identically, and no event is ever rejected for the name it carries.
+          identically, and no event is ever rejected for the name it carries. The ones a client
+          writes for you are set out attribute by attribute in{" "}
+          <Link to="/docs/$topic" params={{ topic: "premade-events" }}>
+            Premade events
+          </Link>
+          .
         </p>
         <Table reference>
           <TableHeader>

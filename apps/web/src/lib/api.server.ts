@@ -6,6 +6,7 @@ import {
   type FeedRow,
   clearWorkspaceLogo,
   createDashboard as createDashboardRecord,
+  countProjects,
   createProject,
   createSource,
   createWorkspace,
@@ -50,8 +51,21 @@ import {
   type QueryRow as CompilerRow,
 } from "@firstrun/db";
 import { configFromEnv } from "@firstrun/ingest";
-import { isPlanId } from "@firstrun/schema/plan";
-import { loadBilling } from "./billing.server.js";
+import { BILLING_STATUSES, isPlanId, planFor } from "@firstrun/schema/plan";
+import { entitlementsFor, isCloud, loadBilling } from "./billing.server.js";
+import { isInstanceAdmin, requireInstanceAdmin } from "./admin.server.js";
+import {
+  adminWorkspaces,
+  arrivalsByDay,
+  instanceSnapshot,
+  listPartitions,
+  monthWindow,
+  previousMonthStart,
+  setBilling,
+  DEFAULT_RETENTION_MONTHS,
+  MONTHS_AHEAD,
+  MONTHS_BACK,
+} from "@firstrun/db";
 import { ATTR } from "@firstrun/schema/conventions";
 import {
   SEVERITY_LABELS,
@@ -105,6 +119,11 @@ import type {
   DocsContext,
   SourceDetailView,
   WorkspaceSourcesView,
+  AdminView,
+  AdminContext,
+  AdminInstanceView,
+  AdminDatabaseView,
+  AdminPartitionsView,
   WorkspaceUsageView,
   WorkspaceView,
 } from "./api.js";
@@ -176,7 +195,7 @@ export async function loadSession(): Promise<SessionInfo> {
   const user = await currentUser(request);
   const loginConfigured = oauthConfig(request) !== null;
 
-  if (!user) return { user: null, workspaces: [], loginConfigured };
+  if (!user) return { user: null, workspaces: [], loginConfigured, admin: false };
 
   const workspaces = await listWorkspaces(getStore().db, user.id);
   return {
@@ -189,6 +208,9 @@ export async function loadSession(): Promise<SessionInfo> {
       logoUpdatedAt: w.logoUpdatedAt?.toISOString() ?? null,
     })),
     loginConfigured,
+    // Whether to show the operator's own page at all. A courtesy on the nav,
+    // not the permission: `/admin` re-checks on the server every time.
+    admin: isInstanceAdmin(user),
   };
 }
 
@@ -217,7 +239,6 @@ export async function loadDocsContext(): Promise<DocsContext> {
       return rows.map((s) => ({
         id: s.id,
         name: s.name,
-        assetName: s.assetName,
         ingestKey: s.ingestKey,
         projectName: s.projectName,
         projectSlug: s.projectSlug,
@@ -376,7 +397,6 @@ export async function loadWorkspaceSources(
     sources: sources.map((s) => ({
       id: s.id,
       name: s.name,
-      assetName: s.assetName,
       ingestKey: s.ingestKey,
       lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
       perHour: entriesPerHour(daily.get(s.id) ?? []),
@@ -512,7 +532,6 @@ export async function loadSourceDetail(
   return {
     id: source.id,
     name: source.name,
-    assetName: source.assetName,
     ingestKey: source.ingestKey,
     projectName: project.name,
     projectSlug: project.slug,
@@ -547,7 +566,6 @@ function toWire(r: FeedRow): FeedEntry {
     entryId: r.entryId,
     time: r.time.toISOString(),
     ingestedAt: r.ingestedAt.toISOString(),
-    distinctId: r.distinctId,
     severity: r.severity,
     name: r.name,
     attributes: r.attributes,
@@ -650,7 +668,6 @@ export async function loadFeed(input: {
     entryId: r.entryId,
     time: r.time.toISOString(),
     ingestedAt: r.ingestedAt.toISOString(),
-    distinctId: r.distinctId,
     severity: r.severity,
     name: r.name,
     attributes: r.attributes,
@@ -843,7 +860,6 @@ export async function loadProjectNav(
     sources: sources.map((s) => ({
       id: s.id,
       name: s.name,
-      assetName: s.assetName,
       ingestKey: s.ingestKey,
       lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
     })),
@@ -900,7 +916,6 @@ export async function loadProject(
     sources: sources.map((s) => ({
       id: s.id,
       name: s.name,
-      assetName: s.assetName,
       ingestKey: s.ingestKey,
       lastSeenAt: lastSeen.get(s.id)?.toISOString() ?? null,
     })),
@@ -1445,6 +1460,226 @@ export async function startCheckout(
   }
 }
 
+/**
+ * The operator's view of the whole deployment.
+ *
+ * Guarded by `requireInstanceAdmin`, which is a DIFFERENT question from
+ * `requireAdmin`: administering one workspace must not reach across to the
+ * others. Null for anybody else, including an admin of every workspace on the
+ * box, and the route renders a not-found for it.
+ *
+ * Counts, plans and dates. Not entries: reading inside somebody's data is a
+ * support conversation and not a button on an operator page.
+ */
+export async function loadAdminOverview(): Promise<AdminView | null> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return null;
+
+  const { from, to } = monthWindow();
+  const previous = previousMonthStart(from);
+  const rows = await adminWorkspaces(getStore(), from, to, previous);
+
+  return {
+    cloud: isCloud(),
+    period: { from, to },
+    workspaces: rows.map((row) => {
+      // The EFFECTIVE ceiling, override included, so the page shows what is
+      // actually in force rather than what the tier says it should be.
+      const entitlements = entitlementsFor({
+        id: row.id,
+        plan: row.plan,
+        planLimits: row.planLimits,
+        billingStatus: row.billingStatus,
+      });
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        createdAt: row.createdAt,
+        plan: row.plan,
+        billingStatus: row.billingStatus,
+        // The id itself stays on the server. Whether one exists is the only
+        // part of it the page has a use for.
+        hasStripeCustomer: row.stripeCustomerId !== null,
+        overridden: row.planLimits !== null && row.planLimits !== undefined,
+        members: row.members,
+        projects: row.projects,
+        sources: row.sources,
+        entriesThisMonth: row.entriesThisMonth,
+        entriesLastMonth: row.entriesLastMonth,
+        entriesLimit: entitlements.entriesPerMonth,
+        projectsLimit: entitlements.projects,
+        lastBilledDay: row.lastBilledDay,
+      };
+    }),
+  };
+}
+
+/**
+ * What the operator shell needs before any page under it draws.
+ *
+ * The edition and the login, and nothing else. Every page below re-checks
+ * `requireInstanceAdmin` for itself, so this is not the guard: it is the two
+ * facts the chrome states, loaded once so a navigation between operator pages
+ * cannot change the answer halfway.
+ */
+export async function loadAdminContext(): Promise<AdminContext | null> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return null;
+  return { cloud: isCloud(), login: operator.login };
+}
+
+/**
+ * The deployment at a glance.
+ *
+ * Everything here is a catalogue read or a roll-up: sizes from `pg_class`,
+ * counts from the small tables, arrivals from `usage_daily`. Nothing reads
+ * `log_entries`, and `entriesStored` is therefore the planner's estimate rather
+ * than a count. That is stated on the page, because a number labelled as exact
+ * and not being exact is worse than an approximate one that says so.
+ *
+ * The workspace totals come from the same query the workspaces page draws, so
+ * the two pages cannot disagree about how many there are.
+ */
+export async function loadAdminInstance(): Promise<AdminInstanceView | null> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return null;
+
+  const store = getStore();
+  const { from, to } = monthWindow();
+  const previous = previousMonthStart(from);
+
+  const [snapshot, arrivals, workspaces] = await Promise.all([
+    instanceSnapshot(store),
+    arrivalsByDay(store, 30),
+    adminWorkspaces(store, from, to, previous),
+  ]);
+
+  return {
+    cloud: isCloud(),
+    server: snapshot.server,
+    counts: snapshot.counts,
+    entriesStored: snapshot.entriesStored,
+    entriesThisMonth: workspaces.reduce((sum, row) => sum + row.entriesThisMonth, 0),
+    period: { from, to },
+    arrivals,
+    workspaces: workspaces.length,
+    paying: workspaces.filter((row) => row.plan !== "free").length,
+  };
+}
+
+/**
+ * Storage, vacuum state and the pool.
+ *
+ * The three questions an operator has when something is slow, on one page:
+ * which table is the database, whether autovacuum is keeping up with it, and
+ * whether the connections are where they should be. The cache hit ratio is on
+ * the same page because it is the fourth, and it comes from the same statistics
+ * collector as the rest.
+ */
+export async function loadAdminDatabase(): Promise<AdminDatabaseView | null> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return null;
+
+  const snapshot = await instanceSnapshot(getStore());
+  return {
+    server: snapshot.server,
+    relations: snapshot.relations,
+    connections: snapshot.connections,
+    activity: snapshot.activity,
+  };
+}
+
+/**
+ * The partitions of `log_entries`, with the policy that maintains them.
+ *
+ * Its own page rather than a card on the database one, because this is the
+ * table retention actually operates on: a month here is a `DROP TABLE`, and
+ * seeing which months exist -- and how far ahead the next ones have been
+ * created -- is how somebody knows the maintenance job has run. A write that
+ * arrives for a partition nobody created is the failure rule 4 exists to
+ * prevent, and this page is where it would first be visible.
+ */
+export async function loadAdminPartitions(): Promise<AdminPartitionsView | null> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return null;
+
+  const partitions = await listPartitions(getStore());
+  return {
+    partitions: partitions.map((p) => ({
+      name: p.name,
+      from: p.from ? p.from.toISOString() : null,
+      to: p.to ? p.to.toISOString() : null,
+      rows: p.rows,
+      bytes: p.bytes,
+    })),
+    monthsBack: MONTHS_BACK,
+    monthsAhead: MONTHS_AHEAD,
+    retentionMonths: DEFAULT_RETENTION_MONTHS,
+  };
+}
+
+/**
+ * Forces a workspace onto a plan, with no payment involved.
+ *
+ * For the cases billing cannot express: a design partner, somebody mid-migration,
+ * a refund that should not cost them their data ceiling, a workspace being
+ * demonstrated. It writes the same columns the Stripe webhook writes, which is
+ * the point and also the caveat below.
+ *
+ * A forced plan is NOT permanent for a workspace with a live subscription. The
+ * webhook writes absolute state, so the next `customer.subscription.updated`
+ * for that customer puts the plan back to whatever the price says. That is
+ * correct, because Stripe is the authority on what somebody is paying for, and
+ * the page says so. To lift a limit durably, set the override instead.
+ */
+export async function forceWorkspacePlan(input: {
+  workspaceId: string;
+  plan: string;
+  status: string;
+}): Promise<Result> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return denied("Not an administrator of this deployment.");
+
+  if (!isPlanId(input.plan)) return denied("No such plan.");
+  if (!BILLING_STATUSES.includes(input.status as (typeof BILLING_STATUSES)[number])) {
+    return denied("No such billing status.");
+  }
+
+  await setBilling(getStore().db, input.workspaceId, {
+    plan: input.plan,
+    billingStatus: input.status,
+  });
+  return ok();
+}
+
+/**
+ * Sets or clears one workspace's entry ceiling, independently of its plan.
+ *
+ * The durable lever, and the one that survives a Stripe event. `null` clears
+ * the override and puts the workspace back on its tier's number; a number
+ * replaces it. Anything that is not a finite number is refused here rather than
+ * quietly becoming `null`, because on THIS page a typo would be somebody
+ * deliberately setting a limit and getting the opposite.
+ */
+export async function overrideWorkspaceLimit(input: {
+  workspaceId: string;
+  entriesPerMonth: number | null;
+}): Promise<Result> {
+  const operator = await requireInstanceAdmin();
+  if (!operator) return denied("Not an administrator of this deployment.");
+
+  const value = input.entriesPerMonth;
+  if (value !== null && (!Number.isFinite(value) || value < 0)) {
+    return denied("A limit is a positive number, or empty for the plan default.");
+  }
+
+  await setBilling(getStore().db, input.workspaceId, {
+    planLimits: value === null ? null : { entriesPerMonth: Math.trunc(value) },
+  });
+  return ok();
+}
+
 /** The Billing Portal: card, plan changes, cancellation and invoices, all on Stripe. */
 export async function openBillingPortal(
   workspaceSlug: string
@@ -1628,6 +1863,30 @@ export async function addProject(input: {
   const name = input.name.trim().slice(0, 60);
   if (!name) return denied("A project needs a name.");
 
+  /*
+    The one entitlement that is ENFORCED rather than warned about.
+
+    Entries are warned about and never refused, because refusing one throws away
+    a customer's telemetry and rule 7 says we do not do that. A project is the
+    opposite case: nothing is lost by not creating it, the person asking is an
+    admin who is present and can act, and the message says exactly what to do.
+    Blocking here costs a click; blocking an entry costs data that cannot be
+    resent.
+
+    Counted at the moment of creation rather than carried on the session, so two
+    tabs cannot both pass the check on a stale number.
+  */
+  const limit = entitlementsFor(access.workspace).projects;
+  if (limit !== null) {
+    const existing = await countProjects(getStore().db, access.workspace.id);
+    if (existing >= limit) {
+      return denied(
+        `The ${planFor(access.workspace.plan).id} plan includes ${limit} ` +
+          `project${limit === 1 ? "" : "s"}. Upgrade to add another.`
+      );
+    }
+  }
+
   const created = await createProject(getStore().db, access.workspace.id, name);
   return { ok: true, slug: created.slug };
 }
@@ -1686,21 +1945,12 @@ export async function addSource(input: {
   workspace: string;
   project: string;
   name: string;
-  assetName?: string;
 }): Promise<Result<{ sourceId: string; ingestKey: string }>> {
   const found = await adminOnProject(input.workspace, input.project, "add a source");
   if (!found.ok) return denied(found.error);
 
   const name = input.name.trim().slice(0, 60) || "Untitled";
-  // The asset name is whatever the customer typed, or nothing. It used to be
-  // forced to "Setup" for a desktop source and forced to null for every other
-  // kind; there are no kinds, so it is simply an optional field again.
-  const source = await createSource(
-    getStore().db,
-    found.project.id,
-    name,
-    input.assetName?.trim() || null
-  );
+  const source = await createSource(getStore().db, found.project.id, name);
 
   return { ok: true, sourceId: source.id, ingestKey: source.ingestKey };
 }

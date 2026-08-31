@@ -24,7 +24,25 @@ import * as esbuild from "esbuild";
 const here = import.meta.dir;
 const outdir = join(here, "dist");
 
-export const PEERS = ["react", "react-dom", "react/jsx-runtime", "next", "next/navigation", "vue", "svelte"];
+/**
+ * Import specifiers left alone, rather than a list of package names: esbuild
+ * matches these against what a file actually imports, so `next/navigation` has
+ * to be here beside `next`. `#app` is Nuxt's alias for its runtime, resolved by
+ * the customer's Nuxt build and by nothing here.
+ */
+export const PEERS = [
+  "react",
+  "react-dom",
+  "react/jsx-runtime",
+  "next",
+  "next/navigation",
+  "vue",
+  "svelte",
+  "solid-js",
+  "#app",
+  "@angular/core",
+  "@angular/router",
+];
 
 export async function build(): Promise<Record<string, number>> {
   rmSync(outdir, { recursive: true, force: true });
@@ -36,6 +54,9 @@ export async function build(): Promise<Record<string, number>> {
       next: join(here, "frameworks", "next.ts"),
       svelte: join(here, "frameworks", "svelte.ts"),
       vue: join(here, "frameworks", "vue.ts"),
+      nuxt: join(here, "frameworks", "nuxt.ts"),
+      solid: join(here, "frameworks", "solid.ts"),
+      angular: join(here, "frameworks", "angular.ts"),
     },
     bundle: true,
     splitting: true,

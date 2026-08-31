@@ -138,14 +138,17 @@ export async function handleEntries(req: Request, ctx: Ctx): Promise<Response> {
     return json({ accepted: 0, duplicates: 0, dropped } satisfies IngestResponse, 202);
   }
 
-  // The header, unlike one entry, is not droppable: with no distinct id there
-  // is nothing to attribute any of these entries to.
+  // The resource is droppable, and it is the only part of the header that is.
+  // It is a whole map of attributes describing the client, and one bad key in
+  // it would otherwise cost every entry in the batch its existence for the sake
+  // of a field that is decoration on each of them. So a batch that fails only
+  // because of `r` is retried without it: the entries land, missing the app
+  // version they would have carried.
   //
-  // The resource is the exception. It is a whole map of attributes describing
-  // the client, and one bad key in it would otherwise cost every entry in the
-  // batch its existence for the sake of a field that is decoration on each of
-  // them. So a batch that fails only because of `r` is retried without it: the
-  // entries land, missing the app version they would have carried.
+  // They also land missing their IDENTITY, because `user.id`, `device.id` and
+  // `session.id` travel in the resource. That is the right trade in the same
+  // direction as everything else here: an entry with no identity is counted as
+  // an entry and in no unique, which is a smaller loss than the entry itself.
   let batch = LogBatch.safeParse({ ...b, e: kept });
   if (!batch.success && b.r !== undefined) {
     batch = LogBatch.safeParse({ ...b, r: undefined, e: kept });

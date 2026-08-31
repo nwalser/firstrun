@@ -10,11 +10,11 @@ import Copy from "lucide-solid/icons/copy";
 import Ellipsis from "lucide-solid/icons/ellipsis";
 import Gauge from "lucide-solid/icons/gauge";
 import LayoutGrid from "lucide-solid/icons/layout-grid";
-import LifeBuoy from "lucide-solid/icons/life-buoy";
 import LogOut from "lucide-solid/icons/log-out";
 import Pencil from "lucide-solid/icons/pencil";
 import Plus from "lucide-solid/icons/plus";
 import ScrollText from "lucide-solid/icons/scroll-text";
+import ServerCog from "lucide-solid/icons/server-cog";
 import Search from "lucide-solid/icons/search";
 import Settings from "lucide-solid/icons/settings";
 import Trash2 from "lucide-solid/icons/trash-2";
@@ -24,6 +24,7 @@ import {
   Show,
   createContext,
   createMemo,
+  createResource,
   createSignal,
   onCleanup,
   onMount,
@@ -44,9 +45,11 @@ import { useI18n } from "../lib/i18n/index.js";
 import {
   deleteDashboardFn,
   duplicateDashboardFn,
+  getProjectNav,
   renameDashboardFn,
   reorderDashboardsFn,
   type BillingView,
+  type ProjectNav as ProjectNavView,
   type DashboardSummary,
   type MemberRole,
   type ProjectSummary,
@@ -54,11 +57,12 @@ import {
   type WorkspaceSummary,
 } from "../lib/api.js";
 import { LocaleSwitcher } from "./locale-switcher.js";
-import { PlanNotice } from "./plan-meter.js";
+import { PLAN_KEYS, PlanNotice } from "./plan-meter.js";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
+  Badge,
   ConfirmDelete,
   DropdownMenu,
   DropdownMenuContent,
@@ -90,7 +94,7 @@ import {
   SidebarSeparator,
   SidebarSubButton,
   SidebarTrigger,
-  hairlineBottom,
+  ShellTopbar,
   initials,
   toast,
   useSidebar,
@@ -574,6 +578,51 @@ function ScopeChevron(props: { label: string; children: JSX.Element }) {
 }
 
 /**
+ * What this workspace is paying for, beside its name in the sidebar header.
+ *
+ * The plan is a property of the WORKSPACE, so it is drawn on the workspace, in
+ * the one row that names it. That is also the reference's placement: the plan
+ * rides the scope, not a settings page you have to go and look at, which is why
+ * "am I on the free tier" is answerable without navigating anywhere.
+ *
+ * Not a link, and deliberately so. It sits inside the name's `Link`, and an
+ * anchor inside an anchor is invalid markup that browsers repair by ending the
+ * outer one early -- which would quietly cut the workspace row's own hit area
+ * in half. Settings > Billing is one row down in the same column.
+ *
+ * Two things hide it:
+ *
+ *   - `cloud: false`, the self-hosted edition. There is no plan there, nothing
+ *     is capped, and "Free" would describe a tier that does not exist rather
+ *     than a choice somebody made. Same rule the meter and the notice follow.
+ *   - the collapsed strip, where the label is already gone and a 52px column
+ *     has no room for a second thing to read.
+ *
+ * It says the plan and nothing else. `past_due` is a state somebody has to act
+ * on, and `PlanNotice` already puts it where an action fits; a red chip in the
+ * header would be a second, quieter alarm for the same fact with nothing to
+ * press.
+ */
+function PlanBadge(props: { billing: BillingView }) {
+  const { state } = useSidebar();
+  const i18n = useI18n();
+
+  return (
+    <Show when={props.billing.cloud && state() !== "collapsed"}>
+      <Badge
+        variant="secondary"
+        // 18px rather than the chip's own height: it rides a 14px name on a
+        // 40px row, and the default chip is tall enough there to read as a
+        // control sitting next to the label instead of an annotation on it.
+        class="h-[18px] px-1.5 py-0 text-caption font-medium text-muted-foreground"
+      >
+        {i18n.t(PLAN_KEYS[props.billing.plan])}
+      </Badge>
+    </Show>
+  );
+}
+
+/**
  * Scope segment 1: the workspace, in the sidebar header.
  *
  * A 40px row inside a 48px band, 20px round avatar, name at 14/500. Collapsed,
@@ -583,6 +632,8 @@ function ScopeChevron(props: { label: string; children: JSX.Element }) {
 function WorkspaceSwitcher(props: {
   session: SessionInfo;
   workspace: WorkspaceSummary;
+  /** What this workspace is paying for, so the header can say so. */
+  billing: BillingView;
   /** Which section is open, so a switch stays on it. */
   section: ScopeSection;
 }) {
@@ -634,6 +685,7 @@ function WorkspaceSwitcher(props: {
         >
           <WorkspaceLogo workspace={props.workspace} />
           <SidebarLabel class="truncate">{props.workspace.name}</SidebarLabel>
+          <PlanBadge billing={props.billing} />
         </Link>
         <Show when={state() === "expanded"}>
           <ScopeChevron label={i18n.t("shell.switch_workspace")}>
@@ -1763,25 +1815,57 @@ function NotificationBell() {
   );
 }
 
-/** The documentation topic the Support row lands on. Named so the two rows agree. */
-const SUPPORT_TOPIC = "troubleshooting";
-const SUPPORT_PATH = `/docs/${SUPPORT_TOPIC}`;
-
 function RootNav(props: {
   workspace: WorkspaceSummary;
   project: ProjectSummary | null;
+  /**
+   * The open project's nav when the scope came from `?project=` and nothing
+   * under the route published one. Null everywhere else.
+   */
+  narrowed: ProjectNavView | null;
+  /**
+   * Whether this session operates the DEPLOYMENT, which is `FIRSTRUN_ADMINS`
+   * and a different question from `workspace.role`. Passed down rather than
+   * read from a context, because it belongs to the session and the session is
+   * already a prop of the shell.
+   */
+  admin: boolean;
   path: string;
 }) {
   const i18n = useI18n();
   const { nav } = useProjectNav();
   const base = () => `/w/${props.workspace.slug}`;
 
-  // The scope comes from the PATH, and the published nav only fills the scope
-  // in. The project route publishes itself from an effect, which does not run
-  // during SSR, so a sidebar that decided its shape from the published value
-  // would render at workspace scope on the server and snap to project scope on
+  // The scope comes from the PATH, and the nav only fills the scope in. The
+  // project route publishes itself from an effect, which does not run during
+  // SSR, so a sidebar that decided its shape from the published value would
+  // render at workspace scope on the server and snap to project scope on
   // hydration -- on every project page, on every load.
-  const boards = () => (nav()?.projectSlug === props.project?.slug ? nav() : null);
+  //
+  // Two sources, and the published one wins: a page under the project route
+  // has the nav already and must not wait on a fetch, while the log and usage
+  // -- workspace-wide pages narrowed to one project by `?project=` -- have
+  // nobody to publish for them and use what the shell fetched. Both are checked
+  // against the project the URL actually names, so neither can draw a stale
+  // project's boards for a moment after a switch.
+  const boards = (): ProjectNav | null => {
+    const slug = props.project?.slug;
+    if (!slug) return null;
+
+    const published = nav();
+    if (published?.projectSlug === slug) return published;
+
+    const fetched = props.narrowed;
+    if (!fetched || fetched.project.slug !== slug) return null;
+    return {
+      projectSlug: fetched.project.slug,
+      projectName: fetched.project.name,
+      role: fetched.role,
+      dashboards: fetched.dashboards,
+      // No board is open: this is the log, not a board.
+      activeSlug: null,
+    };
+  };
 
   const isActive = (href: string, exact = false) =>
     exact ? props.path === href : props.path === href || props.path.startsWith(href + "/");
@@ -1848,9 +1932,10 @@ function RootNav(props: {
             -- so a heading and a rule between them said there were two kinds
             of navigation here when there is one. Merged into the scope group.
 
-            Nothing about a row changed in the merge. Each one still exists at
-            BOTH scopes and only its destination moves, which is what keeps the
-            row count and every row's position stable when the scope narrows.
+            Nothing about a row changed in the merge. Sources and the log
+            exist at BOTH scopes and only their destination moves, which is what
+            keeps their positions stable when the scope narrows. People is the
+            exception and leaves: see the note on it below.
           */}
 
           {/*
@@ -1911,18 +1996,34 @@ function RootNav(props: {
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              as={Link}
-              to="/w/$wslug/members"
-              params={{ wslug: props.workspace.slug }}
-              tooltip={i18n.t("shell.people")}
-              isActive={isActive(`${base()}/members`)}
-            >
-              <Users />
-              <SidebarLabel>{i18n.t("shell.people")}</SidebarLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {/*
+            People, at workspace scope only.
+
+            Membership is per WORKSPACE and covers every project in it, so there
+            is no such thing as this project's people: the row at project scope
+            led to the same workspace page as the row one scope up, which reads
+            as a project-level setting and is not one. `scopeTarget` already
+            treats members as unpaired for exactly this reason -- switching into
+            a project from People lands on the project's overview, because there
+            is nothing narrower to show -- and this is the sidebar agreeing with
+            it. It is also why the rows here no longer keep a stable count
+            across the two scopes: a row that would lie is worse than a row that
+            leaves.
+          */}
+          <Show when={!props.project}>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                as={Link}
+                to="/w/$wslug/members"
+                params={{ wslug: props.workspace.slug }}
+                tooltip={i18n.t("shell.people")}
+                isActive={isActive(`${base()}/members`)}
+              >
+                <Users />
+                <SidebarLabel>{i18n.t("shell.people")}</SidebarLabel>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </Show>
         </SidebarMenu>
 
         {/*
@@ -1969,8 +2070,8 @@ function RootNav(props: {
 
       <SidebarGroup>
         {/*
-          Settings, the documentation, usage and support. The reference calls
-          this the account group and puts exactly these in it, which is also
+          Settings, the documentation and usage. The reference calls this the
+          account group and puts these in it, which is also
           the only honest name for a set whose one shared property is that
           none of it is the data you came here to read.
         */}
@@ -2017,17 +2118,28 @@ function RootNav(props: {
             The documentation is not part of this workspace -- it is the same pages for
             everyone and reads fine with no session at all -- but it is still an
             account-level destination, which is the group the reference puts
-            Support and Settings in.
+            Settings in.
+
+            `submenu`, like Settings and Deployment: it is a door out of this
+            shell into `DocsShell`, and the chevron is the only thing in the
+            column that says so. Every other row here changes the page inside
+            the frame you are already in; these three change the frame.
+
+            There used to be a Support row beside this one, pointing at the
+            troubleshooting topic, and this row had to exclude that one path
+            from its own active test so the two were never lit at once. Support
+            is gone: it was a second door into the same shell, one topic deep,
+            and a reader who wants that page reaches it from the contents like
+            every other page in there. With it gone the test is simply "are we
+            in the documentation".
           */}
           <SidebarMenuItem>
             <SidebarMenuButton
               as={Link}
               to="/docs"
               tooltip={i18n.t("shell.documentation")}
-              isActive={
-                props.path !== SUPPORT_PATH &&
-                (props.path === "/docs" || props.path.startsWith("/docs/"))
-              }
+              isActive={props.path === "/docs" || props.path.startsWith("/docs/")}
+              submenu
             >
               <BookOpen />
               <SidebarLabel>{i18n.t("shell.documentation")}</SidebarLabel>
@@ -2054,26 +2166,39 @@ function RootNav(props: {
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          {/*
-            Support, which the reference's third group has and we did not.
 
-            It points at the troubleshooting topic rather than at a contact form
-            we do not have: a row that goes nowhere is worse than a missing one,
-            and the page it lands on is genuinely what somebody clicking Support
-            is looking for.
+          {/*
+            The deployment, for whoever operates it.
+
+            A ROW rather than an item in the account menu, which is where it
+            used to be and where nobody found it: an operator opening the app
+            has one job that is not in any workspace, and a destination hidden
+            two clicks inside a menu about your own account is a destination you
+            have to already know exists. It sits last in the account group
+            because none of this group is the data you came here to read, and
+            this is the row furthest from it.
+
+            `submenu`, because it is a door: it leads out of this shell into the
+            operator's own, which is the same thing Settings' chevron promises.
+
+            `FIRSTRUN_ADMINS` and not a role in any workspace. Hiding it from
+            everybody else is a courtesy rather than the permission: `/admin`
+            re-checks on the server and renders a not-found either way.
           */}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              as={Link}
-              to="/docs/$topic"
-              params={{ topic: SUPPORT_TOPIC }}
-              tooltip={i18n.t("shell.support")}
-              isActive={props.path === SUPPORT_PATH}
-            >
-              <LifeBuoy />
-              <SidebarLabel>{i18n.t("shell.support")}</SidebarLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          <Show when={props.admin}>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                as={Link}
+                to="/admin"
+                tooltip={i18n.t("admin.nav")}
+                isActive={isActive("/admin")}
+                submenu
+              >
+                <ServerCog />
+                <SidebarLabel>{i18n.t("admin.nav")}</SidebarLabel>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </Show>
         </SidebarMenu>
       </SidebarGroup>
     </>
@@ -2248,18 +2373,44 @@ export function AppShell(props: AppShellProps) {
    * somewhere else cannot move the scope. And still from the URL rather than
    * from a signal, so the server and the first client render agree.
    */
-  const project = () => {
-    const inPath = props.projects.find(
-      (p) => path() === `${base()}/${p.slug}` || path().startsWith(`${base()}/${p.slug}/`)
-    );
-    if (inPath) return inPath;
+  const project = () => inPathProject() ?? narrowedProject();
 
+  const inPathProject = () =>
+    props.projects.find(
+      (p) => path() === `${base()}/${p.slug}` || path().startsWith(`${base()}/${p.slug}/`)
+    ) ?? null;
+
+  const narrowedProject = () => {
     if (section() !== "events" && section() !== "usage") return null;
     const narrowed = (routerState().location.search as { project?: unknown }).project;
     return typeof narrowed === "string"
       ? (props.projects.find((p) => p.slug === narrowed) ?? null)
       : null;
   };
+
+  /**
+   * The open project's boards, on a page that is not under the project route.
+   *
+   * The project route publishes its own nav from data its loader already has,
+   * so a page under a project costs nothing here. The filtered pages -- the log
+   * and usage, which are ONE workspace-wide page narrowed by `?project=` -- are
+   * at project scope by every other measure the shell uses, and were the one
+   * place the board list silently vanished: nothing under those routes
+   * publishes a nav, so the Boards group had nothing to draw and removed
+   * itself. Standing in a project and losing its boards because you opened the
+   * log is the sidebar contradicting the scope switcher above it.
+   *
+   * Fetched here rather than in each of those routes' loaders, because "what
+   * does the sidebar show for this scope" is the sidebar's own question, and a
+   * page added later that narrows the same way gets this for free.
+   *
+   * Keyed on the slug alone, so switching project refetches and moving onto a
+   * page under the project route stops asking.
+   */
+  const [narrowedNav] = createResource(
+    () => narrowedProject()?.slug ?? null,
+    (pslug) => getProjectNav({ data: { workspace: props.workspace.slug, project: pslug } })
+  );
 
   /** Settings is the one route that pushes a pane and narrows the content. */
   const onSettings = () =>
@@ -2274,6 +2425,7 @@ export function AppShell(props: AppShellProps) {
             <WorkspaceSwitcher
               session={props.session}
               workspace={props.workspace}
+              billing={props.billing}
               section={section()}
             />
             {/* The second header row, which is what makes the header the
@@ -2283,7 +2435,13 @@ export function AppShell(props: AppShellProps) {
 
           <SidebarContent>
             <SidebarPane side="root" active={!onSettings()}>
-              <RootNav workspace={props.workspace} project={project()} path={path()} />
+              <RootNav
+                workspace={props.workspace}
+                project={project()}
+                narrowed={narrowedNav() ?? null}
+                admin={props.session.admin}
+                path={path()}
+              />
             </SidebarPane>
 
             <SidebarPane side="pushed" active={onSettings()}>
@@ -2336,35 +2494,25 @@ export function AppShell(props: AppShellProps) {
         </Sidebar>
 
         <SidebarInset>
-          {/*
-            The topbar. 56px, three columns at 1 / 2 / 1 so the middle cell is
-            centred on the pane rather than on whatever the left cell happens to
-            be wide, and one device pixel of separation from the content.
-          */}
-          <header
-            class={cn(
-              "@container/bar sticky top-0 z-chrome grid h-14 shrink-0 items-center gap-2",
-              "bg-card md:bg-background",
-              "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]",
-              hairlineBottom
-            )}
+          {/* The measurements are in `ShellTopbar`, which the documentation and
+              the operator pages draw too. Reserved trailing cell: the reference
+              puts one control there and we have none yet, and the cell stays so
+              the breadcrumb keeps its centre. */}
+          <ShellTopbar
+            leading={
+              <>
+                <ExpandSidebar />
+                <ProjectSwitcher
+                  workspace={props.workspace}
+                  projects={props.projects}
+                  project={project()}
+                  section={section()}
+                />
+              </>
+            }
           >
-            <div class="z-10 flex min-w-0 items-center overflow-hidden pl-4">
-              <ExpandSidebar />
-              <ProjectSwitcher
-                workspace={props.workspace}
-                projects={props.projects}
-                project={project()}
-                section={section()}
-              />
-            </div>
-
             <PageBreadcrumb path={path()} />
-
-            {/* Reserved. The reference puts one control here and we have none
-                yet; the cell stays so the breadcrumb keeps its centre. */}
-            <div class="flex items-center justify-self-end gap-1 pr-4" />
-          </header>
+          </ShellTopbar>
 
           {/*
             The only scroll container on the page, and the container QUERY

@@ -27,7 +27,7 @@ import {
  * rather than waited for, and nothing here is timing-dependent.
  */
 
-const SOURCE_KEY = "fr_web_1111222233334444";
+const SOURCE_KEY = "fr_1111222233334444";
 const HOST = "https://t.example.com";
 
 interface Rec {
@@ -67,6 +67,7 @@ function recorder(): Rec {
         r.scheduled++;
         timers.push(fn);
       },
+      fingerprint: () => undefined,
     },
   };
   return r;

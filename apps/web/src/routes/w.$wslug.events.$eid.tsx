@@ -1,5 +1,5 @@
 import { severityBand, severityText, type FeedEntry } from "@firstrun/schema";
-import { ATTR } from "@firstrun/schema/conventions";
+import { ATTR, entryIdentity } from "@firstrun/schema/conventions";
 import { Link, createFileRoute, notFound, redirect } from "@tanstack/solid-router";
 import Antenna from "lucide-solid/icons/antenna";
 import ArrowLeft from "lucide-solid/icons/arrow-left";
@@ -162,14 +162,18 @@ function EventPage() {
               <ScrollText class="size-4 text-muted-foreground" />
             </Related>
 
-            <Related
-              workspace={workspace()}
-              project={entry().projectSlug}
-              query={entry().distinctId}
-              label={i18n.t("events.same_client")}
-            >
-              <UserRound class="size-4 text-muted-foreground" />
-            </Related>
+            <Show when={entryIdentity(entry().attributes)}>
+              {(id) => (
+                <Related
+                  workspace={workspace()}
+                  project={entry().projectSlug}
+                  query={id().value}
+                  label={i18n.t("events.same_client")}
+                >
+                  <UserRound class="size-4 text-muted-foreground" />
+                </Related>
+              )}
+            </Show>
 
             <Show when={sourceId()}>
               {(id) => (

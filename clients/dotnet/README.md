@@ -12,7 +12,8 @@ shape, not a schema.** Nothing they produce is privileged; write the same entry 
 
 ```
 dotnet add package Firstrun
-dotnet add package Firstrun.Extensions.Hosting   # ASP.NET / IHost only
+dotnet add package Firstrun.Extensions.Hosting     # DI and IHost wiring
+dotnet add package Firstrun.Extensions.AspNetCore  # the request middleware; brings Hosting with it
 ```
 
 ## Why you can trust it in your app
@@ -68,7 +69,7 @@ public partial class App : Application
     {
         Analytics = new FirstrunClient(new FirstrunOptions
         {
-            SourceKey = "fr_desktop_9f3a2b1c4d5e6f70",
+            SourceKey = "fr_9f3a2b1c4d5e6f70",
             Host      = "https://t.example.com",
             AppName   = "Themia",          // names the folder the anonymous id lives in
             Channel   = "stable",
@@ -117,7 +118,7 @@ using Firstrun;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddFirstrunServer(
-    sourceKey: "fr_server_9f3a2b1c4d5e6f70",
+    sourceKey: "fr_9f3a2b1c4d5e6f70",
     host: "https://t.example.com");
 
 var app = builder.Build();
@@ -141,13 +142,218 @@ app.Run();
 `AddFirstrunServer` registers the client as a **singleton** (one thread, one `HttpClient`, one
 queue) plus an `IHostedService` that flushes inside the graceful shutdown window, bounded by
 `ExitFlushTimeout`. It sets
-`PersistDistinctId = false` and `TrackLifecycleEvents = false`, which is what a server wants.
+`PersistDistinctId = false`, `TrackLifecycleEvents = false` and `SessionPerProcess = false`,
+which is what a server wants.
 `AddFirstrun(options => ...)` is the general form. Neither can fail your startup: the hosted
 service does no work in `StartAsync`.
+
+`SessionPerProcess = false` is the one worth knowing about. A desktop process is one sitting and
+its lifetime honestly is a session; a server process serves thousands of unrelated callers for
+weeks, so a session id minted at construction would land on every entry the box ever sends and
+make `count(distinct session.id)` answer "how many times have you restarted". With it off the
+client holds no session id at all, and `session.id` appears only where something names one: a
+`sessionId` argument, or a scope. Absent is a gap somebody can fill. Invented is a gap that looks
+answered.
 
 If you have not supplied your own `Diagnostics` callback, the DI extension wires one to
 `ILogger` at `Trace` (and `Debug` for internal errors). Analytics does not belong in a
 production error log.
+
+### Request-scoped identity
+
+Passing the ids at every call site works and stays explicit, but it means every method between
+the request and the thing worth recording carries an id it does not otherwise care about. Set the
+identity once where the request arrives instead:
+
+```csharp
+app.Use(async (http, next) =>
+{
+    // Whatever YOU already have. Nothing is read on your behalf: this library never
+    // looks at a cookie, a header, an IP or a principal on its own initiative.
+    var identity = new FirstrunIdentity(
+        distinctId: http.Request.Cookies["visitor"] ?? http.Connection.Id,
+        userId: http.User.Identity?.Name);
+
+    using (FirstrunContext.Push(identity))
+    {
+        await next(http);
+    }
+});
+
+app.MapPost("/orders", (FirstrunClient analytics, Order order) =>
+{
+    // No ids here. The scope above supplies them, through every await in between.
+    analytics.Event("order_placed",
+        new FirstrunAttributes().Set("currency", order.Currency).Set("total", order.Total));
+
+    return Results.Ok();
+});
+```
+
+Three steps, most specific first: **what the call named**, then **the scope around it**, then
+**the client**. Leave an argument null and it falls to the next step. That is per field, so a call
+that names only `userId` still takes the anonymous id and the session id from the scope.
+
+On a server the third step has no session to give (`SessionPerProcess` is off, see above), so a
+session id that nobody names is absent rather than invented. The first two steps are unchanged.
+
+`FirstrunIdentity` is immutable, and that is the point rather than a stylistic preference. An
+ambient value is shared by reference with everything that flows out of the frame that set it, so a
+mutable one would let a nested handler rewrite what its caller sees. To change a value, build a
+new identity and push that:
+
+```csharp
+// After authentication ran, in a scope that was opened before it.
+using (FirstrunContext.Push(FirstrunContext.Current?.WithUserId(account.Id)
+                            ?? new FirstrunIdentity(userId: account.Id)))
+{
+    ...
+}
+```
+
+An identity can also carry attributes, for the things that are true of the whole request and would
+otherwise be repeated at every call inside it:
+
+```csharp
+new FirstrunIdentity(distinctId: visitor)
+    .WithAttribute(FirstrunAttr.HttpRoute, "/orders/{id}")
+    .WithAttribute("tenant", tenant.Slug);
+```
+
+They sit under whatever the call itself passes, so a call naming the same key still wins.
+
+It is `AsyncLocal`, so the scope follows the work rather than the thread: it survives every await,
+two requests running concurrently on the same thread pool each see their own, and background work
+started inside a scope keeps the identity it was started with. One caveat comes with the
+primitive: assigning an ambient value copies the execution context of the frame doing the
+assigning, so **push in the frame that owns the scope**, not inside an `async` helper it calls.
+Disposing restores the previous scope rather than clearing, so scopes nest.
+
+### The middleware
+
+`UseFirstrun` (from `Firstrun.Extensions.AspNetCore`) opens that scope for you and records the
+request while it is at it: one `http.request` entry per request, with the method, the route
+template, the path, the status and the duration.
+
+```csharp
+using Firstrun;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers();
+builder.Services.AddFirstrunServer(
+    sourceKey: "fr_9f3a2b1c4d5e6f70",
+    host: "https://t.example.com");
+
+var app = builder.Build();
+
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseFirstrun(o =>
+{
+    // Required, and used verbatim. Nothing here reads a cookie, a header, an IP or a
+    // principal on its own initiative: what these return is all it knows.
+    o.DistinctId = http => http.Request.Cookies["visitor"] ?? http.Connection.Id;
+    o.UserId = http => http.User.Identity?.Name;
+    // Optional. Leave it out and session.id is simply absent, here and on the entries
+    // your own code records inside the request. Nothing fills it in.
+    o.SessionId = http => http.Request.Cookies["sid"];
+    o.Ignore = http => http.Request.Path.StartsWithSegments("/health");
+});
+
+app.MapControllers();
+app.Run();
+```
+
+```csharp
+[ApiController]
+[Route("orders")]
+public class OrdersController(FirstrunClient analytics) : ControllerBase
+{
+    [HttpPost("{id}/items")]
+    public IActionResult AddItem(string id, Item item)
+    {
+        // No ids anywhere. The middleware opened the scope on the way in, and it reaches
+        // through every await between there and here.
+        analytics.Event("item_added",
+            new FirstrunAttributes().Set("order", id).Set("sku", item.Sku));
+
+        return Ok();
+    }
+}
+```
+
+**Register it after `UseRouting`.** The route template comes from the endpoint routing matched, so
+a middleware sitting ahead of routing on a pipeline that short-circuits before routing runs
+records no `http.route` at all: the entries still arrive, and the one key a request breakdown is
+grouped on is quietly missing from them. Register it after `UseAuthentication` too if `UserId`
+reads `HttpContext.User`, because the scope opens on the way down and the principal is not
+populated before authentication has run.
+
+That is below `UseExceptionHandler`, where the default template puts it, so a handled exception
+drives everything under the handler through the pipeline a **second** time on the way to the error
+page. **The second pass records nothing.** One request is one entry: the phantom `/error` row it
+would otherwise add inflates request counts and error counts alike, and it would be attributed to
+the real visitor. The identity scope still opens on that pass, so anything your error page records
+is still theirs. `UseStatusCodePagesWithReExecute` is the same story for a 404.
+
+One request produces one entry, shaped like this:
+
+| attribute | |
+|---|---|
+| `http.request.method` | `"POST"` |
+| `http.route` | `/orders/{id}/items`, the **template**. Omitted when there is no endpoint |
+| `url.path` | `/orders/8812/items`, the path that was asked for |
+| `http.response.status_code` | a number, not a string |
+| `firstrun.duration_ms` | a number |
+| `firstrun.client_aborted` | `true`, and only when the caller hung up. Absent otherwise |
+| `session.id` | only when `SessionId` returned one |
+
+`firstrun.duration_ms` is how long **the pipeline below this middleware** took, not the whole
+request. Registered where it is documented to go, that leaves out routing, authentication, HTTPS
+redirection and anything else you put above it. It is the number that changes when your handler
+changes, which is the one worth watching, but it is not what your load balancer will tell you.
+
+`http.route` is the template and never the resolved path, because `/orders/{id}/items` is one row
+on a breakdown while `/orders/8812/items` is one row per order. When the framework has no template
+to give (a static file, a 404, a request that short-circuited ahead of routing) the key is left
+off rather than filled in with the path: a path masquerading as a template poisons the column
+everything else is grouped on.
+
+Severity is `9` (INFO) normally and `17` (ERROR) for a 5xx. **A 4xx stays at INFO**: it is the
+caller's mistake, and a board where every 404 is an error is a board nobody reads past.
+
+An entry is recorded even when your handler throws, and **your exception propagates untouched**.
+It gets severity 17 plus `exception.type` and `exception.message`, and `http.response.status_code`
+is omitted rather than guessed: at the moment the exception passes us the status is still whatever
+nobody has overwritten yet, and recording that would file a crashed request on the board as a 200.
+
+**A caller who hangs up is not a server error.** An `OperationCanceledException` on a request whose
+`RequestAborted` has been cancelled means somebody closed a tab, dropped an SSE stream or navigated
+away mid-download. It stays at INFO, carries `firstrun.client_aborted` instead of an
+`exception.type` nobody wrote, and keeps its route and duration. Both halves of that test matter:
+a cancellation your own timeout or your own `CancellationTokenSource` raised really is a failure,
+and is still an ERROR that names its exception.
+
+Two things turn a request off. `Ignore` returning true skips it completely: no entry, no scope,
+and the other three delegates are not called, which is what you want for a probe hit sixty times a
+minute. `DistinctId` returning null leaves the request unrecorded rather than filing it under the
+client's own process-wide id, which would report every unattributed request as one install.
+
+Two wiring mistakes disable the middleware instead of failing anything: no `DistinctId`, and no
+`AddFirstrunServer`. Both write one line to your logger at startup and leave the pipeline exactly
+as it was. A third writes a line without disabling anything: a client registered with plain
+`AddFirstrun` still holds the desktop default of one session id per process, which would then be
+the same value on every request the process ever serves, and `UseFirstrun` cannot reach into a
+client that is already built to fix it. Nothing else it does can reach your app: the pipeline below
+it runs exactly once whatever our code does, and the entry is queued in memory for the client's own
+thread to send.
+
+Those three lines are the only noise this library makes. Each is a mistake in your own
+`Program.cs`, each fires once before a request is served, and the person reading it is the person
+who fixes it.
 
 ## When it sends
 
@@ -334,6 +540,23 @@ class FirstrunClient : IDisposable, IAsyncDisposable   // IAsyncDisposable on ne
     bool                 FlushOnExit { get; }
     TimeSpan             ExitFlushTimeout { get; }
 
+// The ambient identity for one request, job or message. See "Request-scoped identity".
+static class FirstrunContext
+    FirstrunIdentity? Current { get; }
+    IDisposable       Push(FirstrunIdentity? identity)  // restores the previous scope on Dispose
+
+class FirstrunIdentity                                  // immutable: build a copy, do not mutate
+    FirstrunIdentity(string? distinctId = null, string? userId = null, string? sessionId = null,
+                     IReadOnlyDictionary<string,object?>? attributes = null)
+    string? DistinctId { get; }
+    string? UserId { get; }
+    string? SessionId { get; }
+    IReadOnlyDictionary<string,object?>? Attributes { get; }
+    FirstrunIdentity WithDistinctId(string? distinctId)
+    FirstrunIdentity WithUserId(string? userId)
+    FirstrunIdentity WithSessionId(string? sessionId)
+    FirstrunIdentity WithAttribute(string key, object? value)   // null value removes the key
+
 class FirstrunAttributes : Dictionary<string,object?>
     FirstrunAttributes Set(string key, string? value)   // null removes the key
     FirstrunAttributes Set(string key, long value)
@@ -394,6 +617,17 @@ static class FirstrunServiceCollectionExtensions
     IServiceCollection AddFirstrunServer(this IServiceCollection, string sourceKey, string host,
                                          Action<FirstrunOptions>? configure = null)
 class FirstrunHostedService : IHostedService
+
+// Firstrun.Extensions.AspNetCore. Register after UseRouting: see "The middleware".
+static class FirstrunApplicationBuilderExtensions
+    IApplicationBuilder UseFirstrun(this IApplicationBuilder,
+                                    Action<FirstrunMiddlewareOptions>? configure = null)
+
+class FirstrunMiddlewareOptions
+    Func<HttpContext,string?>? DistinctId { get; set; }   // required; null return, no entry
+    Func<HttpContext,string?>? UserId { get; set; }       // null return, anonymous
+    Func<HttpContext,string?>? SessionId { get; set; }    // null return, session.id absent
+    Func<HttpContext,bool>?    Ignore { get; set; }       // true, no entry and no scope
 ```
 
 `Error(ex)` is the helper worth reaching for first. It unwraps the exception into
@@ -409,7 +643,7 @@ catch (Exception ex) { client.Error(ex, new FirstrunAttributes().Set("rows", row
 
 | Option | Default | What it does |
 |---|---|---|
-| `SourceKey` | required | `fr_<surface>_<16 chars>`. Public; identifies a destination and authorises nothing. |
+| `SourceKey` | required | `fr_<16 hex>`. Public; identifies a destination and authorises nothing. |
 | `Host` | required | Ingest origin, e.g. `https://t.example.com`. |
 | `AppName` | source key | Names the folder holding the anonymous id. |
 | `ServiceName` | `null` | Sent as the `service.name` resource attribute. |
@@ -420,6 +654,7 @@ catch (Exception ex) { client.Error(ex, new FirstrunAttributes().Set("rows", row
 | `MinSeverity` | `0` | Entries classified below this are dropped. Unclassified ones never are. |
 | `DistinctId` | from disk | Override the anonymous id. |
 | `PersistDistinctId` | `true` | False keeps it in memory only. |
+| `SessionPerProcess` | `true` | Whether this process is one session. False on a server: `session.id` is then written only when a call or a scope names one. `AddFirstrunServer` sets it. |
 | `TrackLifecycleEvents` | desktop/mobile | Emits `app_install` on first run and `app_launch` on every run. |
 | `Mode` | by surface | The schedule: `Immediate`, `Interval`, `Startup` or `Manual`. See below. |
 | `Persistence` | `Memory` | `Disk` mirrors the pending queue to a file and drains it next start. |
@@ -503,7 +738,7 @@ One `POST {Host}/v1/e` per batch, `Content-Type: application/json`:
 
 ```json
 {
-  "k": "fr_desktop_9f3a2b1c4d5e6f70",
+  "k": "fr_9f3a2b1c4d5e6f70",
   "d": "0e9f...-...",
   "r": {
     "service.version": "2.4.1",

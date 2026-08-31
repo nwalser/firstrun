@@ -250,9 +250,8 @@ export const sources = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    /** Optional installer basename, e.g. `Themia-Setup`. */
-    assetName: text("asset_name"),
     ingestKey: text("ingest_key").notNull(),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -328,12 +327,12 @@ export const dashboards = pgTable(
  * arrive they arrive as attributes first, and are promoted only if a query
  * needs them to be columns.
  *
- * ## Five promoted columns, and no more
+ * ## Four promoted columns, and no more
  *
- * `project_id`, `time`, `distinct_id`, `severity` and `name` are real columns
- * because every query in the product constrains on them. `os`, `app_version`,
- * `url`, `referrer`, the utm fields, the session id, the user id and the source
- * id are NOT: they live in `attributes` and are queried from there. That makes
+ * `project_id`, `time`, `severity` and `name` are real columns because every
+ * query in the product constrains on them. `os`, `app_version`, `url`,
+ * `referrer`, the utm fields, the user id, the device id, the session id and
+ * the source id are NOT: they live in `attributes` and are queried there. That makes
  * a breakdown by OS slower than a column scan would have been, and that is the
  * trade -- a closed set of columns is a closed set of questions, and the one
  * thing we cannot know in advance is which question a customer needs answered.
@@ -387,18 +386,6 @@ export const logEntries = pgTable(
     /** OTel `observed_timestamp`. Ours. Debugging only. */
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
 
-    /**
-     * The anonymous id the client generated and persisted for ITS OWN source:
-     * a visitor id in a browser, an install id in an app. Required, because an
-     * entry that belongs to nothing cannot be counted as a unique.
-     *
-     * `user.id` -- whatever the customer passed to `identify()` -- is an
-     * attribute, not a column. A unique is
-     * `count(distinct coalesce(attributes ->> 'user.id', distinct_id))`, and
-     * nothing else ever folds two ids together.
-     */
-    distinctId: text("distinct_id").notNull(),
-
     /** OTel `severity_number`, 1..24. Null means unclassified, not INFO. */
     severity: smallint("severity"),
 
@@ -418,8 +405,19 @@ export const logEntries = pgTable(
     // severity filter is the one a log view opens with.
     index("log_entries_severity_time_idx").on(t.projectId, t.severity, t.time),
 
-    // One person's timeline, and every unique-counting walk.
-    index("log_entries_distinct_time_idx").on(t.projectId, t.distinctId, t.time),
+    // There is no identity index any more, and that is deliberate rather than
+    // an oversight. `user.id`, `device.id` and `session.id` are attributes, the
+    // unique is a `coalesce` over the three, and the compiler binds those keys
+    // as parameters so an expression index could never be matched against the
+    // statement it emits. A btree that can never be chosen is a write cost on
+    // the hottest table in the database in exchange for nothing.
+    //
+    // The GIN index below still answers a filter for one known id, which is
+    // what "this user's timeline" actually asks. If counting uniques over a
+    // large window turns out to be the slow query, the escape hatch is the one
+    // rule 3 already names: a generated column over `attributes ->> 'user.id'`
+    // (or `device.id`) with a btree on it, which no saved query has to be
+    // rewritten for because the query layer reaches the same value by path.
 
     // The index that makes attributes a first-class query surface rather than a
     // blob we happen to store. Default `jsonb_ops` rather than

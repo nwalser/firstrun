@@ -4,7 +4,8 @@ One package, one subpath per framework. Page views, sessions, time on page,
 scroll depth, outbound clicks, file downloads, form submits and Core Web Vitals,
 plus anything you record yourself.
 
-Nothing is stored and nothing is sent until you call `consent(true)`.
+Nothing is stored and nothing is sent until you call `consent(true)`, or until
+you pass `ephemeral` and there is nothing persistent left to ask about.
 
 ```
 @firstrun/analytics          core: init / event / error / log / identify / consent / page / flush / stop
@@ -13,6 +14,9 @@ Nothing is stored and nothing is sent until you call `consent(true)`.
 @firstrun/analytics/svelte   a Svelte action and an init helper   SvelteKit
 @firstrun/analytics/astro    an Astro component wrapping the script tag
 @firstrun/analytics/vue      <Analytics /> for Vue 3
+@firstrun/analytics/nuxt     a Nuxt plugin   Nuxt 3 and 4
+@firstrun/analytics/solid    <Analytics /> for SolidStart and plain Solid
+@firstrun/analytics/angular  provideFirstrunAnalytics()   Angular 19 and up
 ```
 
 The measurement itself lives in `@firstrun/web-tag` and every wrapper mounts the
@@ -54,8 +58,23 @@ without this package installed.
 
 | | |
 |---|---|
-| `sourceKey` | `fr_web_…`, from the workspace's **Sources** page. Public by necessity; it identifies and authorises nothing. |
+| `sourceKey` | `fr_9f3a2b1c4d5e6f70`, from the workspace's **Sources** page. Public by necessity; it identifies and authorises nothing. |
 | `host` | The ingest origin: a subdomain CNAMEd at firstrun, e.g. `https://t.themia.app`. |
+
+## Two identities
+
+The default id is a `localStorage` id behind `consent(true)`: it survives the
+tab, so a returning visitor is a returning visitor, and it is information on
+somebody's device that you have to ask about first.
+
+`ephemeral: true` is the other one. The keys move to `sessionStorage`, the id
+dies with the tab, and the gate opens on the first entry because nothing
+persistent is stored. A unique becomes one tab rather than one browser, so
+uniques across days overcount and week-over-week comparisons of them stop
+meaning anything. Counts of entries are identical under both.
+
+Neither is `session.id`, which cuts on 30 minutes idle inside whichever id you
+chose.
 
 It is `sourceKey`, not `key`, because React consumes a prop called `key` before
 the component ever sees it.
@@ -73,7 +92,7 @@ the component ever sees it.
 
   onMount(() =>
     initFirstrun({
-      sourceKey: 'fr_web_5eed000000000001',
+      sourceKey: 'fr_5eed000000000001',
       host: 'https://t.themia.app',
     })
   );
@@ -90,7 +109,7 @@ There is also an action, if you would rather write it in markup:
 ```svelte
 <script>
   import { firstrun } from '@firstrun/analytics/svelte';
-  const config = { sourceKey: 'fr_web_5eed000000000001', host: 'https://t.themia.app' };
+  const config = { sourceKey: 'fr_5eed000000000001', host: 'https://t.themia.app' };
 </script>
 
 <div use:firstrun={config} />
@@ -108,7 +127,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         {children}
-        <Analytics sourceKey="fr_web_5eed000000000001" host="https://t.themia.app" />
+        <Analytics sourceKey="fr_5eed000000000001" host="https://t.themia.app" />
       </body>
     </html>
   );
@@ -130,7 +149,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <Component {...pageProps} />
-      <Analytics sourceKey="fr_web_5eed000000000001" host="https://t.themia.app" />
+      <Analytics sourceKey="fr_5eed000000000001" host="https://t.themia.app" />
     </>
   );
 }
@@ -151,7 +170,7 @@ import Analytics from '@firstrun/analytics/astro';
 
 <html lang="en">
   <head>
-    <Analytics sourceKey="fr_web_5eed000000000001" host="https://t.themia.app" />
+    <Analytics sourceKey="fr_5eed000000000001" host="https://t.themia.app" />
   </head>
   <body><slot /></body>
 </html>
@@ -171,9 +190,79 @@ import { Analytics } from '@firstrun/analytics/vue';
 
 <template>
   <RouterView />
-  <Analytics source-key="fr_web_5eed000000000001" host="https://t.themia.app" />
+  <Analytics source-key="fr_5eed000000000001" host="https://t.themia.app" />
 </template>
 ```
+
+## Nuxt
+
+`plugins/firstrun.client.ts`:
+
+```ts
+import { firstrunAnalytics } from '@firstrun/analytics/nuxt';
+
+export default firstrunAnalytics({
+  sourceKey: 'fr_5eed000000000001',
+  host: 'https://t.themia.app',
+});
+```
+
+Nuxt routes with Vue Router, which navigates through `history.pushState`, so
+client-side route changes are picked up without anything further. The `.client`
+suffix keeps the plugin out of the server render, which is tidiness rather than
+a requirement: nothing here measures anything where there is no `document`.
+
+## SolidStart and Solid
+
+`src/app.tsx`:
+
+```tsx
+import { Analytics } from '@firstrun/analytics/solid';
+
+export default function App() {
+  return (
+    <>
+      <Router>{/* routes */}</Router>
+      <Analytics sourceKey="fr_5eed000000000001" host="https://t.themia.app" />
+    </>
+  );
+}
+```
+
+`@solidjs/router` navigates through `history.pushState` as well, so again there
+is nothing to subscribe to. This is the one component that tears down on unmount:
+Solid mounts once and cleans up when it is genuinely gone, so `stop()` sends what
+is buffered instead of losing it.
+
+## Angular
+
+`src/app/app.config.ts`:
+
+```ts
+import { provideFirstrunAnalytics } from '@firstrun/analytics/angular';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes),
+    provideFirstrunAnalytics({
+      sourceKey: 'fr_5eed000000000001',
+      host: 'https://t.themia.app',
+    }),
+  ],
+};
+```
+
+The only integration besides `/next` that subscribes to a router. Angular's
+Router does reach `history.pushState`, but not for a `skipLocationChange`
+navigation, and under `urlUpdateStrategy: 'eager'` it writes the URL before the
+guards run, so a navigation a guard then cancels would already have been counted
+as a view of a page nobody saw. `NavigationEnd` is the event that means the
+navigation finished, so `autoPage` goes off and that becomes the signal.
+
+Angular 19 or later, because `provideEnvironmentInitializer` arrived in 19 and
+`APP_INITIALIZER` was deprecated in the same release. On 16 to 18, call
+`init({ …, autoPage: false })` and `navigated()` from `@firstrun/analytics`
+yourself: the provider is thirty lines and none of them are measurement.
 
 ## Plain `<script>`: no build step
 
@@ -181,7 +270,7 @@ import { Analytics } from '@firstrun/analytics/vue';
 <script>window.fr=window.fr||function(){(fr.q=fr.q||[]).push(arguments)}</script>
 <script async
         src="https://t.themia.app/t.js"
-        data-key="fr_web_5eed000000000001"></script>
+        data-key="fr_5eed000000000001"></script>
 ```
 
 The first line queues calls made before the tag has loaded. The tag defaults its
@@ -312,6 +401,30 @@ downloads whether or not this package loaded:
 </a>
 ```
 
+Every other `data-fr-*` attribute on the same element rides along as an
+attribute of the entry, with the prefix stripped, and a value that reads as a
+number is sent as a number:
+
+```html
+<button data-fr-event="checkout_started" data-fr-plan="pro" data-fr-seats="5">
+  Upgrade
+</button>
+```
+
+That is `checkout_started` with `{ plan: "pro", seats: 5 }`. Write the names in
+kebab-case, because HTML lower-cases attribute names whatever you type.
+
+`data-fr-on="submit"` moves the trigger to a form's own submit event, which is
+what you want on a form: one sent with the Enter key never produced a click.
+
+```html
+<form id="signup" data-fr-event="signed_up" data-fr-on="submit">…</form>
+```
+
+Both work with the matching automatic measurement turned off. They are something
+you asked for by writing it, not part of what the tag does on its own. Neither
+reads a field or a value.
+
 ### In React
 
 `useFirstrun()` returns the same functions if you prefer a hook. The object it
@@ -372,7 +485,7 @@ Somebody who wants only their own entries writes:
 
 ```tsx
 <Analytics
-  sourceKey="fr_web_5eed000000000001"
+  sourceKey="fr_5eed000000000001"
   host="https://t.themia.app"
   autoPage={false}
   autoOutbound={false}
@@ -387,7 +500,7 @@ or, as a script tag:
 ```html
 <script async
         src="https://t.themia.app/t.js"
-        data-key="fr_web_5eed000000000001"
+        data-key="fr_5eed000000000001"
         data-auto-page="false"
         data-auto-outbound="false"
         data-auto-vitals="false"

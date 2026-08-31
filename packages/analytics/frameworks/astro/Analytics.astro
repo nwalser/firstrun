@@ -13,7 +13,7 @@
  * first-party proxying needs no second setting.
  */
 export interface Props {
-  /** The source key from the Sources page, `fr_web_…`. Public; authorises nothing. */
+  /** The source key from the Sources page, `fr_9f3a2b1c4d5e6f70`. Public; authorises nothing. */
   sourceKey: string;
   /** Ingest origin, e.g. `https://t.themia.app`. */
   host: string;
@@ -33,6 +33,15 @@ export interface Props {
    * something the page controls.
    */
   autoErrors?: boolean;
+  /**
+   * An id in `sessionStorage` that dies with the tab, and no consent gate.
+   *
+   * Defaults to false, which is a persistent id that sends nothing until
+   * `fr('consent', true)`. Turning this on trades the returning visitor (a
+   * unique becomes one tab, not one browser) for having nothing stored to ask
+   * about. Counts of entries are the same either way.
+   */
+  ephemeral?: boolean;
 }
 
 const {
@@ -44,8 +53,11 @@ const {
   autoForms = true,
   trackLeave = true,
   autoErrors = false,
+  ephemeral = false,
 } = Astro.props;
 
+// The tag is one file, the same bytes for every source, so the key rides in
+// `data-key` and nowhere else. `/t.js` takes no query string.
 const src = host.replace(/\/$/, "") + "/t.js";
 // Astro drops an attribute whose value is undefined, and the tag reads a
 // missing attribute as "on". So only the switched-off ones are written.
@@ -69,4 +81,5 @@ const onlyIfOn = (on: boolean) => (on ? "true" : undefined);
   data-auto-forms={off(autoForms)}
   data-track-leave={off(trackLeave)}
   data-auto-errors={onlyIfOn(autoErrors)}
+  data-ephemeral={onlyIfOn(ephemeral)}
 ></script>

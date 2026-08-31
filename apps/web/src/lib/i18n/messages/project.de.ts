@@ -28,6 +28,7 @@ export const project: ProjectMessages = {
   "project.step_install_hint":
     "Snippet in Ihre eigene Software einsetzen. Hakt ab, sobald das erste Event ankommt.",
   "project.step_install_action": "Quellen öffnen",
+  "project.step_waiting": "Wir hören zu. Über diese Quelle ist noch nichts angekommen.",
   "project.step_board": "Board anlegen",
   "project.step_board_hint":
     "Eine Anordnung gespeicherter Fragen, mit eigenem Zeitraum und, wenn Sie mögen, genau " +

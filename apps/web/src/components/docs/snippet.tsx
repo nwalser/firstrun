@@ -48,7 +48,7 @@ const LANGUAGE_TITLES: Record<string, string> = {
  * the code is the way it is.
  *
  * It says nothing about placeholders. A snippet that still holds
- * `fr_web_xxxxxxxxxxxxxxxx` is a fact about the whole page rather than about
+ * `fr_xxxxxxxxxxxxxxxx` is a fact about the whole page rather than about
  * this block, and repeating it under eight code blocks on one guide turned the
  * warning into wallpaper. The documentation says it once, in the header beside the
  * source picker that fixes it -- see `source-picker.tsx`.

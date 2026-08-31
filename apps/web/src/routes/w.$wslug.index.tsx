@@ -752,13 +752,13 @@ function ProjectSources(props: { count: number; class?: string }) {
  * one, and a shared component reaching into somebody else's catalogue for a
  * string is how one page ends up describing another page's numbers.
  */
-function ProjectHistogram(props: { daily: number[]; class?: string }) {
+function ProjectHistogram(props: { daily: number[]; height?: number }) {
   const i18n = useI18n();
   return (
     <IngestHistogram
       daily={props.daily}
+      height={props.height}
       label={i18n.t("workspace.ingest_30d", { count: ingestTotal(props.daily) })}
-      class={props.class}
     />
   );
 }
@@ -854,7 +854,7 @@ function ProjectTile(props: { workspace: string; project: ProjectListItem }) {
       */}
       <div class="flex flex-col gap-2">
         <ProjectPerHour perHour={props.project.perHour} inline />
-        <ProjectHistogram daily={props.project.daily} class="h-12" />
+        <ProjectHistogram daily={props.project.daily} height={48} />
       </div>
     </Link>
   );

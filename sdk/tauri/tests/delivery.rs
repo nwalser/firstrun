@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use firstrun_sdk::{Analytics, Config, DeliveryMode, Diagnostic, Persistence};
 
-const KEY: &str = "fr_desktop_9f3a2b1c4d5e6f70";
+const KEY: &str = "fr_9f3a2b1c4d5e6f70";
 
 // ---------------------------------------------------------------------------
 // A server that does nothing but count

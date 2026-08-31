@@ -98,6 +98,8 @@ export function FieldPicker(props: {
   allowUnique?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  /** Where the picker sits in the row that holds it. See `FilterCondition`. */
+  class?: string;
 }) {
   const i18n = useI18n();
   const labels = queryLabels(i18n);
@@ -222,7 +224,7 @@ export function FieldPicker(props: {
   }
 
   return (
-    <div class="flex min-w-0 flex-col gap-1.5">
+    <div class={cn("flex min-w-0 flex-col gap-1.5", props.class)}>
       <Select
         value={selected()}
         options={options()}
@@ -350,8 +352,14 @@ function ValueInput(props: {
                   // input these sit under, the select beside it and the buttons
                   // below all ease their colours, so a chip that snaps is the
                   // one thing in the row that behaves differently.
+                  // `shrink-0` so a row of these WRAPS rather than being
+                  // squeezed: as flex items with nothing stopping them they
+                  // shrank to whatever the line had left, and eight suggestions
+                  // in a narrow column came out as eight 62px stubs reading
+                  // "/v1/li..." apiece. The cap is 12rem or the column,
+                  // whichever is smaller, so the widest sample still fits.
                   class={cn(
-                    "max-w-[12rem] truncate rounded-md bg-muted px-1.5 py-0.5",
+                    "max-w-[min(12rem,100%)] shrink-0 truncate rounded-md bg-muted px-1.5 py-0.5",
                     "text-label-13 text-muted-foreground transition-colors",
                     "hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
                   )}
@@ -491,7 +499,10 @@ function FilterGroup(props: {
   return (
     <div
       class={cn(
-        "flex min-w-0 flex-col gap-2",
+        // Every group is the container its own rows reflow against, so a group
+        // nested three deep answers the width it actually has rather than the
+        // width the drawer has. See `--container-*-panel` in `styles.css`.
+        "@container/builder flex min-w-0 flex-col gap-2",
         props.depth > 0 && "rounded-md border border-dashed p-2"
       )}
     >
@@ -581,11 +592,34 @@ function FilterCondition(props: {
 
   return (
     <div class="flex min-w-0 items-start gap-2 rounded-md bg-muted/40 p-2">
-      <div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_minmax(0,1fr)]">
+      {/*
+        Three shapes, and the row picks the one it has room for.
+
+        This used to be one `sm:` breakpoint, which asks the WINDOW how wide
+        the row is. In a 384px drawer on a 1280px screen the answer was yes and
+        the row drew three 62px controls: a select showing two characters of
+        "Page (url.path)", an operator, and a value box too narrow to read what
+        was typed into it. The question is how wide THIS ROW is, so it is asked
+        of the group above it.
+
+        Stacked, then the field over its operator and value, then all three
+        across. The middle step is the interesting one: at those widths a full
+        width field with the operator and value under it reads better than
+        three columns of 130px, so it is the layout rather than a stage on the
+        way to one.
+      */}
+      <div
+        class={cn(
+          "grid min-w-0 flex-1 gap-2",
+          "@sm-panel/builder:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]",
+          "@md-panel/builder:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_minmax(0,1fr)]"
+        )}
+      >
         <FieldPicker
           value={field()}
           discovery={props.discovery}
           disabled={props.disabled}
+          class="@sm-panel/builder:col-span-2 @md-panel/builder:col-span-1"
           onChange={(next) => props.onChange(retarget(props.filter, next))}
         />
         <Select
@@ -718,7 +752,9 @@ function AggregationRow(props: {
 
   return (
     <div class="flex min-w-0 items-start gap-2">
-      <div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+      {/* The panel's width, not the window's, for the reason spelled out on
+          the condition row above. */}
+      <div class="grid min-w-0 flex-1 gap-2 @sm-panel/builder:grid-cols-2">
         <Select
           value={props.aggregation.fn}
           options={fnOptions()}
@@ -803,7 +839,7 @@ export function QueryBuilder(props: {
   const limitApplies = () => groups().length > 0;
 
   return (
-    <div class="flex flex-col gap-5">
+    <div class="@container/builder flex flex-col gap-5">
       <Section label={i18n.t("explore.section_viz")}>
         <div class="flex flex-col gap-1.5">
           <Select

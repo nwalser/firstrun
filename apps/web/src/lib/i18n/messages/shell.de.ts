@@ -46,7 +46,6 @@ export const shell: ShellMessages = {
   "shell.overview": "Übersicht",
   "shell.people": "Personen",
   "shell.settings": "Einstellungen",
-  "shell.support": "Support",
   "shell.notifications": "Benachrichtigungen",
   "shell.no_notifications": "Noch nichts zu melden",
   "shell.help": "Hilfe",

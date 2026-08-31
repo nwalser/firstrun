@@ -70,7 +70,7 @@ npm install @firstrun/node
 import { Firstrun } from "@firstrun/node";
 
 const firstrun = new Firstrun({
-  sourceKey: process.env.FIRSTRUN_SOURCE_KEY!,   // fr_server_9f3a...
+  sourceKey: process.env.FIRSTRUN_SOURCE_KEY!,   // fr_9f3a2b1c4d5e6f70
   host: "https://t.example.com",
   serviceVersion: process.env.GIT_SHA,
 });
@@ -103,8 +103,9 @@ other entry. What makes it findable is a query, not a type.
 ### A service
 
 ```ts
-import express from "express";
+import express, { type Request } from "express";
 import { Firstrun } from "@firstrun/node";
+import { firstrunExpress } from "@firstrun/node/express";
 
 const firstrun = new Firstrun({
   sourceKey: process.env.FIRSTRUN_SOURCE_KEY!,
@@ -116,17 +117,32 @@ const firstrun = new Firstrun({
 
 const app = express();
 
+// Who a request is for, stated once, at the top. Nothing in here reads a
+// cookie or a session on its own: these are your functions, returning your ids.
+app.use(
+  firstrunExpress<Request>(firstrun, {
+    distinctId: (req) => req.cookies.visitor_id,
+    userId: (req) => req.user?.id,
+    ignore: ["/health", "/assets"],
+  })
+);
+
 app.post("/api/export", async (req, res) => {
   const rows = await exportCsv(req.user.id);
-  // Not awaited, and there is nothing here to await. The handler is unaffected
-  // by anything firstrun does or fails to do.
-  firstrun.event("exported_csv", { rows: rows.length }, { distinctId: req.user.id });
+  // No distinctId, and nothing threaded down five layers to get one. The
+  // middleware opened a context around this handler, so everything recorded
+  // inside it is attributed to the same person. Still not awaited, and there is
+  // still nothing here to await.
+  firstrun.event("exported_csv", { rows: rows.length });
   res.json({ ok: true });
 });
 
 app.listen(3000);
 // Nothing else needed: SIGTERM and beforeExit already flush with a timeout.
 ```
+
+That middleware also writes one `http.request` entry per served request. Both halves of it, the
+entry and the ambient identity, are under **HTTP middleware** below.
 
 ### A CLI or a one-shot job
 
@@ -158,6 +174,233 @@ try {
   await firstrun.close(2000);
 }
 ```
+
+## HTTP middleware
+
+```
+@firstrun/node/express     firstrunExpress(client, options)
+@firstrun/node/fastify     firstrunFastify(client, options)   fastifyHooks(client, options)
+@firstrun/node/hono        firstrunHono(client, options)
+```
+
+**No framework is a dependency of this package, and none becomes one by using these.** Each
+adapter writes out the handful of properties it reads and accepts anything carrying them, so one
+file serves Express 4 and Express 5, or Fastify 3 through 5, with no peer dependency to declare
+and no build that breaks because a framework you do not use is missing. Pass your own framework's
+type as the type argument (`firstrunExpress<Request>`) and your extractors are typed against the
+real request.
+
+```ts
+// Fastify. Registered as a plugin, which installs an onRequest and an
+// onResponse hook. `fastifyHooks` hands you the same two to add by hand.
+await app.register(
+  firstrunFastify<FastifyRequest>(firstrun, {
+    distinctId: (request) => request.headers["x-visitor-id"] as string,
+    userId: (request) => request.user?.id,
+  })
+);
+
+// Hono. The extractors take the CONTEXT, not the request, because that is
+// where a Hono app keeps what it has worked out about the caller.
+app.use(
+  "*",
+  firstrunHono<Context>(firstrun, {
+    distinctId: (c) => c.req.header("x-visitor-id"),
+    userId: (c) => c.get("user")?.id,
+  })
+);
+```
+
+### Options
+
+| Option | | |
+|---|---|---|
+| `distinctId` | required | Who this request is for. A function, because a server process is not a person |
+| `userId` | | Your own id for them, when the request is already authenticated here |
+| `sessionId` | | Lands in `session.id` |
+| `attributes` | | Stamped on every entry recorded during this request: a tenant, a region, a request id |
+| `route` | | The route template, when you would rather state it than take the framework's answer |
+| `ignore` | none | Path prefixes or a predicate. Ignored requests are not touched at all |
+
+**`distinctId` is a function you write, and there is no fallback behind it.** If it returns
+nothing, or throws, the request is not measured and nothing is recorded under an invented id.
+Identity is never inferred anywhere in this product, so nothing in these adapters reads a cookie,
+a header, an IP address or a session store on its own initiative, and nothing joins one request to
+another.
+
+**`ignore` is total.** No extractor is called and no entry is written. Health checks and static
+assets are the reason it exists: they are the most frequent thing a service serves and the least
+interesting, and left in they are the loudest rows on every board that groups by route.
+
+**When something in here fails, it says so on `onDiagnostic`.** An extractor that throws, an
+`ignore` option that is not a list, a `res` that refuses a listener: the request is served exactly
+as it would have been, and the reason it was not measured goes to the client's diagnostic hook,
+rate limited to one line a second. Nothing is ever written to your stdout or stderr. Without a
+hook there is nothing to read, and a middleware that records nothing looks exactly like a firewall
+between your service and the edge, so set one at least once.
+
+### What it writes
+
+One entry per request, when the response finishes:
+
+| | |
+|---|---|
+| `name` | `http.request` |
+| severity | 9 (`INFO`), or 17 (`ERROR`) for a `5xx` |
+| `http.request.method` | `GET` |
+| `http.route` | the route **template**, `/users/:id`. Omitted when the framework has none |
+| `http.response.status_code` | a number |
+| `url.path` | the path that was asked for, without the query string |
+| `firstrun.duration_ms` | a number |
+
+**A `4xx` stays at `INFO`.** It is the caller's mistake rather than the server's, and a board
+where every 404 from a scanner is an ERROR has an incident on it every day of the week.
+
+**`http.route` is the template and never the resolved path.** `/users/:id` groups into one row;
+`/users/8814` groups into one row per customer, which turns the breakdown the attribute exists
+for into a list of every url you have ever served. Where a framework cannot offer a template (no
+route matched, or an Express route declared with a RegExp) the key is left out rather than filled
+in with something that looks like one. The template is passed through exactly as your framework
+spells it, `:id` and all.
+
+**On Express it is the route's own template, without the mount prefix.** `app.use("/api", router)`
+plus `router.get("/users/:id")` records `/users/:id`, not `/api/users/:id`. Express does not
+expose the pattern a router was mounted under, only the text that matched it, so on
+`app.use("/orgs/:orgId", router)` the prefix available to us is `/orgs/12345`: prepending it would
+put one row per org into every breakdown by route, which is the exact failure this attribute
+exists to prevent. Dropping the prefix costs detail, bounded by how many routes you declare.
+Prepending it would cost the attribute, bounded by nothing. Fastify and Hono keep the full
+registered template and are unaffected.
+
+**If you know your own mounts, state them.** The `route` option takes precedence over the
+framework's answer and is the way to get the prefix back:
+
+```ts
+app.use(
+  firstrunExpress<Request>(firstrun, {
+    distinctId: (req) => req.cookies.visitor_id,
+    route: (req) => (req.route ? "/orgs/:orgId" + req.route.path : undefined),
+  })
+);
+```
+
+Whatever it returns is recorded verbatim, so it is also the one place a resolved path could get
+in. Return a template or return nothing.
+
+The entry is stamped with the moment the request **arrived**, not the moment it finished, so a
+slow request sits in the same bucket as the entries its own handler recorded while it ran.
+
+### Identity in a handler five layers down
+
+The middleware opens an ambient context with `AsyncLocalStorage`, and every recording call made
+inside it inherits the identity. The precedence is always most-specific-wins: what a call names
+itself, then the request it is running inside, then the client-level defaults.
+
+**An identity is inherited as one unit, and `distinctId` selects the unit.** A call that names a
+`distinctId` of its own has named a different subject, so it does not pick up the request's
+`user.id` or `session.id` as well:
+
+```ts
+runWithContext({ distinctId: "visitor-A", userId: "person-A" }, () => {
+  firstrun.event("exported_csv");                             // visitor-A, user.id person-A
+  firstrun.event("job_ran", {}, { distinctId: "worker-7" });  // worker-7, no user.id at all
+  firstrun.event("paid", {}, { userId: "person-B" });         // visitor-A, user.id person-B
+  firstrun.event("signed_out", {}, { userId: null });         // visitor-A, no user.id
+});
+```
+
+The second line is the one worth staring at. A unique in this product is
+`coalesce(user.id, distinct_id)`, so inheriting the request's person onto an entry that said it
+was about somebody else would count that worker's entries as that person. Stating a `userId` or a
+`sessionId` on its own is different: that is a more specific statement about the **same** subject,
+and it wins. So is naming the same `distinctId` the request already carries, which is why
+`identify()` inside a request keeps the request's session.
+
+**A context with no `distinctId` claims no subject, so its person applies to whatever subject
+resolves, until something narrower names one.** The rule above is about two subjects disagreeing;
+a scope that never named a subject is not in that argument, right up until an entry supplies a
+subject of its own:
+
+```ts
+runWithContext({ userId: "person-A" }, () => {
+  firstrun.event("exported_csv");                                  // user.id person-A
+  firstrun.event("job_done", {}, { distinctId: "worker-7" });      // worker-7, no user.id
+});
+```
+
+The second entry named its own subject, so it has left the block's scope and does not take the
+block's person with it. Without that, a background job recorded inside the block would count as
+person-A, which is the same wrong number the previous rule exists to prevent.
+
+A client-level `userId` set without a client-level `distinctId` is the same shape and the trap is
+worse, so it warns at construction: on a server every request resolves its own `distinct_id`, and
+a process-wide person riding along on all of them would report the entire fleet as one unique.
+Set `distinctId` beside it, or pass the person per call.
+
+**`null` clears, `undefined` inherits.** `userId: null` is how a call says this entry is about
+nobody, and it beats whatever the request or the client would have supplied. Leaving the field
+out says nothing at all, which is what inherits.
+
+```ts
+import { updateContext } from "@firstrun/node";
+
+// The middleware runs before your authentication does, so userId is usually
+// unknown when the context opens. Fill it in where you learn it, and the
+// request entry carries it too: that entry is written when the response
+// finishes, which is after this.
+app.use((req, _res, next) => {
+  const user = authenticate(req);
+  if (user) updateContext({ userId: user.id, attributes: { plan: user.plan } });
+  next();
+});
+```
+
+`runWithContext(ctx, fn)` opens one yourself, for the entry points no HTTP middleware covers: a
+queue consumer, a cron job, a websocket connection. It calls `fn` exactly once and returns what it
+returns, so wrapping a handler in it is safe even on a runtime with no `AsyncLocalStorage`, where
+it does nothing at all and every call falls back on the ids you pass. Nesting **replaces** rather
+than inherits: a background job started inside a request is not that request, and filing it
+against whoever happened to trigger it is how a queue ends up reporting one very busy customer.
+
+### Work that outlives the request that started it
+
+`AsyncLocalStorage` propagates into everything an async chain starts, and it does not stop when
+the response goes out. A `setTimeout` scheduled inside a handler runs under that request's
+identity minutes later. A `setInterval` started during one request attributes every entry it ever
+writes to whoever made that one request, for the life of the process, and holds that request's
+context object alive for just as long.
+
+That is how the platform primitive works rather than something this library can fix, and the
+ordinary case depends on it: a handler that awaits three things and records afterwards is still
+inside its own request. So the rule is on the calling side. **Anything detached states its own
+identity**, either by naming a `distinctId` on the call, which resets the whole identity, or by
+being wrapped in its own `runWithContext`.
+
+```ts
+// Wrong: this interval reports for the lifetime of the process, and every entry
+// it writes is filed against whoever happened to hit the endpoint that started it.
+app.post("/jobs", (req, res) => {
+  setInterval(() => firstrun.event("job_tick"), 60_000);
+  res.json({ ok: true });
+});
+
+// Right: the job is its own subject, and says so.
+app.post("/jobs", (req, res) => {
+  setInterval(() => firstrun.event("job_tick", {}, { distinctId: "job-runner" }), 60_000);
+  res.json({ ok: true });
+});
+```
+
+### It cannot break your service
+
+The downstream handler runs exactly once whatever happens inside the middleware. Your extractors
+are called in a try/catch, so are the emit and every framework callback, and every failure lands
+in the same place: this request is not measured, and it is served exactly as it would have been
+with nothing installed. An error thrown by **your** handler is rethrown unchanged, because
+swallowing it would hide a 500 from the framework that was going to report it.
+
+Silent to the end user is not the same as silent to you. Every one of those failures is reported
+through `onDiagnostic`, which is the only channel this library writes to.
 
 ## When entries are sent
 
@@ -261,7 +504,8 @@ software. If you put personal data in `attributes`, that is your disclosure to m
 
 **No automatic entries.** The tag measures page views, SPA navigations, sessions, time on page,
 outbound and file clicks, form submits and Core Web Vitals on its own. This client measures
-nothing on its own. Every entry exists because you called for it.
+nothing on its own. Every entry exists because you called for it, the HTTP middleware included:
+it writes one entry per request because you mounted it, and it is off until you do.
 
 **`distinctId` must be supplied by you, per call.** This is the one that matters.
 
@@ -274,6 +518,10 @@ your server processes.
 So `distinctId` is required, and an entry without one is **dropped and reported** through
 `onDiagnostic` rather than sent under an invented id. A loud failure beats a silently wrong
 number that nobody can spot from a dashboard.
+
+Per call is the floor, not the ceiling: the HTTP middleware states it once per request and every
+call inside that request inherits it, which is the same rule with the repetition removed. What it
+does not do is work the id out for you.
 
 Set the client-level `distinctId` option only when the process really is the subject: a CLI, a
 single-tenant worker, a device agent.
@@ -306,8 +554,24 @@ flush(timeoutMs?: number): Promise<boolean>   // true if drained; never rejects
 close(timeoutMs?: number): Promise<void>      // idempotent; never rejects
 stats(): Stats
 
+// One diagnostic through your hook. The HTTP adapters are separate modules and
+// this is how they report; you are unlikely to need it yourself.
+report(d: Diagnostic): void
+
 readonly closed: boolean
 enabled: boolean
+```
+
+```ts
+// The ambient identity a request runs under. Exported from the package root.
+runWithContext<T>(ctx: RequestContext, fn: () => T): T   // calls fn exactly once
+currentContext(): RequestContext | undefined
+updateContext(patch: Partial<RequestContext>): void
+
+// The HTTP middleware, one subpath per framework. No framework is a dependency.
+import { firstrunExpress } from "@firstrun/node/express";
+import { firstrunFastify, fastifyHooks } from "@firstrun/node/fastify";
+import { firstrunHono } from "@firstrun/node/hono";
 ```
 
 What each helper actually writes:
@@ -375,7 +639,7 @@ is only that the pickers in the dashboard will not suggest it before you have se
 
 | Option | Default | |
 |---|---|---|
-| `sourceKey` | required | `fr_server_...`. Public by necessity; it identifies and authorises nothing |
+| `sourceKey` | required | `fr_9f3a2b1c4d5e6f70`. Public by necessity; it identifies and authorises nothing |
 | `host` | required | Origin only, e.g. `https://t.example.com` |
 | `distinctId`, `userId` | none | Client-level defaults. Leave unset in a multi-tenant server |
 | `serviceName`, `serviceVersion`, `channel`, `os`, `arch`, `locale` | none | Resource attributes, overridable per call |
@@ -468,7 +732,7 @@ body exactly the `LogBatch` shape from `packages/schema/src/log.ts`:
 
 ```json
 {
-  "k": "fr_server_0123456789abcdef",
+  "k": "fr_9f3a2b1c4d5e6f70",
   "d": "account_9f3a",
   "r": {
     "service.name": "billing-api",

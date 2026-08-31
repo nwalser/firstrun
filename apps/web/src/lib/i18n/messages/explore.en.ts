@@ -37,7 +37,6 @@ export const explore = {
   "explore.column_time": "Time",
   "explore.column_name": "Name",
   "explore.column_severity": "Severity",
-  "explore.column_distinct_id": "Client id",
   "explore.column_event_id": "Event id",
   "explore.column_ingested_at": "Received at",
 

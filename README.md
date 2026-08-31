@@ -1,164 +1,152 @@
 # firstrun
 
-One structured log for everything you ship, self-hosted, with a query layer on top.
+**One place for everything your software has to tell you, running on your own database.**
 
-Point your marketing site, your desktop app, your mobile app and your backend at the same
-firstrun. They all write into one table, under one project, on your own Postgres, with one
-dashboard over the top.
+Your marketing site, your desktop app, your mobile app and your backend all send to the same
+firstrun. Crashes, sign-ups, page views, slow queries: they all land in one place, and you ask
+questions across the lot of them from one dashboard.
 
-An error is a log entry. A page view is a log entry. A latency sample is a log entry. They differ
-in what they carry, never in where they go. The model is
-[OpenTelemetry's log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/): a
-timestamp, a severity on the 1..24 ladder, a name, and an attribute map.
+Most teams end up with an analytics tool, a crash reporter, a product-events tool and a log
+search, each holding a quarter of the story and none of them able to answer "did the release that
+crashed on Tuesday cost us sign-ups". firstrun is the other approach: everything goes to the same
+place, and the question is just a query.
 
-Identity is an anonymous id per surface plus an optional `identify()`, and nothing is ever merged
-or guessed. firstrun is never in your critical path: if it is down, your software is unaffected.
+- **Self-hosted and free.** Every feature, no ceilings, no licence key, nothing phoning home.
+  There is also a hosted version, which is the thing being sold.
+- **Never in your way.** If firstrun is down, your app and your site carry on exactly as normal.
+  Nobody notices. Every client drops data before it delays anything a person is waiting on.
+- **Your data stays yours.** One Postgres you control. No third party, no data sharing, no
+  cross-site tracking, and the browser tag sends nothing at all before consent.
 
-## Quick start
+## Try it
 
 ```bash
 docker compose up -d      # postgres
 bun install
-bun run seed              # a synthetic workspace with believable data
+bun run seed              # a demo workspace with believable data in it
 bun run dev               # http://localhost:3000
 ```
 
-`bun run seed` prints the workspace, the project and a command to sign in locally:
+`bun run seed` prints a command that signs you in locally, so you do not need to set up GitHub
+OAuth to look around:
 
 ```bash
 bun run dev:login seed
 ```
 
-That prints a cookie to paste into the browser console. It exists because GitHub OAuth needs
-credentials that development should not require: it is a CLI on the machine that owns the
-database, deliberately not a route.
+Database migrations run themselves on boot, so a fresh clone needs nothing else.
 
-Migrations apply themselves on boot, so a clean clone needs nothing else.
+## Sending things to it
 
-## The row
+Add a site to it with a script tag. Page views, sessions, time on page, outbound clicks and Core
+Web Vitals are measured for you:
 
-Five columns carry meaning, and everything else lives in `attributes`:
+```html
+<script async src="https://t.example.com/t.js" data-key="fr_9f3a2b1c4d5e6f70"></script>
+```
 
-| | |
-|---|---|
-| `project_id` | which project. Resolved from the source key, never sent |
-| `time` | when it happened. Client-stamped and authoritative |
-| `name` | what happened. Any string, no allowlist |
-| `severity` | 1..24, the OpenTelemetry ladder. TRACE, DEBUG, INFO, WARN, ERROR, FATAL |
-| `distinct_id` | the anonymous id that surface generated for itself |
-| `attributes` | JSON. `os.type`, `url.path`, `user.id`, `exception.message`, and anything of yours |
+Add a server, a desktop app or anything else with one of the clients:
 
-`ingested_at` is stamped on arrival for debugging. Nothing sorts, buckets or retains on it.
+```ts
+import { Firstrun } from "@firstrun/node";
 
-The table is `PARTITION BY RANGE (time)`, so retention is dropping a partition rather than a bulk
-delete, and every query prunes by range.
+const firstrun = new Firstrun({
+  sourceKey: process.env.FIRSTRUN_SOURCE_KEY!,
+  host: "https://t.example.com",
+});
 
-Attribute keys follow the OpenTelemetry semantic conventions where they exist and are namespaced
-`firstrun.*` where they do not. They are **conventions, not law**: an entry is never rejected for
-using its own keys, and it is stored, indexed and queried identically either way.
-
-## Clients
+firstrun.event("invoice_generated", { plan: account.plan }, { distinctId: account.id });
+firstrun.error(err);
+```
 
 | | |
 |---|---|
-| `@firstrun/web-tag` | the `<script>` tag. Vanilla, no dependencies, 4KB gzipped budget, consent-gated |
+| `@firstrun/web-tag` | the script tag. No dependencies, 4KB, consent-gated |
 | `@firstrun/analytics` | npm wrapper for the tag: `/react`, `/next`, `/svelte`, `/vue`, `/astro` |
-| `clients/node` | server-side JavaScript and TypeScript |
-| `clients/python` | server-side Python |
-| `clients/go` | server-side Go |
-| `clients/dotnet` | .NET, including Windows desktop apps |
-| `sdk/tauri` | Rust crate for Tauri desktop apps, with a disk-backed queue |
+| `clients/node` `clients/python` `clients/go` `clients/dotnet` | the server and desktop SDKs |
+| `sdk/tauri` | Rust crate for Tauri apps, with a queue that survives a restart |
 
-All of them offer the same calls: `init`, `event`, `error`, `log`, `identify`, `flush`. `event`
-and `error` fill in a convention for you; `log` takes any entry you like. All of them are
-fire-and-forget, bounded, and never throw into your program. They differ only in where the queue
-lives and how the platform spawns a background thread. When they send is
-[docs/delivery-policy.md](./docs/delivery-policy.md).
+They all offer the same handful of calls (`event`, `error`, `log`, `identify`, `flush`), so
+reading one means you have read all of them. All of them queue in the background, bound what they
+hold, and never throw into your program. An entry stamped three days ago on a laptop that was
+offline still lands on the right day when it finally arrives.
 
-Ingest is one endpoint, `POST /v1/e`. Clients send a public source key (`fr_web_…`,
-`fr_desktop_…`), never an internal id.
+## Asking it things
 
-## How it is organised
+A card on a dashboard is a saved question plus a way of drawing the answer, and the question has
+five parts: what to filter on, what to group by, what to count, how wide the time buckets are,
+and how many groups to show. Anything you can express that way, you can build in the UI by
+clicking. The templates are starting points to edit, not the limit of what can be asked.
 
-```
-workspace   who can see things, and who can change them (admin / read)
-  project   one product. Owns entries, sources and dashboards
-    source  one thing that writes entries, with a fixed surface
-```
+You never register a schema. The pickers offer whatever has actually been sent in the range you
+are looking at, so a new attribute shows up as soon as something writes one.
 
-Surfaces are `web`, `desktop`, `mobile`, `server`, `other`. Sources in one project are reported
-next to each other and are never identity-linked: each has its own anonymous `distinct_id` space.
-To connect them, call `identify()` with the same user id on both.
+Boards are arranged by dragging: cards keep their size and position, every edit saves itself, and
+each board carries its own filters, date range and comparison window.
 
-## Dashboards
+## A little of how it works
 
-A widget is a **saved query plus a visualisation**. The query is a filter, a group by, an
-aggregate, a time bucket and a limit, over the five columns and any attribute path. The templates
-are starting points you then edit, not the set of questions the product can answer.
-
-Attribute keys are **discovered rather than declared**: the pickers offer what has actually been
-written in the visible range. There is no schema to register.
-
-## Stack
+Everything is stored as one kind of row, following
+[OpenTelemetry's log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/). Five
+things are promoted to columns:
 
 | | |
 |---|---|
-| App | TanStack Start on Solid, one service |
-| UI | shadcn on Tailwind v4, primitives from Kobalte |
-| Store | Postgres: log entries, auth and configuration, partitioned by time |
-| Schema | Drizzle owns the DDL; the analytics queries are compiled and parameter-bound |
-| Deploy | Railway, one Dockerfile |
+| `project_id` | which project. Taken from the key it arrived under, never from the body |
+| `time` | when it happened, according to whatever sent it |
+| `name` | what happened. Any string you like, no allowlist |
+| `severity` | 1..24: TRACE, DEBUG, INFO, WARN, ERROR, FATAL |
+| `distinct_id` | the anonymous id that installation or browser generated for itself |
 
-## Layout
+Everything else (`os.type`, `url.path`, `user.id`, `exception.message`, whatever else you send)
+lives in an open JSON map and is queried by path. Keys follow the OpenTelemetry conventions where
+they exist, but they are conventions rather than rules: your own keys are stored, indexed and
+queried identically.
+
+Identity is deliberately dull. Each source has its own anonymous id space, nothing is ever
+merged, matched or guessed, and the only way a person is joined across two of them is you calling
+`identify()` with the same id on both.
+
+Things are organised **workspace** (who can see and change things) > **project** (one product) >
+**source** (one thing that writes).
+
+## Running it for real
+
+Deploy to [Railway](https://railway.app): add a Postgres service, point a service at this repo,
+and set `PUBLIC_ORIGIN` to the public domain plus `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
+from a GitHub OAuth app whose callback is `<PUBLIC_ORIGIN>/auth/github/callback`. `railway.json`
+picks the Dockerfile up, and the health check is `/v1/health`.
+
+`PUBLIC_ORIGIN` has to be reachable from outside: it is the address every client talks to.
+
+## Working on it
+
+Built with TanStack Start on Solid, shadcn on Tailwind, and Postgres for all of it, deployed as
+one service from one Dockerfile.
 
 ```
-apps/web/           UI, auth, the documentation, and the ingest endpoints
-packages/schema/    log entry, severity, attributes, conventions, query and snapshot shapes
-packages/ingest/    ingest handlers as plain Request -> Response
+apps/web/           the UI, auth, the docs, and the endpoint everything sends to
+packages/schema/    the shared contract: entries, attributes, queries, boards
+packages/ingest/    the ingest handlers
 packages/web-tag/   the browser tag
 packages/analytics/ npm package wrapping the tag, one subpath per framework
-clients/            the SDK family: node, python, go, dotnet
-sdk/tauri/          Rust crate: disk-backed entry queue
-db/                 drizzle schema, migrations, partition maintenance, analytics .sql, seed
-docs/               measured design references and the delivery policy
+clients/            node, python, go, dotnet
+sdk/tauri/          Rust crate for Tauri apps
+db/                 schema, migrations, the query compiler, seed data
+docs/               design references, the delivery policy, billing
 ```
-
-## Tests
 
 ```bash
 bun test
-cargo test --manifest-path sdk/tauri/Cargo.toml
+bun run typecheck
 ```
 
-The ones that matter:
+The tests worth knowing about pin down the promises above: a late entry lands on the day it
+happened, the tag sends nothing before consent, and the tag stays inside its size budget. Ingest
+tests need Postgres up, and say so rather than skipping.
 
-- `packages/ingest/test/late-event.test.ts`: an entry stamped three days ago lands in the
-  three-days-ago bucket. App entries arrive late, and `ingested_at` is never bucketed on.
-- `packages/web-tag/test/consent.test.ts`: before consent, nothing is stored and nothing is sent.
-- `packages/web-tag/test/size.test.ts`: the tag stays inside its gzipped budget.
-
-The ingest tests need Postgres running. They do not skip when it is missing; they fail and say
-why.
-
-## Deploying to Railway
-
-1. Add a **Postgres** service. Railway sets `DATABASE_URL`.
-2. Point a service at this repo. `railway.json` selects the Dockerfile.
-3. Set the variables:
-
-   | Variable | Value |
-   |---|---|
-   | `PUBLIC_ORIGIN` | the service's public domain, e.g. `https://app.example.com` |
-   | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | from a GitHub OAuth app whose callback is `<PUBLIC_ORIGIN>/auth/github/callback` |
-
-`PUBLIC_ORIGIN` has to be externally reachable: it is what every client talks to.
-
-Health check is `/v1/health`.
-
-## Read this before changing anything
-
-[CLAUDE.md](./CLAUDE.md). Eight rules in there are the ones that get broken by accident, and a
-list of gotchas that each cost an afternoon.
+**Read [CLAUDE.md](./CLAUDE.md) before changing anything.** It has the nine rules that get broken
+by accident and a list of gotchas that each cost an afternoon.
 
 ## Licence
 

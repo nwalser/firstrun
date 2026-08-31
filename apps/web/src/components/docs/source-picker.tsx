@@ -40,7 +40,7 @@ import {
  *
  * ## This is the only place the documentation says "placeholder"
  *
- * A reader who copies `fr_web_xxxxxxxxxxxxxxxx`, pastes it, deploys, and waits
+ * A reader who copies `fr_xxxxxxxxxxxxxxxx`, pastes it, deploys, and waits
  * for events gets no error anywhere: the tag posts, the server rejects an
  * unknown key, and the dashboard stays empty. That has to be said -- but it is
  * one fact about the whole page, not a fact about each snippet, and repeating

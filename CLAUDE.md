@@ -29,8 +29,11 @@ First real subject: Themia, a Tauri Windows desktop app with a marketing site, r
 monthly users and 40 paying customers. Design for that shape: one small team, one product, a few
 surfaces, tens of millions of entries at the very outside.
 
-The five surfaces are `web`, `desktop`, `mobile`, `server`, `other`. That list is closed and
-lives in `packages/schema/src/surface.ts`.
+There is no closed list of surfaces. `packages/schema/src/surface.ts` was deleted, a source has no
+`surface` column, and nothing in the schema, the edge or the query layer knows what kind of thing
+is writing. A source is one destination, and what sends to it is the customer's business. Where
+this file says "surface" it means the ordinary word (a site, an app, a backend), not a value we
+store or hold anybody to.
 
 ---
 
@@ -140,8 +143,8 @@ lives in `packages/schema/src/surface.ts`.
   matching, no IP or fingerprint heuristics, no merging, ever. If a customer wants a person joined
   across surfaces they call `identify()` with the same id on both. That is their data and their
   decision, not something we reconstruct from behaviour.
-- There is no server-side identity computation left. The edge resolves a source key to
-  `project_id` and a surface, stamps `ingested_at`, and writes the row.
+- There is no server-side identity computation left. The edge resolves a source key to a
+  `project_id` and a source id, stamps `ingested_at`, and writes the row.
 
 ### 7. firstrun is never in the customer's critical path.
 
@@ -190,9 +193,20 @@ attribution was exactly the thing we traded this away for once, and reversed.
 - **Nothing on the ingest path consults a plan, in either edition.** Rule 7 is not negotiable for
   commercial reasons: an entry is never refused because somebody is over a limit or behind on a
   payment. Ingest meters and writes. Limits are read on the dashboard and warned about there.
-- **Going over warns. It does not block, drop, or close a board.** Reading their own data is what
-  makes somebody come back and pay, and a customer who loses telemetry over a late invoice is a
-  customer who has lost the month, not a customer who upgrades.
+- **Going over the ENTRY limit warns. It does not block, drop, or close a board.** Reading their
+  own data is what makes somebody come back and pay, and a customer who loses telemetry over a
+  late invoice is a customer who has lost the month, not a customer who upgrades.
+- **The project limit IS enforced**, in `addProject` and nowhere else. That is not an
+  inconsistency: nothing is lost by not creating a project, the person asking is an admin who is
+  present and can act on the message, and it costs them a click. Refusing an entry costs data that
+  cannot be resent. Enforce what can be retried; warn about what cannot.
+- **`FIRSTRUN_ADMINS` operates the DEPLOYMENT and is a different question from `requireAdmin`.**
+  A comma-separated list of GitHub logins, read in `apps/web/src/lib/admin.server.ts`. It is an env
+  var rather than a column because the first one has no honest bootstrap inside the app, and
+  because "can see every workspace on the box" should be changeable only by whoever can deploy.
+  Empty by default, so a self-hosted install has no instance admin at all. It grants counts, plans
+  and dates on `/admin`. It does NOT widen `requireAccess`, and it must never be made to: reading
+  inside a customer's entries is a support conversation, not a button.
 - Pricing is entries per month, measured by `usage_daily`. **Retention is NOT a plan lever**:
   `log_entries` is partitioned by `time` across every workspace, so per-workspace retention would
   need per-workspace DELETEs, which rule 4 exists to prevent.
@@ -211,19 +225,20 @@ attribution was exactly the thing we traded this away for once, and reversed.
 |---|---|
 | **workspace** | who can see things, and who can change them. Holds people and projects. |
 | **project** | one product. Owns entries, sources and dashboards. |
-| **source** | one thing that writes entries, with a fixed `surface`. Owns nothing. |
+| **source** | one thing that writes entries. A name and a key, nothing else. Owns nothing. |
 
 - A project is **not** an identity namespace. Two sources in a project are two separate anonymous
   id spaces reported next to each other. This is the largest single change from the old model,
   and old comments that say otherwise are wrong.
 - One project per **product** is still the advice, because that is what makes a board readable.
   Getting it wrong is now cosmetic (numbers on the wrong board) rather than structural.
-- Clients send a public **source key**: `fr_<surface>_<16 chars>`, see `SOURCE_KEY_RE` in
-  `packages/schema/src/log.ts`. It is public by necessity and authorises nothing; it names a
-  destination.
-- The surface in the key is a convenience for the customer. **The authoritative surface for a row
-  is the stored source row**, never the key and never the body. A client cannot claim to be a
-  different surface. The edge stamps it as `firstrun.source.surface`.
+- Clients send a public **source key**: `fr_` and sixteen hex characters, `fr_9f3a2b1c4d5e6f70`.
+  See `SOURCE_KEY_RE` in `packages/schema/src/log.ts`. It is public by necessity and authorises
+  nothing; it names a destination. There is no segment in it naming a kind of source, because
+  there are no kinds.
+- **The source a row belongs to is the one whose key it arrived under**, never the body. The edge
+  resolves the key and stamps `firstrun.source.id` last in `normalizeEntry`, so a client that puts
+  that attribute in its own map cannot claim to have come through a different source.
 - The log table is keyed by `project_id`, and partitioned by `time`.
 
 ---
@@ -299,11 +314,18 @@ lookup run twice, and only the cards that ask to be compared are measured in it.
 ### Cards are placed, not flowed
 
 Layout is **v4**: every widget carries `x, y, w, h` in pixels on a canvas of fixed logical width
-(`CANVAS_WIDTH = 1280`), snapped to a **20px grid**. Not a 12-column grid: the point of placing a
+(`CANVAS_WIDTH = 1620`), snapped to a **20px grid**. Not a 12-column grid: the point of placing a
 card yourself is that you can leave a gap, and a column system is a flow with extra steps that
 will reflow a careful arrangement the moment something above it changes height. The canvas keeps
 its logical width on every screen and scrolls when the viewport is narrower, because a board
 arranged at 1440px that rearranges itself at 1280px is a board somebody has to arrange twice.
+
+FIXED is the rule and the number is free to change. It was 1280 and is now `--page-width-standard`,
+the shell's own content column, so the board ends where the toolbar above it ends rather than three
+hundred pixels short of the control that switches its mode. A board arranged before the change keeps
+every coordinate it had and gains room on the right; nothing moves on its own, which is the property
+the rule protects. Changing it again is the same trade, and the templates have to be re-tiled to fill
+whatever it becomes.
 
 Width **and** height are both draggable. Overlap is allowed while a human is dragging: they can
 see what they are doing. `findFreeSlot` is only for placing a new card.
@@ -348,7 +370,7 @@ One backend is only useful if every surface can reach it, so the client family i
 surface a customer actually touches. They all speak the same wire format, except the browser tag,
 which speaks a byte-budgeted compact one.
 
-Every client offers the same calls and nothing more:
+Six core calls are the contract every client keeps:
 
 ```
 init(sourceKey, host)     configure, start the queue
@@ -359,13 +381,32 @@ identify(userId)          sets user.id from here on. Never inferred, never guess
 flush()                   best effort, still bounded, still never throws
 ```
 
+That is the contract, not the whole surface. Every SDK (`clients/node`, `clients/python`,
+`clients/go`, `clients/dotnet`) carries the same two groups beside those six, and only the
+spelling changes with the language:
+
+- **the level helpers**: `trace`, `debug`, `info`, `warn`, `errorLog`, `fatal`. Each one is
+  `log()` with a severity filled in and a body as its first argument, so each is a few lines
+  long. `errorLog` is named around `error()`, which takes a thrown thing rather than a string.
+- **the lifecycle calls**: `page()` for a conventional page view, `stats()` for what the queue is
+  doing (queued, sent, dropped), and `close()` for the one flush a process waits on as it exits,
+  which `.NET` spells `Dispose`.
+
+Two go further, and the platform is the reason: `python` and `.NET` persist an identity across
+runs, so they also offer `reset()` and a new-session call for a desktop user signing out. A server
+process has no such moment, which is why `node` and `go` do not have them. The browser tag differs
+the other way. It has `page()`, `navigated()` for a framework router that knows the route before
+`history` does, and `consent()`, and it has no level helpers at all, because 4KB is the budget and
+a helper nobody calls still costs every visitor bytes.
+
 `event()` and `error()` are **helpers that fill in a convention**, not a type system. Everything
 they produce, `log()` can produce by hand, and an entry that follows no convention is stored and
 queried identically. A client that rejects an entry for its shape has broken rule 2.
 
 They differ only where the platform forces it: where the durable queue lives, how a background
-thread is spawned, how "the process is exiting" is detected. They do not differ in vocabulary. A
-customer who has read one has read all of them.
+thread is spawned, how "the process is exiting" is detected, whether there is an identity to
+reset. They do not differ in vocabulary, and where one has a call another lacks, the name is still
+the name the others would have used. A customer who has read one has read all of them.
 
 Rule 7 is the client contract. A client is allowed to lose entries. A client is not allowed to
 throw, block, retry unboundedly, or grow without limit. When and how a client sends is
@@ -471,6 +512,7 @@ sdk/tauri/          Rust crate for Tauri desktop apps: disk-backed entry queue
 db/                 drizzle schema, migrations, partition maintenance, the query compiler, seed
   usage.ts          the billing meter: the one thing counted on arrival, not on `time`
   billing.ts        the workspace's plan and Stripe ids. Hosted service only
+  instance.ts       the operator's view of Postgres itself, out of `pg_catalog`
 docs/               measured design references, the delivery policy, and billing
 ```
 

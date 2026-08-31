@@ -40,13 +40,17 @@ import type { Attributes, WireEntry } from "./wire.js";
 /**
  * One queued entry, plus the batch-level context it must travel with.
  *
- * `LogBatch` carries the distinct id and the resource attributes once per body
- * rather than per entry, so two entries may only share a request if both match.
- * `group` is that pair flattened into a key.
+ * `LogBatch` carries the resource attributes once per body rather than per
+ * entry, so two entries may only share a request if their resources match.
+ * `group` is that resource flattened into a key.
+ *
+ * The resource is where identity lives now, so grouping by it is also what
+ * keeps two people out of one body: `user.id`, `device.id` and `session.id`
+ * are resource keys and two entries that disagree about any of them land in
+ * different groups without this file having to know that.
  */
 export interface QueuedEntry {
   group: string;
-  distinctId: string;
   resource: Attributes | undefined;
   wire: WireEntry;
 }
@@ -57,13 +61,9 @@ export interface QueuedEntry {
  * Shared with the restore path on purpose: an entry recovered from disk has to
  * land in the same group as an identical one recorded live, and two copies of
  * this expression would eventually stop agreeing about that.
- *
- * Length-prefixed rather than delimited, because any delimiter cheap enough to
- * write is one a distinct id is allowed to contain, and two people sharing a
- * group key would share a request body and one of their distinct ids.
  */
-export function groupKey(distinctId: string, resource: Attributes | undefined): string {
-  return distinctId.length + ":" + distinctId + (resource ? JSON.stringify(resource) : "");
+export function groupKey(resource: Attributes | undefined): string {
+  return resource ? JSON.stringify(resource) : "";
 }
 
 export interface LoadResult {
@@ -341,9 +341,7 @@ export class DiskStore implements EntryStore {
 
 /** One entry as one NDJSON line, in the wire's own vocabulary. */
 function encode(item: QueuedEntry): string {
-  const line = item.resource
-    ? { d: item.distinctId, r: item.resource, e: item.wire }
-    : { d: item.distinctId, e: item.wire };
+  const line = item.resource ? { r: item.resource, e: item.wire } : { e: item.wire };
   return JSON.stringify(line) + "\n";
 }
 
@@ -356,8 +354,7 @@ function decode(line: string): QueuedEntry | null {
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const row = parsed as { d?: unknown; r?: unknown; e?: unknown };
-  if (typeof row.d !== "string" || row.d.length === 0) return null;
+  const row = parsed as { r?: unknown; e?: unknown };
   const wire = row.e as WireEntry | undefined;
   if (!wire || typeof wire !== "object") return null;
   if (typeof wire.i !== "string" || typeof wire.n !== "string" || typeof wire.t !== "number") {
@@ -365,5 +362,5 @@ function decode(line: string): QueuedEntry | null {
   }
   const resource =
     row.r && typeof row.r === "object" && !Array.isArray(row.r) ? (row.r as Attributes) : undefined;
-  return { group: groupKey(row.d, resource), distinctId: row.d, resource, wire };
+  return { group: groupKey(resource), resource, wire };
 }

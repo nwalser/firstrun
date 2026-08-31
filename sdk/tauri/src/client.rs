@@ -105,10 +105,10 @@ pub fn wire_entries(queued: &[QueuedEntry]) -> Vec<WireEntry<'_>> {
 pub struct LogBatch<'a> {
     /// source key
     pub k: &'a str,
-    /// distinct id
-    pub d: &'a str,
     /// resource attributes: what is true of this INSTALLATION and this build,
-    /// such as `service.version`, `os.type`, `host.arch` and `firstrun.channel`.
+    /// such as `device.id`, `service.version`, `os.type`, `host.arch` and
+    /// `firstrun.channel`. There is no top-level id field: identity is three
+    /// optional attributes and they travel here like everything else.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r: Option<&'a Attributes>,
     /// entries

@@ -159,24 +159,34 @@ export function formatDelta(
  * abbreviated differently per language, the separator between number and unit
  * is too, and German writes the decimal with a comma. All three are things
  * `style: "unit"` already knows.
+ *
+ * It climbs to terabytes rather than stopping at megabytes, which is what it
+ * used to do. Its first caller was a logo upload, where a ceiling of MB is
+ * every value it will ever see; the operator pages measure a whole database
+ * with it, and "204.800 MB" is a number somebody has to divide in their head
+ * before it means anything.
  */
+const SIZE_UNITS = ["kilobyte", "megabyte", "gigabyte", "terabyte"] as const;
+
 export function formatFileSize(locale: Locale, bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "";
 
-  const kb = bytes / 1024;
-  if (kb < 1000) {
-    return formatNumber(locale, kb, {
-      style: "unit",
-      unit: "kilobyte",
-      unitDisplay: "short",
-      maximumFractionDigits: kb < 10 ? 1 : 0,
-    });
+  let value = bytes / 1024;
+  let step = 0;
+  // 1000 rather than 1024, and deliberately: the step happens where the NUMBER
+  // gets long, not where the next binary unit begins.
+  while (value >= 1000 && step < SIZE_UNITS.length - 1) {
+    value /= 1024;
+    step += 1;
   }
-  return formatNumber(locale, kb / 1024, {
+
+  return formatNumber(locale, value, {
     style: "unit",
-    unit: "megabyte",
+    unit: SIZE_UNITS[step]!,
     unitDisplay: "short",
-    maximumFractionDigits: 1,
+    // One decimal below ten, none above it: the digit is worth having when it
+    // is a tenth of the value and noise when it is a thousandth.
+    maximumFractionDigits: value < 10 ? 1 : step === 0 ? 0 : 1,
   });
 }
 

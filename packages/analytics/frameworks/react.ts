@@ -6,7 +6,9 @@ import {
   error,
   event,
   flush,
-  identify,
+  user,
+  device,
+  session,
   init,
   log,
   navigated,
@@ -51,14 +53,27 @@ export interface Firstrun {
   event: typeof event;
   error: typeof error;
   log: typeof log;
-  identify: typeof identify;
+  user: typeof user;
+  device: typeof device;
+  session: typeof session;
   consent: typeof consent;
   page: typeof page;
   navigated: typeof navigated;
   flush: typeof flush;
 }
 
-const api: Firstrun = { event, error, log, identify, consent, page, navigated, flush };
+const api: Firstrun = {
+  event,
+  error,
+  log,
+  user,
+  device,
+  session,
+  consent,
+  page,
+  navigated,
+  flush,
+};
 
 /**
  * The commands, as a hook.
@@ -71,5 +86,18 @@ export function useFirstrun(): Firstrun {
   return api;
 }
 
-export { consent, error, event, flush, identify, init, log, navigated, page, stop };
+export {
+  consent,
+  device,
+  error,
+  event,
+  flush,
+  init,
+  log,
+  navigated,
+  page,
+  session,
+  stop,
+  user,
+};
 export type { AnalyticsConfig };

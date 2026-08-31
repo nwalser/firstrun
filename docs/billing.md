@@ -85,6 +85,36 @@ workspace is over its limit or behind on a payment, and no board is ever closed 
 Reading their own data is what makes somebody come back and pay. A customer who loses telemetry
 over a late invoice has lost the month, and they do not upgrade afterwards.
 
+## The operator's page
+
+`/admin`, gated by `FIRSTRUN_ADMINS`: a comma-separated list of GitHub logins, empty by default.
+That is deployment configuration and not a role, because the first instance admin has no honest
+bootstrap inside the app and because this should only be changeable by whoever can deploy. Being
+an admin of every workspace on the box does not reach it.
+
+It lists every workspace with its plan, its billing status, entries this month and last, projects,
+people and the last day anything arrived. Counts, plans and dates only: reading inside somebody's
+entries is a support conversation, not a button.
+
+Two levers, and the difference matters:
+
+| | writes | survives a Stripe event? |
+|---|---|---|
+| **Plan** | `plan`, `billing_status` | **No.** The webhook writes the same columns from the price |
+| **Limit** | `plan_limits` | **Yes.** Nothing in the Stripe path touches it |
+
+So force a plan to demo, to unblock somebody today, or for a workspace that will never subscribe.
+To lift a ceiling durably for a paying customer, set the limit instead.
+
+## What is enforced, and what only warns
+
+| entitlement | behaviour | why |
+|---|---|---|
+| `entriesPerMonth` | warns, never blocks | a refused entry is data that cannot be resent (rule 7) |
+| `projects` | **blocked** in `addProject` | nothing is lost, and an admin is present to read the message |
+
+Enforce what can be retried; warn about what cannot.
+
 ## Stripe
 
 No SDK. `apps/web/src/lib/stripe.server.ts` is four endpoints over `fetch` and one HMAC.

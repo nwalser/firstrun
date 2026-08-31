@@ -69,7 +69,7 @@ handshake we can afford.
 import firstrun
 
 firstrun.configure(
-    source_key="fr_server_9f3a2b1c4d5e6f70",
+    source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
     app_name="etl",
 )
@@ -103,7 +103,7 @@ combined with a queue that survives to the next one, and neither half expresses 
 
 ```python
 firstrun.configure(
-    source_key="fr_server_9f3a2b1c4d5e6f70",
+    source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
     delivery="interval",        # immediate | interval | startup | manual
     persistence="memory",       # memory | disk
@@ -215,26 +215,194 @@ safe: every entry carries the id it was created with and the server deduplicates
 
 ```python
 firstrun.configure(
-    source_key="fr_server_9f3a2b1c4d5e6f70",
+    source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
     delivery="startup",         # coerces persistence to disk on its own
     queue_path="/var/lib/myapp/firstrun-queue.jsonl",
 )
 ```
 
-## Django
+## Ambient request identity
+
+On a server the identity belongs to the request rather than to the process, so every call in a
+handler ends up repeating `distinct_id=` and `user_id=`. Say it once instead:
+
+```python
+with firstrun.context(distinct_id=session_key, user_id=account_id):
+    firstrun.event("order_placed", {"total": order.total})
+    firstrun.event("receipt_queued")
+```
+
+Both entries carry the identity and neither call names it. The precedence is the call, then the
+context, then the client's own, so an entry that passes `distinct_id=` still wins.
+
+It is a [context variable](https://docs.python.org/3/library/contextvars.html), which is the
+design rather than an implementation detail. A module global is shared by every request in the
+process, so two concurrent requests take turns overwriting each other's user id and both report
+the wrong one. A `threading.local` fixes threads and nothing else: two coroutines interleaved on
+one thread share it. A context variable is copied into each task at the moment the task is
+created, so an identity set at the front door reaches everything the handler awaits and reaches
+nothing being served alongside it.
+
+**Nothing is inferred.** No cookie is read, no header parsed, no session looked up, no address
+hashed. The context carries what you put in it, and `user.id` is only ever a string you passed.
+
+Attributes work the same way and sit under the entry's own:
+
+```python
+with firstrun.context(distinct_id=visitor, attributes={"tenant": tenant.slug}):
+    firstrun.event("report_run", {"rows": 1200})     # carries tenant as well
+```
+
+Nesting adds rather than replaces, so a handler can attach a detail without restating who the
+request is from. `**attrs` is the short form and only reaches keys that are Python identifiers;
+the conventional keys are dotted, so those go in `attributes`.
+
+### Middleware, where there is nowhere to put a `with`
+
+`replace_context()` returns a token and `reset_context(token)` puts back whatever was there. Reset
+in a `finally`: one request's identity left in scope would be stamped on the next one's entries.
+
+```python
+token = firstrun.replace_context(distinct_id=visitor_id, user_id=account_id)
+try:
+    return handle(request)
+finally:
+    firstrun.reset_context(token)
+```
+
+**`replace_context` at a front door, `set_context` and `context` everywhere else.** The difference
+is what `None` means. Inside a handler, `None` means "keep what the middleware said", which is why
+`context()` nests. At the front door it has to mean anonymous: an id your extractor did not return
+must not fall back on whatever is ambient on that worker thread, or a request with no account gets
+stamped with the `user.id` of the request before it. That is an identity you never passed, which is
+the one thing this library will not do, so the middleware states the whole identity or states there
+is none.
+
+`reset_context(None)` is a no-op, so the `finally` needs no branch. `current_context()` returns
+the `RequestContext` in force, or None outside one.
+
+You do not have to write that for Django, Flask or anything ASGI. The middleware below already
+does it, and writes the entry for the request as well.
+
+## HTTP middleware
+
+`firstrun.integrations` ships one per framework, and each does the same three things: it puts the
+request's identity in scope, it writes **one `http.request` entry** for the request, and it takes
+the identity back down in a `finally`, because one request's identity left in scope is the next
+request's entries stamped with somebody else's.
+
+**The distinct id extractor is required, and it is yours.** None of them reads a cookie, a header,
+a session or an address on its own initiative, and `user.id` is only ever the string your own
+function returned. An id we invented would describe the server rather than whoever is on the other
+end of it, and one we guessed at from the request would be identity inference, which this product
+does not do anywhere.
+
+The identity a middleware installs **replaces** whatever was in scope rather than layering onto it
+(`replace_context`, above). An extractor that returns nothing means the request is anonymous, so a
+`user.id` cannot arrive from the request before this one, from a second middleware in the same
+chain, or from a `set_context()` in a worker-init hook. Those are all identities you never passed
+for this request, which is the same rule read from the other end.
+
+The entry is an ordinary log entry, the kind you could write yourself with `log()`:
+
+| attribute | |
+|---|---|
+| `http.request.method` | `"GET"` |
+| `http.route` | the route **template**, `/orders/<int:pk>`. Left off when there is not one |
+| `http.response.status_code` | a number, so "5xx" is a comparison and not a string match |
+| `url.path` | the path that was asked for |
+| `firstrun.duration_ms` | a number |
+| `firstrun.client_aborted` | `true`, and only when the caller hung up. Absent otherwise |
+
+Severity is INFO, except a 5xx, which is ERROR. **A 4xx is not an error.** It is the client's
+mistake, and a board full of ERROR entries because a scanner is walking your site looking for
+`/wp-login.php` is noise that hides the ones that are yours.
+
+A request whose exception escapes the whole chain is recorded at ERROR with `exception.type`,
+`exception.message` and `exception.stacktrace` on that same entry, and with **no** status code: we
+did not see a response, and 500 would be a guess that `propagate_exceptions` makes a wrong one. The
+exception itself carries on to your handler untouched, which is the only thing it could do. You
+will rarely see this under Django, which turns a view that raised into a 500 response before it
+reaches us.
+
+**With one exception, and it is a cancellation.** An `asyncio.CancelledError` out of an ASGI app is
+the task running the request being cancelled, which is what a server does when the socket goes away
+and again on shutdown, not something of yours that failed: a timeout of yours surfaces as
+`TimeoutError`, and a task you cancelled yourself does not escape your own handler. It stays at
+INFO and carries `firstrun.client_aborted` instead of `exception.type` and a stack, because an app
+with SSE, long polling, streaming downloads or users who close tabs would otherwise have an error
+board that is mostly cancellations. The entry is still written: the request happened, and how long
+it ran before the caller left is worth having. The exception is re-raised untouched like any other,
+cancellation semantics included.
+
+`http.route` is the template and never the resolved path. `/users/12345` in that key would make a
+breakdown by route one row per user, which is the single thing the key exists to prevent. Where
+the framework has no template to give (a 404 that matched nothing, a response returned before
+routing) the key is left off rather than filled in with a guess, and `url.path` still says what was
+asked for.
+
+`ignore_paths` takes a path prefix or a list of them, and `ignore` takes a predicate. An ignored
+request gets no entry and no context.
+
+None of these modules imports its framework at the top, so `firstrun` still has no dependencies and
+`import firstrun.integrations.asgi` works in an environment with no Starlette in it. One that
+cannot be configured disables itself and passes every request through, because a constructor here
+does not raise into a program that is trying to boot. Read `.enabled` if you would rather a startup
+check failed loudly.
+
+### Django
 
 ```python
 # settings.py
 import firstrun
 
 firstrun.configure(
-    source_key="fr_server_9f3a2b1c4d5e6f70",
+    source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
     persist_distinct_id=False,   # on a server the id belongs to the request, not the box
     track_lifecycle=False,
 )
+
+MIDDLEWARE = [
+    ...,
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "firstrun.integrations.django.FirstrunMiddleware",
+]
+
+FIRSTRUN_DISTINCT_ID = "myapp.telemetry.visitor_id"    # a callable, or its dotted path
+FIRSTRUN_USER_ID = "myapp.telemetry.account_id"        # optional
+FIRSTRUN_IGNORE_PATHS = ["/static/", "/healthz"]       # optional
 ```
+
+```python
+# myapp/telemetry.py: what identifies a request is your decision. Use whatever
+# you already have (a session key, a cookie, an account id). We never invent one.
+def visitor_id(request):
+    return request.session.session_key
+
+def account_id(request):
+    return str(request.user.pk) if request.user.is_authenticated else None
+```
+
+Put it **after** `AuthenticationMiddleware`, or `request.user` is not resolved when the extractor
+asks for it. A dotted path is accepted as well as a callable because a settings module that has to
+import the view layer is a settings module with an import cycle waiting in it.
+
+The other spelling takes the extractors directly, which is the one that keeps a lambda possible:
+
+```python
+# myapp/telemetry.py
+from firstrun.integrations.django import firstrun_middleware
+
+identity = firstrun_middleware(
+    distinct_id=lambda request: request.session.session_key,
+    ignore_paths=["/static/"],
+)
+# settings.py: MIDDLEWARE = [..., "myapp.telemetry.identity"]
+```
+
+Either way, the view names no identity at all:
 
 ```python
 # views.py
@@ -242,47 +410,135 @@ import firstrun
 
 def checkout(request):
     order = place_order(request)
-
-    # Pass the identity per call. Use whatever you already have: a session key, a
-    # cookie, an account id. We never invent one and never derive one.
-    firstrun.event(
-        "order_placed",
-        {"currency": order.currency, "total": order.total},
-        distinct_id=request.session.session_key or "anon",
-        user_id=str(request.user.pk) if request.user.is_authenticated else None,
-    )
+    firstrun.event("order_placed", {"currency": order.currency, "total": order.total})
     return redirect("thanks")
 ```
+
+Passing `distinct_id=` on a call still works and still wins: the context is the default, not a
+lock.
+
+Both request modes are supported. Under WSGI Django hands it a synchronous `get_response` and it
+is a synchronous middleware; under ASGI it is an asynchronous one. Declaring only one of the two
+would make Django adapt the other with a thread hop per request, in your critical path, which is
+not ours to spend.
 
 Under Gunicorn or uWSGI with pre-forked workers, `configure()` in `settings.py` runs in the
 master and each worker inherits a client that repairs itself in the child (see **fork** below).
 Configuring inside `post_fork` works too and is marginally tidier.
 
-## Flask
+### Flask
 
 ```python
 import firstrun
-from flask import Flask, request, g
+from flask import Flask, request, session
+from firstrun.integrations.flask import FirstrunExtension
 
-app = Flask(__name__)
 firstrun.configure(
-    source_key="fr_server_9f3a2b1c4d5e6f70",
+    source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
     persist_distinct_id=False,
     track_lifecycle=False,
 )
 
+telemetry = FirstrunExtension(
+    distinct_id=lambda: request.cookies.get("visitor"),
+    user_id=lambda: session.get("account_id"),
+    ignore_paths=["/static/"],
+)
+
+app = Flask(__name__)
+telemetry.init_app(app)          # or FirstrunExtension(app, distinct_id=...)
+
 @app.post("/orders")
 def create_order():
     order = place_order(request.json)
-    firstrun.event(
-        "order_placed",
-        {"total": order.total},
-        distinct_id=request.cookies.get("visitor", "anon"),
-        user_id=g.get("user_id"),
-    )
+    firstrun.event("order_placed", {"total": order.total})
     return {"ok": True}
 ```
+
+The extractors take no argument, because Flask's `request` is already the thing you would have
+been handed, and anything you can read in a view you can read in one of these.
+
+It is `before_request` to put the identity in scope, `after_request` to read the status, and
+`teardown_request` to write the entry and take the identity back down. Teardown is the half that
+matters: it runs for a request whose view raised and `after_request` does not, so a failed request
+cannot leave its identity on the next one.
+
+There is a fourth hook on `teardown_appcontext`, and it exists because Flask walks the teardown
+functions in reverse with no `try` around the calls: ours is registered first, so it runs last,
+and a teardown hook of yours that raises would skip it. The app context pops in a `finally` around
+that loop, so the backstop runs anyway and takes the identity down. It writes no entry, because by
+then there is no request left to describe, and it says so once through your diagnostics sink,
+because a teardown chain that raises means every request served under it goes unmeasured and
+nothing else here would tell you.
+
+**The backstop is not a guarantee, and there is no arrangement in Flask that would make it one.**
+Registered first, it also runs last in its own list, so a `teardown_appcontext` hook of yours that
+raises gets in front of it and the request's identity stays in scope on that worker thread. There
+is no list after that one and nothing later to register in. The damage is bounded: the identity a
+middleware installs replaces what was in scope rather than layering onto it, so the next request
+this extension measures on that thread is stamped with its own and nothing else. What a leak can
+still reach is an entry you write yourself between requests, and a request on an ignored path.
+
+Call `init_app` before the app registers its own `after_request` hooks, which an application
+factory does naturally. Flask walks those in reverse, so the one registered first runs last and
+reads the status after everybody else has finished with the response. `before_request` is
+registered last on purpose: a hook of ours is live on an app only when the teardown that undoes it
+registered on that same app.
+
+`init_app` can be called for several apps, and what one app's failure costs is that app. An app
+that would not take the hooks is reported and left unmeasured; an app that already took them keeps
+measuring, and a later `init_app` still registers. `.enabled` turning False says something did not
+register, which is a startup check worth failing on. It is not a switch, and nothing reads it once
+a request is being served.
+
+### FastAPI, Starlette, and anything else ASGI
+
+```python
+import firstrun
+from fastapi import FastAPI
+from firstrun.integrations.asgi import FirstrunMiddleware
+
+firstrun.configure(
+    source_key="fr_9f3a2b1c4d5e6f70",
+    host="https://t.example.com",
+    persist_distinct_id=False,
+    track_lifecycle=False,
+)
+
+def visitor_id(scope):
+    # Your decision, from something that exists before the app runs: a header, a
+    # cookie, or whatever an outer middleware put on the scope. In Starlette the
+    # outermost middleware is the one added LAST, so add this one first.
+    for key, value in scope["headers"]:
+        if key == b"x-visitor-id":
+            return value.decode("latin-1")
+    return None
+
+app = FastAPI()
+app.add_middleware(FirstrunMiddleware, distinct_id=visitor_id, ignore_paths=["/healthz"])
+
+@app.post("/orders/{order_id}")
+async def create_order(order_id: int):
+    firstrun.event("order_placed", {"order_id": order_id})
+    return {"ok": True}
+```
+
+That request's entry carries `http.route` of `/orders/{order_id}`, not `/orders/12345`, which is
+the difference between a breakdown by route and a list of every order anybody has ever placed.
+
+It is a plain three-argument ASGI callable rather than a Starlette `BaseHTTPMiddleware`, so the
+same object works under FastAPI, Starlette, Litestar, Quart, Django's ASGI handler, or an app you
+wrote by hand:
+
+```python
+app = FirstrunMiddleware(app, distinct_id=visitor_id)
+```
+
+`BaseHTTPMiddleware` buys its friendlier API by running the endpoint in a separate task with a
+stream between the two, which changes how context variables, background tasks and streaming
+responses behave. A middleware whose whole job is to put a context variable in scope has no
+business using the one wrapper that moves the endpoint somewhere else.
 
 ## Async
 
@@ -295,9 +551,13 @@ client = firstrun.get_client()
 await client.aflush(timeout=3)     # flush without stalling the loop
 await client.aclose(timeout=3)     # on shutdown
 
-async with firstrun.Firstrun("fr_server_…", "https://t.example.com") as fr:
+async with firstrun.Firstrun("fr_9f3a2b1c4d5e6f70", "https://t.example.com") as fr:
     fr.event("job_done")
 ```
+
+`firstrun.context()` works from a coroutine and is the reason it is built on `contextvars`: the
+identity is copied into every task created inside the block, and is invisible to whatever else
+the loop is serving at that moment.
 
 ## fork
 
@@ -431,7 +691,6 @@ class Firstrun:
     distinct_id: str              # property
     user_id: str | None           # property
     session_id: str               # property
-    surface: str                  # "web" | "desktop" | "mobile" | "server" | "other"
     is_first_run: bool
     distinct_id_path: str | None
     queue_path: str | None        # None unless persistence == "disk"
@@ -455,6 +714,38 @@ firstrun.shutdown(timeout=3.0) -> bool
 firstrun.stats() -> Stats | None
 firstrun.distinct_id_path(app_folder) -> str
 firstrun.queue_path(app_folder) -> str
+
+# ambient identity for one request. A context variable, so it does not leak
+# between concurrent requests and does follow a task the handler awaits.
+firstrun.context(distinct_id=None, *, user_id=None, session_id=None,
+                 attributes=None, **attrs)                    # with firstrun.context(...):
+firstrun.current_context() -> RequestContext | None
+firstrun.set_context(...) -> Token | None       # same arguments, layers like context()
+firstrun.replace_context(...) -> Token | None   # same arguments, REPLACES: for a front door
+firstrun.reset_context(token) -> None           # accepts None
+
+class RequestContext:            # frozen
+    distinct_id: str | None
+    user_id: str | None
+    session_id: str | None
+    attributes: Mapping[str, Any]
+
+# HTTP middleware. The distinct_id extractor is required in all three, and none
+# of these modules imports its framework at the top.
+from firstrun.integrations.django import FirstrunMiddleware, firstrun_middleware
+FirstrunMiddleware(get_response, **config)      # config from settings when named in MIDDLEWARE
+firstrun_middleware(distinct_id=None, *, user_id=None, ignore_paths=None,
+                    ignore=None, client=None)   # -> the factory MIDDLEWARE wants
+
+from firstrun.integrations.flask import FirstrunExtension
+FirstrunExtension(app=None, distinct_id=None, *, user_id=None, ignore_paths=None,
+                  ignore=None, client=None)     # extractors take no argument
+    .init_app(app) -> None
+    .enabled: bool
+
+from firstrun.integrations.asgi import FirstrunMiddleware
+FirstrunMiddleware(app, distinct_id=None, *, user_id=None, ignore_paths=None,
+                   ignore=None, client=None)    # extractors take the ASGI scope
 
 class Stats(NamedTuple):
     queued: int
@@ -481,8 +772,7 @@ firstrun.MEMORY, DISK, PERSISTENCE_MODES
 firstrun.is_log_name(name) -> bool
 firstrun.severity_number(text) -> int | None      # "warn" -> 13, "ERROR2" -> 18
 firstrun.severity_text(number) -> str             # 9 -> "INFO", 10 -> "INFO2"
-firstrun.surface_from_source_key(key) -> str | None
-firstrun.SURFACES, SOURCE_KEY_RE, LOG_NAME_RE, LOG_NAME_MAX
+firstrun.SOURCE_KEY_RE, LOG_NAME_RE, LOG_NAME_MAX
 
 # the severity ladder
 firstrun.TRACE, DEBUG, INFO, WARN, ERROR, FATAL      # 1, 5, 9, 13, 17, 21
@@ -563,7 +853,7 @@ One `POST {host}/v1/e` per batch, `Content-Type: application/json`:
 
 ```json
 {
-  "k": "fr_server_9f3a2b1c4d5e6f70",
+  "k": "fr_9f3a2b1c4d5e6f70",
   "d": "0e9f…",
   "r": {
     "service.version": "2.4.1",

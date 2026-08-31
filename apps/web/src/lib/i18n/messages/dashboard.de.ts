@@ -55,6 +55,7 @@ export const dashboard: DashboardMessages = {
   "dashboard.showing": "Angezeigt",
   "dashboard.baseline_nothing": "Nichts",
 
+  "dashboard.filter_by": "Board nach {value} filtern",
   "dashboard.filter_none": "Filter",
   "dashboard.test_mode": "Testdaten",
   "dashboard.test_mode_off": "Produktionsdaten werden angezeigt. Zu den Events der Entwicklungs-Builds wechseln.",

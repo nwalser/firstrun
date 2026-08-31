@@ -87,6 +87,7 @@ namespace Firstrun
 
         public const string SessionId = "session.id";
         public const string UserId = "user.id";
+        public const string DeviceId = "device.id";
 
         public const string ServiceName = "service.name";
         public const string ServiceVersion = "service.version";
@@ -103,6 +104,25 @@ namespace Firstrun
         public const string HttpRoute = "http.route";
 
         public const string Channel = "firstrun.channel";
+
+        /// <summary>
+        /// The caller hung up before the request finished: a navigation away, a closed SSE
+        /// stream, a cancelled fetch.
+        /// </summary>
+        /// <remarks>
+        /// Ours and namespaced, because OpenTelemetry has no key for it and there is no
+        /// honest status code to put in its place: nginx invented 499 for this and it is
+        /// not a status anybody ever sent. Written only as the JSON boolean
+        /// <c>true</c> and only when true, the same idiom as <see cref="Test"/> and for the
+        /// same reason: silence already says false on the overwhelming majority of rows.
+        /// <para>
+        /// It exists so a disconnect can be told apart from a request that succeeded
+        /// quietly WITHOUT being called an error. Filing one as a 5xx is how an error board
+        /// becomes mostly cancellations on any app with streaming, long polling or humans
+        /// who close tabs.
+        /// </para>
+        /// </remarks>
+        public const string ClientAborted = "firstrun.client_aborted";
 
         /// <summary>
         /// Marks test data. Written only as the JSON boolean <c>true</c>, and only when
@@ -123,7 +143,7 @@ namespace Firstrun
         /// <summary>The longest entry name the server will accept.</summary>
         public const int LogNameMaxLength = 128;
 
-        /// <summary>The longest a distinct_id or user_id may be.</summary>
+        /// <summary>The longest a device_id or user_id may be.</summary>
         public const int IdMaxLength = 512;
 
         /// <summary>
@@ -166,7 +186,7 @@ namespace Firstrun
             return true;
         }
 
-        /// <summary><c>fr_(web|desktop|mobile|server|other)_[0-9a-z]{16}</c>.</summary>
+        /// <summary><c>fr_[0-9a-f]{16}</c>.</summary>
         public static bool IsValidSourceKey(string? key)
         {
             // fr_ then sixteen hex characters, and nothing else. The middle

@@ -28,9 +28,16 @@
  * The canvas keeps its logical width on every screen and scrolls when the
  * viewport is narrower. A layout arranged at 1440px that silently rearranges
  * itself at 1280px is a layout somebody has to arrange twice.
+ *
+ * FIXED is the rule; 1620 is the number. It is the app's own standard content
+ * width (`--page-width-standard`, the shell's content column), so the board and
+ * the toolbar above it end at the same place instead of the board stopping
+ * three hundred pixels short of the control that switches its mode. Boards
+ * arranged before this keep every coordinate they had and simply gain room on
+ * the right; nothing moves on its own, which is the whole point of the rule.
  */
 export const GRID = 20;
-export const CANVAS_WIDTH = 1280;
+export const CANVAS_WIDTH = 1620;
 export const CANVAS_MIN_HEIGHT = 600;
 export const MIN_WIDGET_W = 160;
 export const MIN_WIDGET_H = 120;

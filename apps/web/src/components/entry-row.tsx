@@ -4,7 +4,7 @@ import {
   type FeedEntry,
   type SeverityBand,
 } from "@firstrun/schema";
-import { ATTR } from "@firstrun/schema/conventions";
+import { ATTR, entryIdentity } from "@firstrun/schema/conventions";
 import { Link } from "@tanstack/solid-router";
 import ChevronDown from "lucide-solid/icons/chevron-down";
 import ChevronRight from "lucide-solid/icons/chevron-right";
@@ -246,9 +246,13 @@ export function EntryFacts(props: { entry: FeedEntry }) {
           {i18n.dateTime(props.entry.ingestedAt)}
         </Fact>
         <Fact label={i18n.t("events.col_project")}>{props.entry.projectName}</Fact>
-        <Fact label={i18n.t("events.client_id")}>
-          <span class="font-mono text-mono">{props.entry.distinctId}</span>
-        </Fact>
+        <Show when={entryIdentity(props.entry.attributes)}>
+          {(id) => (
+            <Fact label={id().key}>
+              <span class="font-mono text-mono">{id().value}</span>
+            </Fact>
+          )}
+        </Show>
         <Fact label={i18n.t("events.event_id")}>
           <span class="font-mono text-mono">{props.entry.entryId}</span>
         </Fact>

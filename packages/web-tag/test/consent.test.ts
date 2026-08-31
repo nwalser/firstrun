@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   KEY_CONSENT,
-  KEY_DID,
   KEY_SESSION,
   SEV_ERROR,
   SEV_INFO,
@@ -27,7 +26,7 @@ import {
  * is no second shape anywhere.
  */
 
-const SOURCE_KEY = "fr_web_1111222233334444";
+const SOURCE_KEY = "fr_1111222233334444";
 const HOST = "https://t.example.com";
 const T0 = 1_700_000_000_000;
 
@@ -88,12 +87,14 @@ function recorder(seed: Record<string, string> = {}): Recorder {
       schedule: (fn) => {
         timers.push(fn);
       },
+      fingerprint: () => "fp_stub",
     },
   };
   return r;
 }
 
-const tagFor = (r: Recorder) => createTag(r.env, { sourceKey: SOURCE_KEY, host: HOST });
+const tagFor = (r: Recorder, extra: { fingerprint?: boolean; ephemeral?: boolean } = {}) =>
+  createTag(r.env, { sourceKey: SOURCE_KEY, host: HOST, ...extra });
 
 /** Everything sent so far, flattened, with the outbox emptied. */
 function drain(r: Recorder, tag: Tag): WireEntry[] {
@@ -159,9 +160,9 @@ describe("before consent", () => {
     expect(r.store.size).toBe(0);
   });
 
-  test("there is no distinct id yet, so there is nothing to send one under", () => {
-    const tag = tagFor(r);
-    expect(tag.distinctId()).toBeNull();
+  test("no device id is derived before the answer, even with fingerprinting on", () => {
+    const tag = tagFor(r, { fingerprint: true });
+    expect(tag.deviceId()).toBeUndefined();
   });
 
   test("but entries are held, so the first page view is not lost", () => {
@@ -237,7 +238,7 @@ describe("before consent", () => {
 });
 
 describe("granting consent", () => {
-  test("stores an id and sends what was held", () => {
+  test("sends what was held", () => {
     const r = recorder();
     const tag = tagFor(r);
     tag.page();
@@ -246,13 +247,15 @@ describe("granting consent", () => {
     tag.call("consent", true);
 
     expect(r.store.get(KEY_CONSENT)).toBe("1");
-    expect(r.store.get(KEY_DID)).toBeString();
     expect(r.sent.length).toBe(1);
 
     const body = JSON.parse(r.sent[0]!.body);
     expect(r.sent[0]!.url).toBe(HOST + "/v1/e");
     expect(body.k).toBe(SOURCE_KEY);
-    expect(body.d).toBe(r.store.get(KEY_DID));
+    // No top-level id field at all any more: identity travels on the resource,
+    // and a tag with no fingerprint and no `user()` call carries only a session.
+    expect(body.d).toBeUndefined();
+    expect(body.r["device.id"]).toBeUndefined();
     expect(names(body.e)).toEqual(["session_start", "page_view", "download_clicked"]);
     expect(body.e[1].a["url.full"]).toBe("https://themia.app/");
   });
@@ -289,7 +292,7 @@ describe("granting consent", () => {
 });
 
 describe("withdrawing consent", () => {
-  test("clears the id, the flag, the session, and anything still held", () => {
+  test("clears the flag, the session, the device id, and anything still held", () => {
     const r = recorder();
     const tag = tagFor(r);
     tag.call("consent", true);
@@ -299,10 +302,9 @@ describe("withdrawing consent", () => {
     tag.call("event", "download_clicked");
     tag.call("consent", false);
 
-    expect(r.store.has(KEY_DID)).toBe(false);
     expect(r.store.has(KEY_CONSENT)).toBe(false);
     expect(r.store.has(KEY_SESSION)).toBe(false);
-    expect(tag.distinctId()).toBeNull();
+    expect(tag.deviceId()).toBeUndefined();
     expect(tag.buffered()).toBe(0);
 
     // Sending what we gathered while waiting for an answer, after the answer
@@ -326,23 +328,59 @@ describe("withdrawing consent", () => {
 });
 
 describe("a returning visitor", () => {
-  test("keeps the id they already had and sends straight away", () => {
-    const r = recorder({ [KEY_CONSENT]: "1", [KEY_DID]: "v_existing" });
+  test("sends straight away, with no banner and no stored id to read", () => {
+    const r = recorder({ [KEY_CONSENT]: "1" });
     const tag = tagFor(r);
     expect(tag.hasConsent()).toBe(true);
-    expect(tag.distinctId()).toBe("v_existing");
 
     tag.page();
     tag.flush();
     expect(r.sent.length).toBe(1);
-    expect(JSON.parse(r.sent[0]!.body).d).toBe("v_existing");
+    expect(JSON.parse(r.sent[0]!.body).r["session.id"]).toBe(tag.sessionId());
+  });
+});
+
+describe("fingerprinting", () => {
+  test("is off by default: no device id, however much consent there is", () => {
+    const r = recorder();
+    const tag = tagFor(r);
+    tag.call("consent", true);
+    tag.page();
+    tag.flush();
+    expect(tag.deviceId()).toBeUndefined();
+    expect(JSON.parse(r.sent[0]!.body).r["device.id"]).toBeUndefined();
   });
 
-  test("with the flag but no id gets a new id rather than sending without one", () => {
-    const r = recorder({ [KEY_CONSENT]: "1" });
+  test("needs the flag AND consent before it derives anything", () => {
+    const r = recorder();
+    const tag = tagFor(r, { fingerprint: true });
+    tag.page();
+    expect(tag.deviceId()).toBeUndefined();
+
+    tag.call("consent", true);
+    expect(tag.deviceId()).toBe("fp_stub");
+    tag.flush();
+    expect(JSON.parse(r.sent[0]!.body).r["device.id"]).toBe("fp_stub");
+  });
+
+  test("withdrawing consent takes the derived id away again", () => {
+    const r = recorder();
+    const tag = tagFor(r, { fingerprint: true });
+    tag.call("consent", true);
+    tag.call("consent", false);
+    expect(tag.deviceId()).toBeUndefined();
+  });
+
+  test("a device id the caller set needs no flag, but still needs consent to send", () => {
+    const r = recorder();
     const tag = tagFor(r);
-    expect(tag.distinctId()).toBeString();
-    expect(r.store.get(KEY_DID)).toBe(tag.distinctId()!);
+    tag.call("device", "machine-7");
+    expect(tag.deviceId()).toBe("machine-7");
+    tag.page();
+    expect(r.sent).toEqual([]);
+
+    tag.call("consent", true);
+    expect(JSON.parse(r.sent[0]!.body).r["device.id"]).toBe("machine-7");
   });
 });
 
@@ -487,31 +525,62 @@ describe("error", () => {
   });
 });
 
-describe("identify", () => {
-  test("puts the customer's own user id on the resource, beside the distinct id", () => {
+describe("user", () => {
+  test("puts the customer's own id on the resource", () => {
     const r = recorder();
     const tag = tagFor(r);
     tag.call("consent", true);
-    tag.call("identify", "u_42");
+    tag.call("user", "u_42");
     r.sent.length = 0;
     tag.call("event", "signed_in");
     tag.flush();
-    const body = JSON.parse(r.sent[0]!.body);
-    expect(body.r["user.id"]).toBe("u_42");
-    expect(body.d).toBe(tag.distinctId());
+    expect(JSON.parse(r.sent[0]!.body).r["user.id"]).toBe("u_42");
   });
 
-  test("identify(null) drops it again, and it was never written to storage", () => {
+  test("user(null) drops it again, and it was never written to storage", () => {
     const r = recorder();
     const tag = tagFor(r);
     tag.call("consent", true);
-    tag.call("identify", "u_42");
-    tag.call("identify", null);
+    tag.call("user", "u_42");
+    tag.call("user", null);
     r.sent.length = 0;
     tag.call("event", "signed_out");
     tag.flush();
     expect(JSON.parse(r.sent[0]!.body).r["user.id"]).toBeUndefined();
     expect([...r.store.values()]).not.toContain("u_42");
+  });
+
+  test("naming a different person cuts the session; naming the same one does not", () => {
+    const r = recorder();
+    const tag = tagFor(r);
+    tag.call("consent", true);
+    tag.page();
+    const before = tag.sessionId();
+
+    tag.call("user", "u_42");
+    const afterSignIn = tag.sessionId();
+    expect(afterSignIn).not.toBe(before);
+
+    // What a router does on every route change. It must be a no-op, or a visit
+    // becomes one session per navigation.
+    tag.call("user", "u_42");
+    expect(tag.sessionId()).toBe(afterSignIn);
+
+    tag.call("user", null);
+    expect(tag.sessionId()).not.toBe(afterSignIn);
+  });
+});
+
+describe("session", () => {
+  test("session(id) replaces the id, and there is no separate new-session call", () => {
+    const r = recorder();
+    const tag = tagFor(r);
+    tag.call("consent", true);
+    tag.call("session", "s_mine");
+    expect(tag.sessionId()).toBe("s_mine");
+    tag.page();
+    tag.flush();
+    expect(JSON.parse(r.sent[0]!.body).r["session.id"]).toBe("s_mine");
   });
 });
 
@@ -646,18 +715,31 @@ describe("sessions", () => {
     expect(r.store.has(KEY_SESSION)).toBe(false);
     tag.call("consent", true);
     tag.page();
-    expect(r.store.get(KEY_SESSION)).toBe(T0 + "|google.com");
+    expect(r.store.get(KEY_SESSION)).toBe(T0 + "|google.com|" + tag.sessionId());
   });
 
   test("a returning visitor inside the window continues the same visit", () => {
     const r = recorder({
       [KEY_CONSENT]: "1",
-      [KEY_DID]: "v_existing",
-      [KEY_SESSION]: T0 - 60_000 + "|google.com",
+      [KEY_SESSION]: T0 - 60_000 + "|google.com|s_open",
     });
     const tag = tagFor(r);
     tag.page();
     expect(names(drain(r, tag))).toEqual(["page_view"]);
+    // And it is the SAME visit, not merely an uncut one: a full page load
+    // inside the window keeps the id it was already reporting under.
+    expect(tag.sessionId()).toBe("s_open");
+  });
+
+  test("a stale stored session is not adopted", () => {
+    const r = recorder({
+      [KEY_CONSENT]: "1",
+      [KEY_SESSION]: T0 - 31 * 60_000 + "|google.com|s_stale",
+    });
+    const tag = tagFor(r);
+    tag.page();
+    expect(names(drain(r, tag))).toEqual(["session_start", "page_view"]);
+    expect(tag.sessionId()).not.toBe("s_stale");
   });
 });
 

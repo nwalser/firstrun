@@ -114,8 +114,16 @@ export function QueryPreview(props: {
       </Show>
 
       {/* An application surface: 6px of radius and the hairline as a ring, not
-          a border. Pairing the two would draw two edges a pixel apart. */}
-      <div class={cn("min-h-[14rem] rounded-md p-3 shadow-2xs", error() && "opacity-50")}>
+          a border. Pairing the two would draw two edges a pixel apart.
+
+          A DEFINITE height, not a minimum. Every visualisation fills the box it
+          is handed (`h-full` on the outside, `flex-1` on the chart inside it),
+          and a percentage height against an auto-height parent resolves to
+          auto: under a minimum the box stood its full 224px while the chart in
+          it collapsed to the few pixels its own `min-h` asked for. Same box as
+          before, and the difference is that its contents now reach the bottom
+          of it. */}
+      <div class={cn("h-56 rounded-md p-3 shadow-2xs", error() && "opacity-50")}>
         <Show when={result()}>
           {(answer) => (
             <VisualisationBody viz={props.viz} query={props.query} rows={answer().rows} />

@@ -175,7 +175,7 @@ function WorkspaceBilling() {
             </Show>
           }
         >
-          <div class="grid gap-3 @2xl-page/page:grid-cols-3">
+          <div class="grid gap-3 @xl-page/page:grid-cols-3">
             <For each={PLAN_ORDER}>
               {(id) => {
                 const plan = PLANS[id];

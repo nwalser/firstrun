@@ -193,7 +193,6 @@ export interface FeedEntry {
   time: string;
   /** OTel `observed_timestamp`. Shown so a late entry is readable AS late. */
   ingestedAt: string;
-  distinctId: string;
   severity: number | null;
   name: string;
   attributes: Attributes;

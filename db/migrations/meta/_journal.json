@@ -22,6 +22,27 @@
       "when": 1788696000000,
       "tag": "0002_military_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788782400000,
+      "tag": "0003_perpetual_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788868800000,
+      "tag": "0004_identity_is_optional",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788955200000,
+      "tag": "0005_no_tracking_plan",
+      "breakpoints": true
     }
   ]
 }

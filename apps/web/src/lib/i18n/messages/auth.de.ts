@@ -25,6 +25,34 @@ export const auth: AuthMessages = {
   "auth.not_configured_hint":
     "Setzen Sie {first} und {second}, oder erzeugen Sie eine lokale Sitzung außerhalb der App:",
 
-  "auth.preview_per_day": "{name} pro Tag",
-  "auth.preview_retention": "Retention an Tag 7",
+  // "Severity", "Source Key", "ingested_at" und "time" bleiben englisch, wie
+  // "Retention" und "Postgres" es hier schon tun: es sind die Namen aus dem
+  // Datenmodell und keine Uebersetzungssache.
+  "auth.preview_live": "Live",
+  "auth.preview_sample": "Beispieldaten",
+  "auth.preview_range": "Letzte 24 Stunden",
+  "auth.preview_windows": "{window} vs. {baseline}",
+  "auth.preview_chart_title": "{name} pro Stunde",
+  "auth.preview_agg_count": "Anzahl der Eintraege",
+  "auth.preview_agg_errors": "Eintraege ab Severity 17",
+  "auth.preview_agg_uniques": "eindeutige Installationen auf {source}",
+  "auth.preview_open_bucket": "laufende Stunde, noch nicht vollstaendig",
+  "auth.preview_late_note": "1 Eintrag traf {delay} verspaetet ein und liess eine aeltere Stunde wachsen",
+  "auth.preview_late_by": "{delay} verspaetet",
+  "auth.preview_breakdown_title": "Top-Seiten",
+  "auth.preview_breakdown_by": "nach {key}",
+  "auth.preview_sources": "Quellen",
+  "auth.preview_wire": "Leitung",
+  "auth.preview_resolved": "Source Key aufgeloest",
+  "auth.preview_validated": "Form validiert",
+  "auth.preview_stamped": "ingested_at gestempelt",
+  "auth.preview_accepted": "angenommen",
+  "auth.preview_lateness": "ingested_at - time p50",
+  "auth.preview_throughput": "{rate} Eintraege/Sek.",
+  "auth.preview_keys_one": "{count} Attributschluessel entdeckt",
+  "auth.preview_keys_other": "{count} Attributschluessel entdeckt",
+
+  "auth.preview_motion_label": "Animierte Vorschau",
+  "auth.preview_motion_pause": "Pause",
+  "auth.preview_motion_play": "Abspielen",
 };

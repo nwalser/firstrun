@@ -30,7 +30,7 @@ export type { Attrs, DeliveryMode, Entry };
 
 export interface AnalyticsConfig {
   /**
-   * The source key from the workspace's Sources page, `fr_web_…`.
+   * The source key from the workspace's Sources page, `fr_9f3a2b1c4d5e6f70`.
    *
    * Named `sourceKey` and not `key`: React eats a prop called `key` before the
    * component ever sees it, and a silently-unconfigured analytics tag is the
@@ -101,6 +101,24 @@ export interface AnalyticsConfig {
    */
   testMode?: boolean;
   /**
+   * An id that lives in the tab and dies with it, and no consent gate.
+   *
+   * The default id is written to `localStorage` and read back on a later visit,
+   * which is information stored on a device and therefore a question to ask
+   * before storing it. This is the other trade: the keys move to
+   * `sessionStorage`, nothing outlives the tab, and there is nothing persistent
+   * left to ask about, so entries send from the first one.
+   *
+   * It costs the returning visitor. A unique becomes one tab rather than one
+   * browser, which overcounts uniques across days and makes a week-over-week
+   * comparison of them meaningless. Counts of entries are unaffected, which is
+   * why this suits a marketing site and does not suit a product.
+   *
+   * Not the same thing as `session.id`, which still cuts on 30 minutes idle
+   * inside this id and is unchanged by it.
+   */
+  ephemeral?: boolean;
+  /**
    * Also expose the command API as a global, for markup that has to call it
    * (a cookie banner rendered by a third party, say). Off by default here --
    * a bundled integration has imports and does not need one.
@@ -123,7 +141,9 @@ function replay(): void {
     if (cmd === "event") instance.event(a as string, b as Attrs | undefined);
     else if (cmd === "error") instance.error(a, b as Attrs | undefined);
     else if (cmd === "log") instance.log(a as Entry);
-    else if (cmd === "identify") instance.identify(a as string | null);
+    else if (cmd === "user") instance.user(a as string | null);
+    else if (cmd === "device") instance.device(a as string | null);
+    else if (cmd === "session") instance.session(a as string);
     else if (cmd === "consent") instance.consent(a as boolean);
     else if (cmd === "page") instance.page();
   }
@@ -147,7 +167,13 @@ function queue(cmd: string, a?: unknown, b?: unknown): void {
  */
 export function init(config: AnalyticsConfig): void {
   if (!canMeasure()) return;
-  const id = config.sourceKey + "|" + config.host;
+  // `ephemeral` is part of the identity of a mount and not just a setting on
+  // one: it decides which Storage the id lives in, and that is resolved once
+  // inside `start()`. Flipping it on a live instance has to tear down and
+  // remount, or the tag keeps writing to the store the old mount chose.
+  // Normalised to a boolean so that omitting it and passing `false` are the
+  // same mount rather than two.
+  const id = config.sourceKey + "|" + config.host + "|" + (config.ephemeral === true);
   if (instance && mountedKey === id) return;
   if (instance) stop();
 
@@ -162,6 +188,7 @@ export function init(config: AnalyticsConfig): void {
       autoForms: config.autoForms,
       trackLeave: config.trackLeave,
       autoErrors: config.autoErrors,
+      ephemeral: config.ephemeral,
       mode: config.mode,
       flushOnSeverity: config.flushOnSeverity,
       flushEvery: config.flushEvery,
@@ -227,19 +254,47 @@ export function log(entry: Entry): void {
 /**
  * Your own id for this person, as a string. `null` signs them out.
  *
- * It sets the `user.id` attribute and nothing else: firstrun never infers one,
- * never derives one from behaviour, and never links this browser's anonymous id
- * to an id from your app or your backend. If you want a person counted once
- * across sources, call `identify` with the same id on each of them.
+ * Sets the `user.id` attribute and nothing else: firstrun never infers one,
+ * never derives one from behaviour, and never links an id here to an id from
+ * your app or your backend. If you want a person counted once across sources,
+ * call `user` with the same id on each of them.
+ *
+ * Naming a different person starts a new session, because a sign-in is a
+ * boundary. Naming the same one again, which is what a router does on every
+ * route change, does nothing at all.
  */
-export function identify(userId?: string | null): void {
-  if (instance) instance.identify(userId);
-  else queue("identify", userId);
+export function user(userId?: string | null): void {
+  if (instance) instance.user(userId);
+  else queue("user", userId);
+}
+
+/**
+ * The machine this is running on, when you actually know it.
+ *
+ * For a page inside a Tauri or Electron shell that can ask the OS. On an
+ * ordinary website there is nothing honest to pass here: leave it alone, or
+ * switch on `fingerprint` in the tag options and accept what that is worth.
+ * Nothing is ever inferred on your behalf.
+ */
+export function device(deviceId?: string | null): void {
+  if (instance) instance.device(deviceId);
+  else queue("device", deviceId);
+}
+
+/**
+ * Replace the session id. There is no separate new-session call: this is it.
+ *
+ * The tag keeps its own session by default, cutting after thirty idle minutes
+ * or on arrival from a new site, so most apps never call this.
+ */
+export function session(sessionId: string): void {
+  if (instance) instance.session(sessionId);
+  else queue("session", sessionId);
 }
 
 /**
  * The answer to the cookie banner. Until this is called with `true` nothing is
- * stored and nothing is sent; called with `false` it drops the distinct id and
+ * stored and nothing is sent; called with `false` it drops any device id and
  * everything held while the banner was up.
  */
 export function consent(granted: boolean): void {

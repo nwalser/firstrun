@@ -36,7 +36,7 @@ export const topics: DocsTopic[] = [
           code={
             `import firstrun "firstrun.dev/go"\n\n` +
             `analytics, err := firstrun.New(firstrun.Options{\n` +
-            `\tSourceKey:      os.Getenv("FIRSTRUN_SOURCE_KEY"), // fr_server_...\n` +
+            `\tSourceKey:      os.Getenv("FIRSTRUN_SOURCE_KEY"), // fr_9f3a2b1c4d5e6f70\n` +
             `\tHost:           "${ctx.vars.origin}",\n` +
             `\tServiceVersion: os.Getenv("GIT_SHA"),\n` +
             `\tOnDiagnostic: func(d firstrun.Diagnostic) {\n` +

@@ -41,8 +41,10 @@ namespace Firstrun
         // the worker may still be mid-pass, and two senders would double-send a batch.
         private readonly object _drainGate = new object();
 
-        private string _distinctId;
+        private string _deviceId;
         private string? _userId;
+        // Empty means this process is not a session, and then session.id is written only
+        // when a call or a scope names one. See FirstrunOptions.SessionPerProcess.
         private string _sessionId;
 
         // The resource: what is true of this PROCESS rather than of one entry. Serialised
@@ -84,8 +86,8 @@ namespace Firstrun
         public FirstrunClient(FirstrunOptions options)
         {
             _options = (options ?? new FirstrunOptions()).Clone();
-            _sessionId = Guid.NewGuid().ToString("D");
-            _distinctId = "";
+            _sessionId = _options.SessionPerProcess ? Guid.NewGuid().ToString("D") : "";
+            _deviceId = "";
             _queue = new EventQueue(_options.MaxQueuedEntries);
 
             bool configured = !string.IsNullOrWhiteSpace(_options.SourceKey)
@@ -132,23 +134,26 @@ namespace Firstrun
             string appFolder = !string.IsNullOrWhiteSpace(_options.AppName) ? _options.AppName! : _options.SourceKey;
 
             bool firstRun = false;
-            string? explicitId = Wire.ClampId(_options.DistinctId);
+            string? explicitId = Wire.ClampId(_options.DeviceId);
             if (explicitId != null)
             {
-                _distinctId = explicitId;
+                _deviceId = explicitId;
             }
-            else if (_options.PersistDistinctId)
+            else if (_options.PersistDeviceId)
             {
-                (string id, bool created) = DistinctIdStore.LoadOrCreate(
+                (string id, bool created) = DeviceIdStore.LoadOrCreate(
                     appFolder,
                     ex => Report(FirstrunDiagnosticKind.InternalError, "could not persist the anonymous id", 0, ex));
-                _distinctId = id;
+                _deviceId = id;
                 firstRun = created;
-                DistinctIdPath = SafeCall(() => DistinctIdStore.ResolvePath(appFolder), null);
+                DeviceIdPath = SafeCall(() => DeviceIdStore.ResolvePath(appFolder), null);
             }
             else
             {
-                _distinctId = Guid.NewGuid().ToString("D");
+                // No device, and that is the answer rather than a gap. A per-process
+                // GUID would report every restart as a new machine and a fleet of pods
+                // as a crowd of them, which is a number nobody can act on.
+                _deviceId = string.Empty;
                 firstRun = true;
             }
 
@@ -249,7 +254,7 @@ namespace Firstrun
         public bool IsFirstRun { get; }
 
         /// <summary>Where the anonymous id is stored, or null when it is not persisted.</summary>
-        public string? DistinctIdPath { get; }
+        public string? DeviceIdPath { get; }
 
         /// <summary>
         /// The schedule this client is running on, after the per-surface default was
@@ -275,13 +280,34 @@ namespace Firstrun
         /// <summary>The budget for that pass.</summary>
         public TimeSpan ExitFlushTimeout { get; }
 
-        /// <summary>The anonymous per-install id being sent. Not a person, not joined to anything.</summary>
-        public string DistinctId { get { lock (_identityGate) { return _distinctId; } } }
+        /// <summary>
+        /// The anonymous per-install id being sent. Not a person, not joined to anything.
+        /// </summary>
+        /// <remarks>
+        /// The CLIENT-level id, which is what an entry falls back on. A scope pushed with
+        /// <see cref="FirstrunContext.Push"/> overrides it for the entries recorded inside
+        /// that scope and does not change this, because it is not a property of the
+        /// process: read <see cref="FirstrunContext.Current"/> for what is in force here.
+        /// </remarks>
+        public string DeviceId { get { lock (_identityGate) { return _deviceId; } } }
 
-        /// <summary>The id the host passed to <see cref="Identify"/>, or null.</summary>
+        /// <summary>
+        /// The id the host passed to <see cref="User"/>, or null. Client-level, in the
+        /// same sense as <see cref="DeviceId"/>.
+        /// </summary>
         public string? UserId { get { lock (_identityGate) { return _userId; } } }
 
-        /// <summary>The current session id. Rotated by <see cref="NewSession"/> and <see cref="Reset"/>.</summary>
+        /// <summary>
+        /// The current session id, or empty when this process is not a session. Replaced
+        /// by <see cref="Session"/>, and cut by <see cref="User"/> when a different person
+        /// is named. Client-level, in the same sense as <see cref="DeviceId"/>.
+        /// </summary>
+        /// <remarks>
+        /// Empty when <see cref="FirstrunOptions.SessionPerProcess"/> is false, which is
+        /// what a server wants: <c>session.id</c> then appears on an entry only when a
+        /// call or a scope names one, and never because the library minted a value for
+        /// itself and reported it as the caller's.
+        /// </remarks>
         public string SessionId { get { lock (_identityGate) { return _sessionId; } } }
 
         /// <summary>Counters, for a health endpoint or a debug screen.</summary>
@@ -323,13 +349,20 @@ namespace Firstrun
         /// when you have nothing to say: an entry with no severity is honestly
         /// unclassified, and one silently filed as INFO is a lie a filter will act on.
         /// </para>
+        /// <para>
+        /// <paramref name="deviceId"/>, <paramref name="userId"/> and
+        /// <paramref name="sessionId"/> are the most specific step of three. Leave one
+        /// null and the entry takes it from the scope pushed with
+        /// <see cref="FirstrunContext.Push"/>, and failing that from the client. Nothing
+        /// is inferred at any of the three: every id here is a string somebody passed.
+        /// </para>
         /// </remarks>
         public void Log(string name, string? body = null, int severity = 0,
                         IReadOnlyDictionary<string, object?>? attributes = null,
-                        string? distinctId = null, string? userId = null, string? sessionId = null,
+                        string? deviceId = null, string? userId = null, string? sessionId = null,
                         long timestampMs = 0, string? traceId = null, string? spanId = null)
         {
-            Enqueue(name, body, severity, attributes, distinctId, userId, sessionId,
+            Enqueue(name, body, severity, attributes, deviceId, userId, sessionId,
                     timestampMs, traceId, spanId);
         }
 
@@ -342,9 +375,9 @@ namespace Firstrun
         /// nothing you send without it is second class.
         /// </remarks>
         public void Event(string name, IReadOnlyDictionary<string, object?>? attributes = null,
-                          string? distinctId = null, string? userId = null, string? sessionId = null)
+                          string? deviceId = null, string? userId = null, string? sessionId = null)
         {
-            Enqueue(name, null, FirstrunSeverity.Info, attributes, distinctId, userId, sessionId, 0, null, null);
+            Enqueue(name, null, FirstrunSeverity.Info, attributes, deviceId, userId, sessionId, 0, null, null);
         }
 
         /// <summary>
@@ -367,7 +400,7 @@ namespace Firstrun
         /// </para>
         /// </remarks>
         public void Error(Exception error, IReadOnlyDictionary<string, object?>? attributes = null,
-                          string? distinctId = null, string? userId = null, string? sessionId = null)
+                          string? deviceId = null, string? userId = null, string? sessionId = null)
         {
             if (error == null) return;
 
@@ -388,7 +421,7 @@ namespace Firstrun
 
             Enqueue(FirstrunNames.Exception, message, FirstrunSeverity.Error,
                     Wire.MergeAttributes(unwrapped, Wire.ClampAttributes(attributes)),
-                    distinctId, userId, sessionId, 0, null, null);
+                    deviceId, userId, sessionId, 0, null, null);
         }
 
         /// <summary>A line at TRACE.</summary>
@@ -462,40 +495,57 @@ namespace Firstrun
         /// merged, and this source is never linked to any other source's ids.
         /// Pass null to go back to anonymous.
         /// </remarks>
-        public void Identify(string? userId, IReadOnlyDictionary<string, object?>? attributes = null)
+        public void User(string? userId, IReadOnlyDictionary<string, object?>? attributes = null)
         {
             string? clamped = Wire.ClampId(userId);
-            lock (_identityGate) { _userId = clamped; }
+            bool rotated = false;
+            lock (_identityGate)
+            {
+                if (clamped == _userId) return;
+                _userId = clamped;
+                // A sign-in is a boundary, so naming a different person cuts the session.
+                // One session spanning two accounts belongs to neither. Naming the same
+                // person again returned above and is a no-op, which it has to be: a host
+                // that calls this on every screen must not mint a session per screen.
+                if (_sessionId.Length > 0)
+                {
+                    _sessionId = Guid.NewGuid().ToString("D");
+                    rotated = true;
+                }
+            }
+            if (rotated) Event(FirstrunNames.SessionStart);
             if (clamped != null) Event(FirstrunNames.Identify, attributes);
         }
 
         /// <summary>
-        /// Forgets the user id and starts a new session. The anonymous id is kept: it
-        /// belongs to this installation, not to whoever was signed in.
+        /// Names the machine these entries come from, or clears it with null.
         /// </summary>
-        public void Reset()
+        /// <remarks>
+        /// A desktop install fills this in for itself from the id it persists under
+        /// <see cref="FirstrunOptions.PersistDeviceId"/>, because an installation IS a
+        /// machine. Call this to override that, or on a server to name a host you
+        /// genuinely know. Nothing is ever derived: there is no fingerprint here.
+        /// </remarks>
+        public void Device(string? deviceId)
         {
-            lock (_identityGate)
-            {
-                _userId = null;
-                _sessionId = Guid.NewGuid().ToString("D");
-            }
-            // The rotation half of this is a new session, and it is announced for
-            // the same reason a launch is. The forgotten user id is not announced:
-            // there is no entry that means "stopped being somebody".
-            Event(FirstrunNames.SessionStart);
+            string? clamped = Wire.ClampId(deviceId);
+            lock (_identityGate) { _deviceId = clamped ?? string.Empty; }
         }
 
-        /// <summary>Starts a new session id without touching the user id.</summary>
+        /// <summary>
+        /// Sets the session id, or clears it with null. There is no separate
+        /// new-session call: rotating a session is calling this with a new id.
+        /// </summary>
         /// <remarks>
         /// Announces the new session with a <c>session_start</c> entry, for the same
         /// reason startup does: a rotation nothing records is a session that exists on
         /// every later entry and is counted by nothing.
         /// </remarks>
-        public void NewSession()
+        public void Session(string? sessionId)
         {
-            lock (_identityGate) { _sessionId = Guid.NewGuid().ToString("D"); }
-            Event(FirstrunNames.SessionStart);
+            string? clamped = Wire.ClampId(sessionId);
+            lock (_identityGate) { _sessionId = clamped ?? string.Empty; }
+            if (clamped != null) Event(FirstrunNames.SessionStart);
         }
 
         /// <summary>
@@ -564,7 +614,7 @@ namespace Firstrun
 
         private void Enqueue(string name, string? body, int severity,
                              IReadOnlyDictionary<string, object?>? attributes,
-                             string? distinctId, string? userId, string? sessionId,
+                             string? deviceId, string? userId, string? sessionId,
                              long timestampMs, string? traceId, string? spanId)
         {
             try
@@ -587,32 +637,62 @@ namespace Firstrun
                 // is unclassified rather than quiet, so it is never dropped here.
                 if (resolvedSeverity != 0 && resolvedSeverity < _options.MinSeverity) return;
 
-                string resolvedDistinct;
-                string? resolvedUser;
-                string resolvedSession;
-                lock (_identityGate)
-                {
-                    resolvedDistinct = Wire.ClampId(distinctId) ?? _distinctId;
-                    resolvedUser = Wire.ClampId(userId) ?? _userId;
-                    resolvedSession = Wire.ClampId(sessionId) ?? _sessionId;
-                }
+                // Read once, and outside the gate. The ambient identity belongs to this
+                // flow rather than to the client, so it needs no lock, and reading it once
+                // means the ids and the attributes below come from the same snapshot even
+                // if another frame pushes a new scope while this call is running.
+                FirstrunIdentity? ambient = FirstrunContext.Current;
 
-                if (resolvedDistinct.Length == 0)
+                // IDENTITY IS ONE UNIT, TAKEN FROM ONE LAYER.
+                //
+                // Three steps, most specific first: what this call named, then the scope
+                // around it (a request, a job, a message), then what the client has been
+                // told about the process as a whole. The FIRST of those that states ANY
+                // of the three supplies all three, and the layers below it are not
+                // consulted.
+                //
+                // The middle step is the one a server needs, because there an identity
+                // belongs to the caller and a client-level one is a process talking about
+                // itself. Taking the layers field by field is how a background job started
+                // inside a request keeps the requester's user.id while naming its own
+                // device, and since a unique coalesces user.id first, that job is then
+                // counted as that customer.
+                //
+                // All three may end up null. That is a legal entry: it counts as an entry
+                // and in no unique, which is the honest answer for a process that was
+                // never told who anything was for.
+                string? resolvedUser = Wire.ClampId(userId);
+                string? resolvedDevice = Wire.ClampId(deviceId);
+                string? resolvedSession = Wire.ClampId(sessionId);
+                if (resolvedUser == null && resolvedDevice == null && resolvedSession == null)
                 {
-                    Interlocked.Increment(ref _refused);
-                    Report(FirstrunDiagnosticKind.EventRefused, "no distinct id");
-                    return;
+                    if (ambient != null)
+                    {
+                        resolvedUser = Wire.ClampId(ambient.UserId);
+                        resolvedDevice = Wire.ClampId(ambient.DeviceId);
+                        resolvedSession = Wire.ClampId(ambient.SessionId);
+                    }
+                    if (resolvedUser == null && resolvedDevice == null && resolvedSession == null)
+                    {
+                        lock (_identityGate)
+                        {
+                            resolvedUser = _userId;
+                            resolvedDevice = _deviceId.Length > 0 ? _deviceId : null;
+                            resolvedSession = _sessionId.Length > 0 ? _sessionId : null;
+                        }
+                    }
                 }
 
                 // Identity sits UNDER the caller's own attributes, so an entry that names
                 // user.id explicitly wins over the client-level default. Anything else
                 // would make a per-call override silently ineffective.
-                var identity = new Dictionary<string, object?>(2, StringComparer.Ordinal);
+                var identity = new Dictionary<string, object?>(3, StringComparer.Ordinal);
                 if (resolvedUser != null) identity[FirstrunAttr.UserId] = resolvedUser;
-                if (resolvedSession.Length > 0) identity[FirstrunAttr.SessionId] = resolvedSession;
+                if (resolvedDevice != null) identity[FirstrunAttr.DeviceId] = resolvedDevice;
+                if (resolvedSession != null) identity[FirstrunAttr.SessionId] = resolvedSession;
 
                 // body, trace_id and span_id are attributes, not columns: this product
-                // promotes five columns and no more, and the spec's vocabulary is not ours
+                // promotes four columns and no more, and the spec's vocabulary is not ours
                 // to promote. The dedicated argument wins over a same-named attribute,
                 // because naming it explicitly is the more specific statement.
                 var spec = new Dictionary<string, object?>(3, StringComparer.Ordinal);
@@ -624,9 +704,14 @@ namespace Firstrun
                 if (clampedSpan != null) spec[FirstrunAttr.SpanId] = clampedSpan;
 
                 // Copied here, on the caller's thread, so a caller who reuses and mutates
-                // their dictionary cannot rewrite an entry we already recorded.
+                // their dictionary cannot rewrite an entry we already recorded. The
+                // ambient scope's attributes sit between the process-wide defaults and the
+                // resolved identity: more specific than what is true of the whole process,
+                // and never able to overrule the ids above by spelling user.id itself,
+                // because those were resolved from this same scope one step ago.
                 Dictionary<string, object?>? merged = Wire.MergeAttributes(
                     _defaultAttributes,
+                    ambient?.Attributes,
                     identity,
                     Wire.ClampAttributes(attributes),
                     spec);
@@ -636,7 +721,6 @@ namespace Firstrun
                     name,
                     timestampMs > 0 ? timestampMs : Wire.NowMs(),
                     resolvedSeverity,
-                    resolvedDistinct,
                     merged,
                     _resourceJson,
                     null,

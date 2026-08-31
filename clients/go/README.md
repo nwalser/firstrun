@@ -62,7 +62,7 @@ import (
 
 func main() {
 	analytics, err := firstrun.New(firstrun.Options{
-		SourceKey:  os.Getenv("FIRSTRUN_SOURCE_KEY"), // fr_server_9f3a...
+		SourceKey:  os.Getenv("FIRSTRUN_SOURCE_KEY"), // fr_9f3a2b1c4d5e6f70
 		Host:       os.Getenv("FIRSTRUN_HOST"),       // https://t.example.com
 		ServiceVersion: os.Getenv("GIT_SHA"),
 		OnDiagnostic: func(d firstrun.Diagnostic) {
@@ -178,10 +178,19 @@ func (c *Client) Page(path string, e Entry)
 func (c *Client) Flush(ctx context.Context) error   // nil, ctx.Err(), or ErrClosed
 func (c *Client) Close(ctx context.Context) error   // idempotent, safe twice
 func (c *Client) Stats() Stats
+
+// Request-scoped identity. See "Identity on a context" below.
+func NewContext(ctx context.Context, id Identity) context.Context
+func FromContext(ctx context.Context) (Identity, bool)
+func (c *Client) Ctx(ctx context.Context) *Scoped
+
+// One http.request entry per served request. See "The HTTP middleware" below.
+func (c *Client) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handler
 ```
 
-`context.Context` appears on `Flush` and `Close` and nowhere else, because those are the only two
-calls that wait for anything.
+Nothing here waits for anything except `Flush` and `Close`. The context on `Ctx`, `NewContext` and
+`FromContext` is carrying identity, not a deadline: `Ctx` performs no I/O, and cancelling that
+context does not cancel a send.
 
 ```go
 type Entry struct {
@@ -231,6 +240,160 @@ retroactively, and identities are never inferred.
 is no url column: everything that is not one of the five promoted columns lives in attributes and
 is queried from there.
 
+### Identity on a context
+
+Passing identity per call is right for a server and it is also tedious, because it means threading
+an id through every function that might record something, including the ones five layers down that
+otherwise have no reason to know who they are working for. Go's answer to that is
+`context.Context`, so this client takes it.
+
+```go
+func withIdentity(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// visitorID is YOUR function. This library never works out who somebody
+		// is on its own initiative: no cookie, no header, no IP, no session.
+		ctx := firstrun.NewContext(r.Context(), firstrun.Identity{
+			DistinctID: visitorID(r),
+			UserID:     userIDFrom(r), // "" when nobody is signed in
+			Attributes: firstrun.Attributes{"tenant": tenantFrom(r)},
+		})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func exportHandler(w http.ResponseWriter, r *http.Request) {
+	rows := exportCSV(r)
+	// No id at the call site, and none needed: the context has one.
+	analytics.Ctx(r.Context()).Event("exported_csv",
+		firstrun.Attributes{"rows": len(rows)}, firstrun.Entry{})
+}
+```
+
+`Ctx` returns a `*Scoped`, which mirrors every recording method (`Log`, `Event`, `Error`, `Trace`,
+`Debug`, `Info`, `Warn`, `ErrorLog`, `Fatal`, `Page`) with the same arguments. Precedence is one
+rule and it does not vary by helper or by field: **what the call site states wins, then what the
+context carries, then what the client was configured with in `Options`.** An `Entry` with its own
+`DistinctID` uses that one; everything else gets the request's. `Identity.Attributes` sit under the
+entry's own attributes for the same reason.
+
+A nil context, or one carrying no identity, gives a handle that behaves exactly like the client
+itself, so wrapping a call in `Ctx` is never worse than not wrapping it. The handle is a value
+derived from the client rather than a second client: one queue, one sender goroutine and one set of
+counters however many of them exist, and making one per request costs an allocation and no I/O.
+
+`Identity.Attributes` is copied by `NewContext` and by `FromContext`, because the stored map is read
+by every goroutine holding the context and a concurrent map write is the one failure Go does not let
+anybody recover from. An empty `Identity` is stored like any other, so a handler can clear an
+ambient identity by putting one on rather than having the outer one leak through.
+
+Copying an attribute that is an `error` means calling your `Error` method, so neither function is a
+pure copy and neither is allowed to panic into you: a typed-nil error in that map costs the ambient
+attributes for that context and nothing else. `NewContext` on a nil parent returns a usable context
+rather than panicking, for the same reason.
+
+`Flush` and `Close` have no scoped form: they are lifecycle, and a per-request handle is not where a
+process decides to stop. Neither has `Identify`, which needs no shorter form here:
+`s.Event(firstrun.NameIdentify, nil, firstrun.Entry{UserID: id})` is the same entry.
+
+### The HTTP middleware
+
+`Middleware` records one `http.request` entry per served request, and puts the identity on the
+request context on the way past, so every handler underneath can record against it without being
+handed anything.
+
+```go
+mw := analytics.Middleware(firstrun.MiddlewareOptions{
+	// visitorID is YOUR function. This library never works out who somebody is
+	// on its own initiative: no cookie, no header, no IP, no session.
+	DistinctID: visitorID,
+	UserID:     func(r *http.Request) string { return sessionUser(r) },
+	Ignore:     func(r *http.Request) bool { return r.URL.Path == "/healthz" },
+	Route: func(r *http.Request) string {
+		return chi.RouteContext(r.Context()).RoutePattern()
+	},
+})
+
+// Registered INSIDE the router. Wrapping it from outside as mw(router) works
+// for everything except Route, which cannot see what the router matched.
+router := chi.NewRouter()
+router.Use(mw)
+
+log.Fatal(http.ListenAndServe(":8080", router))
+```
+
+What it emits is an ordinary entry. There is no request table, no request pipeline and no second
+code path: it is one `Log` call you could have written by hand.
+
+| attribute | |
+|---|---|
+| `http.request.method` | `"GET"` |
+| `http.route` | the route TEMPLATE, and only when `Route` returned one |
+| `http.response.status_code` | a number, and only when net/http actually sent one |
+| `url.path` | the path that was asked for, copied before a router could rewrite it |
+| `firstrun.duration_ms` | a number, milliseconds at microsecond resolution |
+
+Severity is `INFO`, or `ERROR` for a 5xx. **A 4xx stays at `INFO`.** It is the caller's mistake
+rather than the server's, and a board where every 404 is an error is a board nobody can filter back
+down.
+
+`DistinctID` is required, and it is a function you write for the same reason `Identity` is: identity
+is never inferred here. Return your own visitor cookie, your own header, your own session, whatever
+your application already treats as one browser or one installation. Returning `""` costs the entry
+rather than inventing a subject for it.
+
+**An extractor you set owns its field, and `""` is an answer.** A front door is where an application
+states who a request is from, so "nobody is signed in" is a statement rather than a gap to be filled
+in from whatever an outer context happened to be carrying. If you set `UserID` and it returns `""`,
+the request carries no user id, even when an outer middleware of yours had put one on: inheriting it
+would attribute an entry to somebody your own code just said was not there, and it would not stop at
+that entry, because the id goes onto the request context and every `Ctx` call underneath would pick
+it up. The same holds for `DistinctID`. A field you leave **nil** keeps whatever the context had, and
+so do the session id and the ambient attributes, which nothing here has an opinion about.
+
+`Route` must return the route TEMPLATE (`/users/{id}`), never the resolved path (`/users/8814`). A
+template groups a million requests into one readable row; the path groups them into a million rows
+of one. When your router cannot give you a template, return `""` and the attribute is left off,
+because an absent key is honest and `url.path` is on the entry anyway.
+
+**`Route` only works when the middleware is registered inside your router**, and that is not a
+detail: a router does not annotate the request it was handed. It derives a new one during dispatch
+and gives that to the handler it matched, so a wrapper sitting outside the router never sees what
+was matched, and the attribute is simply absent.
+
+| router | register it as | and read the template with |
+|---|---|---|
+| chi | `router.Use(mw)` | `chi.RouteContext(r.Context()).RoutePattern()` |
+| gorilla/mux | `router.Use(mw)` | `route := mux.CurrentRoute(r)`, then `tmpl, err := route.GetPathTemplate()` |
+| net/http `ServeMux` | per route: `mux.Handle("/users/{id}", mw(h))` | `r.Pattern` on Go 1.23+, or the literal pattern you registered |
+
+`mux.CurrentRoute` returns `nil` when there was no match and `GetPathTemplate` returns
+`(string, error)`, so both need checking before use. Everything else the middleware does works the
+same wrapped around the router as inside it, so `mw(router)` is a fine wiring if you are not asking
+for `http.route`.
+
+**The `ResponseWriter` keeps the interfaces it had.** Capturing a status code means wrapping the
+writer, and a naive wrapper hides `http.Flusher`, `http.Hijacker` and `io.ReaderFrom` from the
+handler underneath: streaming responses stop streaming, websocket upgrades stop upgrading, and
+sendfile turns back into a copy through userspace. Our telemetry quietly degrading your server is
+the same failure as our telemetry blocking it. So the wrapper is one of eight shapes, chosen to
+match exactly what the real writer implemented, and it implements `Unwrap` so
+`http.NewResponseController` reaches the connection for deadlines. Two interfaces are not carried
+across: `http.CloseNotifier`, deprecated since Go 1.11 in favour of the request context, which is
+untouched; and `http.Pusher`, the HTTP/2 push no browser still implements. Both are asked for behind
+an "if it supports it" test, so a handler that wants one gets a no and its own fallback.
+
+**A panic in your handler is yours.** The middleware does not recover it: your recovery middleware
+still sees it, net/http still logs it, and the connection still closes the way it would have. It is
+recorded anyway, at `ERROR` with `exception.escaped`, and with no status code unless your handler
+had already written one, because net/http answers a panicking handler by closing the connection
+rather than by sending a 500. A 200 there would be a number nobody could check.
+
+Every piece of your code the middleware calls, it calls inside a recover: all four extractors, and
+`Options.Now` if you replaced the clock. A panic in one of them costs an id, a route or a timestamp
+and nothing else, and on every path through the middleware `next.ServeHTTP` is called exactly once.
+An `Ignore` that returns true passes the request through untouched: no wrapper, no context, no
+entry. A disabled client returns your handler unchanged.
+
 ### Severity
 
 The OpenTelemetry ladder, 1..24 in six bands of four:
@@ -270,7 +433,7 @@ firstrun.AttrBody, AttrExceptionType, AttrExceptionMessage, AttrExceptionStacktr
 
 | Field | Default | |
 |---|---|---|
-| `SourceKey` | required | `fr_server_…`. Public by necessity; it identifies and authorises nothing |
+| `SourceKey` | required | `fr_<16 hex>`. Public by necessity; it identifies and authorises nothing |
 | `Host` | required | Origin only, e.g. `https://t.example.com` |
 | `DistinctID`, `UserID` | none | Client-level defaults. Leave empty in a multi-tenant server |
 | `ServiceName`, `ServiceVersion`, `Channel`, `OS`, `Arch`, `Locale` | none | Resource attributes, overridable per call |
@@ -434,7 +597,7 @@ One `POST` per identity group to `{Host}/v1/e`, `Content-Type: application/json`
 
 ```json
 {
-  "k": "fr_server_0123456789abcdef",
+  "k": "fr_0123456789abcdef",
   "d": "account_9f3a",
   "r": { "service.version": "2.1.0", "os.type": "linux", "host.arch": "x86_64" },
   "e": [

@@ -95,10 +95,6 @@ export const sources: SourcesMessages = {
   "sources.step_install": "Installation",
   "sources.step_details_title": "Benennen Sie sie",
   "sources.step_details_hint": "Wird nur Ihnen und den Personen in diesem Workspace angezeigt.",
-  "sources.asset_label": "Name der Anwendung",
-  "sources.asset_hint":
-    "Optional. Wird in den Snippets der Installationsanleitung verwendet, damit sie mit dem " +
-    "Namen Ihrer Anwendung ankommen. Nichts, was ein Client sendet, bezieht sich darauf.",
   "sources.make_board": "Board dafür anlegen",
   "sources.ready": "{name} ist bereit",
   "sources.ready_hint":

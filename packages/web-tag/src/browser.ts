@@ -37,7 +37,7 @@ import {
  */
 
 export interface StartOptions {
-  /** `fr_web_…`. Public by necessity; it authorises nothing. */
+  /** `fr_9f3a2b1c4d5e6f70`. Public by necessity; it authorises nothing. */
   sourceKey: string;
   /** Ingest origin. Defaults to wherever the script itself was served from. */
   host?: string;
@@ -72,6 +72,40 @@ export interface StartOptions {
    */
   testMode?: boolean;
   /**
+   * An id that lives in the tab and dies with it, and no consent gate.
+   *
+   * The default identity is a `localStorage` id behind `consent(true)`, which
+   * is the honest arrangement when the id outlives the visit: it is information
+   * stored on someone's device, and in the EU that is a question you have to
+   * ask before you store it. The price of asking is a banner, and a banner is
+   * the reason plenty of sites measure nothing at all.
+   *
+   * This is the other trade. The three keys move to `sessionStorage`, so the id
+   * is gone when the tab closes, cannot follow anybody to a second visit, and
+   * is never joined to anything. There is nothing persistent to consent to, so
+   * the gate is open from the first entry.
+   *
+   * What it costs is the visit that spans a closed tab. The session clock lives
+   * in the tab, so coming back tomorrow is a new session rather than a returning
+   * one, and uniques over a week are an overcount. Counts of entries (a signup,
+   * a download click, a page view) are exactly as correct as they were, which
+   * is why this is a reasonable default for a marketing site and a bad one for
+   * a product.
+   *
+   * It does not turn the session rules off. `session.id` still cuts on 30
+   * minutes idle and on a new referring site, inside the tab's lifetime.
+   */
+  ephemeral?: boolean;
+  /**
+   * Derive a `device.id` by fingerprinting the browser. Off by default.
+   *
+   * Needs `consent(true)` as well: both gates, always. See
+   * `TagConfig.fingerprint` in `core.ts` for what it actually measures and how
+   * little it is worth as an absolute number. Without it the tag reports no
+   * device at all, which is the honest answer for a web page.
+   */
+  fingerprint?: boolean;
+  /**
    * When a send is attempted. Default `immediate`. See docs/delivery-policy.md.
    *
    * `immediate` does not mean one request per entry: entries produced together
@@ -102,7 +136,12 @@ export interface Instance {
   event(name: string, attributes?: Attrs): void;
   /** A conventional `exception` entry at ERROR. Takes anything a catch caught. */
   error(err: unknown, attributes?: Attrs): void;
-  identify(userId?: string | null): void;
+  /** Sets `user.id` from here on. Naming a different one starts a session. */
+  user(userId?: string | null): void;
+  /** Sets `device.id`. For a shell that knows the machine. Never inferred. */
+  device(deviceId?: string | null): void;
+  /** Replaces `session.id`. There is no separate new-session call. */
+  session(sessionId: string): void;
   consent(granted: boolean): void;
   page(): void;
   /** Fire a page view if the path moved. What a framework router calls. */
@@ -141,11 +180,22 @@ function uuid(): string {
   return s;
 }
 
+/**
+ * Which of the two stores the three keys live in. Resolved once, by `start()`.
+ *
+ * `sessionStorage` is the ephemeral half: same API, same keys, scoped to the
+ * tab and dropped when it closes. Null until `start()` runs and null forever if
+ * reading the property threw, which a sandboxed iframe does on the property
+ * itself rather than on the call; the three wrappers below already answer for
+ * a store that will not work, so that case needs no second branch.
+ */
+let store: Storage | null = null;
+
 // Every storage access is wrapped: Safari in private mode throws on write, and
 // a throwing analytics tag takes the page's other scripts down with it.
 function get(key: string): string | null {
   try {
-    return localStorage.getItem(key);
+    return store!.getItem(key);
   } catch {
     return null;
   }
@@ -153,7 +203,7 @@ function get(key: string): string | null {
 
 function set(key: string, value: string): void {
   try {
-    localStorage.setItem(key, value);
+    store!.setItem(key, value);
   } catch {
     /* private mode, quota, blocked. Not ours to solve. */
   }
@@ -161,7 +211,7 @@ function set(key: string, value: string): void {
 
 function del(key: string): void {
   try {
-    localStorage.removeItem(key);
+    store!.removeItem(key);
   } catch {
     /* as above */
   }
@@ -213,6 +263,47 @@ function pageInfo(): PageInfo {
   };
 }
 
+/**
+ * A device id derived from the browser, for the customers who switch it on.
+ *
+ * Signals only, and cheap ones: screen geometry, timezone, language, platform
+ * and the two hardware counters. No canvas and no WebGL, which are the two
+ * things that would make it meaningfully more stable. They cost hundreds of
+ * bytes against a 4KB budget, they take milliseconds on a main thread that
+ * belongs to somebody else, and every serious privacy tool randomises them
+ * anyway, so the extra precision is mostly imaginary.
+ *
+ * What comes out collides between two identical machines and changes when the
+ * OS updates or the window moves to a second monitor. It is a trend line, not
+ * a headcount, and the docs say so in those words.
+ *
+ * FNV-1a twice, from two offsets, for 64 bits of output. One 32-bit hash starts
+ * colliding by chance in the tens of thousands, which is a real number of
+ * visitors rather than a theoretical one.
+ */
+function fingerprint(): string | undefined {
+  try {
+    const n = navigator as Navigator & { deviceMemory?: number };
+    const raw = [
+      screen.width,
+      screen.height,
+      screen.colorDepth,
+      devicePixelRatio,
+      new Intl.DateTimeFormat().resolvedOptions().timeZone,
+      n.language,
+      n.hardwareConcurrency,
+      n.deviceMemory,
+    ].join("|");
+    let h = 2166136261;
+    for (let i = 0; i < raw.length; i++) h = Math.imul(h ^ raw.charCodeAt(i), 16777619);
+    return "fp_" + (h >>> 0).toString(36);
+  } catch {
+    // A sandboxed iframe, a hardened browser, an exotic embedding. Undefined is
+    // a legal answer: `device.id` is optional and simply will not be sent.
+    return undefined;
+  }
+}
+
 interface Queued {
   q?: IArguments[];
 }
@@ -227,8 +318,17 @@ export function start(opts: StartOptions): Instance {
   const autoVitals = on(opts.autoVitals);
   const autoForms = on(opts.autoForms);
   const trackLeave = on(opts.trackLeave);
-  // Opt in, not opt out. The only one of these that works that way.
+  // Opt in, not opt out. The only two of these that work that way.
   const autoErrors = opts.autoErrors === true;
+  const ephemeral = opts.ephemeral === true;
+  // Resolved before anything reads a key, which is the only ordering
+  // requirement: `createTag` below is the first read, and `start()` the only
+  // writer. Wrapped because a sandboxed iframe throws on the property itself.
+  try {
+    store = ephemeral ? sessionStorage : localStorage;
+  } catch {
+    /* no store. `get` returns null and `set` is a no-op, which is survivable */
+  }
   const flushEvery = opts.flushEvery === undefined ? 30_000 : opts.flushEvery;
 
   // Flipped by stop(). Checked in one place, `safe()`, so that a listener the
@@ -267,6 +367,7 @@ export function start(opts: StartOptions): Instance {
     send,
     pageInfo,
     schedule: (fn, ms) => setTimeout(safe(fn), ms),
+    fingerprint,
   };
 
   const tag: Tag = createTag(env, {
@@ -275,6 +376,8 @@ export function start(opts: StartOptions): Instance {
     mode: opts.mode,
     flushOnSeverity: opts.flushOnSeverity,
     testMode: opts.testMode,
+    ephemeral,
+    fingerprint: opts.fingerprint === true,
   });
 
   // --- The page clock -----------------------------------------------------
@@ -397,6 +500,43 @@ export function start(opts: StartOptions): Instance {
     if (tag.navigated(elapsed(), depth)) resetPage();
   });
 
+  /**
+   * A marked element fired. One entry, named by the markup that named it.
+   *
+   * Every OTHER `data-fr-*` attribute on the same element becomes an attribute
+   * of the entry, with the prefix stripped: `data-fr-plan="pro"` is
+   * `{ plan: "pro" }`. That is the difference between knowing the upgrade
+   * button was pressed and knowing which plan it was pressed for, and it is the
+   * whole reason this exists: a marketing site gets the real product without
+   * writing any JavaScript at all.
+   *
+   * A value that reads as a number is sent as one, so averaging it is an
+   * aggregate rather than a cast at query time. Everything else travels as the
+   * string it was written as, because HTML has no other types and guessing at
+   * booleans would make `data-fr-plan="false"` a boolean.
+   *
+   * HTML lower-cases attribute names, so `data-fr-planName` arrives as
+   * `plan-name` and there is nothing this file can do about that. The
+   * documentation says to write them in kebab-case for that reason.
+   */
+  function fire(el: Element): void {
+    const name = (el.getAttribute("data-fr-event") || "").trim();
+    if (!name) return;
+    let a: Attrs | undefined;
+    const list = el.attributes;
+    for (let i = 0; i < list.length; i++) {
+      const k = list[i]!.name;
+      // `data-fr-event` is the name and `data-fr-on` is the trigger. Neither is
+      // a thing that happened, so neither travels as an attribute.
+      if (k.indexOf("data-fr-") === 0 && k !== "data-fr-event" && k !== "data-fr-on") {
+        const v = list[i]!.value;
+        const n = +v;
+        (a || (a = {}))[k.slice(8)] = v !== "" && v === "" + n ? n : v;
+      }
+    }
+    tag.event(name, a);
+  }
+
   const onClick = safe((ev: Event) => {
     const t = ev.target as Element | null;
     if (!t || !t.closest) return;
@@ -406,10 +546,10 @@ export function start(opts: StartOptions): Instance {
     // this file had never loaded, which is the whole point -- a download button
     // is a plain link that happens to be counted.
     const marked = t.closest("[data-fr-event]");
-    if (marked) {
-      const name = (marked.getAttribute("data-fr-event") || "").trim();
-      if (name) tag.event(name);
-    }
+    // `data-fr-on="submit"` moves the trigger to the form's own submit event.
+    // Without this a marked submit button would be counted twice on a click and
+    // not at all when the form was sent with Enter.
+    if (marked && marked.getAttribute("data-fr-on") !== "submit") fire(marked);
 
     if (!autoOutbound) return;
     const a = t.closest("a") as HTMLAnchorElement | null;
@@ -420,7 +560,14 @@ export function start(opts: StartOptions): Instance {
 
   const onSubmit = safe((ev: Event) => {
     const f = ev.target as HTMLFormElement | null;
-    if (f) tag.formSubmit(f.id || undefined, f.getAttribute("name") || undefined);
+    if (!f) return;
+    // Fired whatever `autoForms` says, for the same reason the click listener is
+    // always attached: `data-fr-on` is an explicit opt-in written into the
+    // markup, not part of the automatic form measurement. Only the automatic
+    // entry is gated, so somebody who turned form tracking off to avoid counting
+    // every search box can still count the one form they care about.
+    if (f.getAttribute("data-fr-on") === "submit") fire(f);
+    if (autoForms) tag.formSubmit(f.id || undefined, f.getAttribute("name") || undefined);
   });
 
   const onScroll = safe(measure);
@@ -514,7 +661,8 @@ export function start(opts: StartOptions): Instance {
   // in the tree when we look at it. Always attached, because `data-fr-event` is
   // an explicit opt-in and not part of the automatic outbound measurement.
   document.addEventListener("click", onClick, true);
-  if (autoForms) document.addEventListener("submit", onSubmit, true);
+  // Always attached too, and for the same reason: it carries `data-fr-on`.
+  document.addEventListener("submit", onSubmit, true);
   if (autoPage) {
     h.pushState = patchedPush;
     h.replaceState = patchedReplace;
@@ -559,7 +707,9 @@ export function start(opts: StartOptions): Instance {
     log: safe((entry: Entry) => tag.log(entry)),
     event: safe((name: string, attributes?: Attrs) => tag.event(name, attributes)),
     error: safe((err: unknown, attributes?: Attrs) => tag.error(err, attributes)),
-    identify: safe((id?: string | null) => tag.identify(id)),
+    user: safe((id?: string | null) => tag.user(id)),
+    device: safe((id?: string | null) => tag.device(id)),
+    session: safe((id: string) => tag.session(id)),
     consent: safe((granted: boolean) => tag.setConsent(granted)),
     page: safe(() => {
       tag.page();

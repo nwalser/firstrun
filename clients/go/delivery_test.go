@@ -77,9 +77,9 @@ func waitFor(t *testing.T, why string, cond func() bool) {
 
 func testOptions(host string) Options {
 	return Options{
-		SourceKey:  "fr_server_0123456789abcdef",
+		SourceKey:  "fr_0123456789abcdef",
 		Host:       host,
-		DistinctID: "install_1",
+		DeviceID: "install_1",
 	}
 }
 

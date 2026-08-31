@@ -32,7 +32,6 @@ export const explore: ExploreMessages = {
   "explore.column_time": "Zeit",
   "explore.column_name": "Name",
   "explore.column_severity": "Severity",
-  "explore.column_distinct_id": "Client-ID",
   "explore.column_event_id": "Event-ID",
   "explore.column_ingested_at": "Empfangen am",
 

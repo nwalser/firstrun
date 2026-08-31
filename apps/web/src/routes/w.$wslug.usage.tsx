@@ -5,7 +5,7 @@ import Gauge from "lucide-solid/icons/gauge";
 import ListFilter from "lucide-solid/icons/list-filter";
 import X from "lucide-solid/icons/x";
 import { For, Show, createMemo, type JSX } from "solid-js";
-import { PageHeader } from "../components/page-header.js";
+import { PageHeader, SteadyLabel } from "../components/page-header.js";
 import { PlanMeter } from "../components/plan-meter.js";
 import {
   Badge,
@@ -23,6 +23,11 @@ import {
   EmptyDescription,
   EmptyMedia,
   EmptyTitle,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "../components/ui/index.js";
 import { cn } from "../lib/cn.js";
 import { getSession, getWorkspaceUsage, type UsageSlice } from "../lib/api.js";
@@ -32,13 +37,21 @@ import { Route as WorkspaceRoute } from "./w.$wslug.js";
 /**
  * Usage: how much this workspace has taken in, and where it came from.
  *
- * Shaped after the reference's account-level usage page
- * (`docs/vercel-structure.md` section 20): an `h1`, a row of dropdown filters
- * under it, one summary card, then a "Consumption breakdown" card holding a
- * stacked daily chart with the table of the same series underneath it. The
- * reference groups by product and can group by project; ours groups by project,
- * by source or by severity, because those are the three dimensions this data
- * model actually has.
+ * Shaped after the reference's account-level usage page: an `h1`, a row of
+ * dropdown filters under it, one summary card, then a "Consumption breakdown"
+ * card holding a stacked daily chart with the table of the same series
+ * underneath it. The reference groups by product and can group by project; ours
+ * groups by project, by source or by severity, because those are the three
+ * dimensions this data model actually has.
+ *
+ * The usage page itself is NOT one of the measured sections in
+ * `docs/vercel-structure.md` (this comment used to cite a section 20 of it,
+ * which does not exist). What IS measured, and what this page is held to, is
+ * section 5 for the heading block and the page grid, section 8.1 for the
+ * table-style list, and section 9 for the type steps and the hairlines. Where
+ * this page needed something none of those cover -- the stacked chart -- it is
+ * ours, and it is marked as ours rather than attributed to a measurement
+ * nobody took.
  *
  * The reference's included-credit meter is the card at the top, and it is
  * conditional: it appears only where there IS an allowance, which means on the
@@ -211,8 +224,16 @@ function Usage() {
   const projectName = () =>
     projects().find((p) => p.slug === search().project)?.name ?? search().project ?? "";
 
+  /*
+    `pb-4`, not `py-4`. The heading block already carries the reference's own
+    16px above the `h1` (that is what its `pt-4` is), so a second 16 here stacked
+    to 32 and put this page half a step lower than the workspace overview, which
+    does exactly this. The reference spells the same thing as `-mt-4` on the
+    heading; cancelling it at the source is the same geometry with nothing left
+    to cancel.
+  */
   return (
-    <main class="w-full py-4">
+    <main class="w-full pb-4">
       <PageHeader
         title={i18n.t("usage.title")}
         description={i18n.t("usage.hint")}
@@ -258,10 +279,16 @@ function Usage() {
             </DropdownMenu>
 
             {/* The window is always a chip: these numbers mean nothing without
-                it, and "over what period" is the first question. */}
+                it, and "over what period" is the first question.
+
+                Its value is held at the width of the longest window on offer,
+                so changing the window does not shove the chips after it along
+                the row. See `SteadyLabel`. */}
             <Badge variant="secondary" class="h-8 rounded-md px-2.5 text-body font-normal">
               <span class="text-muted-foreground">{i18n.t("usage.window_label")}:</span>
-              {windowLabel(search().days)}
+              <SteadyLabel options={WINDOWS.map(windowLabel)}>
+                {windowLabel(search().days)}
+              </SteadyLabel>
             </Badge>
 
             <Show when={search().project}>
@@ -285,7 +312,12 @@ function Usage() {
                 are, not what is counted. */}
             <DropdownMenu>
               <DropdownMenuTrigger as={Button} variant="outline" size="sm" class="rounded-md">
-                {i18n.t(GROUP_KEYS[search().group])}
+                {/* Held at the width of the longest dimension name, so picking
+                    a different one does not resize the control under the
+                    pointer that just picked it. */}
+                <SteadyLabel options={GROUPS.map((g) => i18n.t(GROUP_KEYS[g]))}>
+                  {i18n.t(GROUP_KEYS[search().group])}
+                </SteadyLabel>
                 <ChevronsUpDown class="size-3.5 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent>
@@ -400,16 +432,29 @@ function Usage() {
             >
               <StackedDays days={view().days} bands={bands()} total={total()} />
 
-              <table class="w-full text-body">
-                <thead>
-                  <tr class="border-b text-caption text-muted-foreground">
-                    <th class="py-2 text-left font-normal">{i18n.t("usage.col_name")}</th>
-                    <th class="py-2 text-right font-normal">{i18n.t("usage.col_events")}</th>
-                    <th class="py-2 text-right font-normal">{i18n.t("usage.col_share")}</th>
-                    <th class="py-2 text-right font-normal">{i18n.t("usage.col_change")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              {/*
+                The reference's table-style list, drawn by the primitives that
+                already carry its measurements: a 48px row pitch, 12px of
+                horizontal cell padding, a quiet filled header band, one hairline
+                per row, a hover, and numeric columns in the mono face so a
+                column of figures lines up instead of going ragged. Hand-rolled
+                `th`/`td` classes had none of that, and a page that reimplements
+                a component it already owns will drift from it.
+
+                A bare `table` rather than `<Table>`: that wrapper adds the card
+                ring and the radius, which is exactly what the `Card` around this
+                is already providing. A ring inside a ring is two boxes.
+              */}
+              <table class="w-full caption-bottom text-body">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{i18n.t("usage.col_name")}</TableHead>
+                    <TableHead numeric>{i18n.t("usage.col_events")}</TableHead>
+                    <TableHead numeric>{i18n.t("usage.col_share")}</TableHead>
+                    <TableHead numeric>{i18n.t("usage.col_change")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   <For each={rows()}>
                     {(row, i) => (
                       <Row
@@ -420,7 +465,7 @@ function Usage() {
                       />
                     )}
                   </For>
-                </tbody>
+                </TableBody>
               </table>
             </Show>
           </CardContent>
@@ -573,8 +618,8 @@ function Row(props: { row: UsageSlice; total: number; tone: string; workspace: s
   const delta = () => i18n.delta(change(props.row.entries, props.row.previous));
 
   return (
-    <tr class="border-b last:border-b-0">
-      <td class="py-2">
+    <TableRow>
+      <TableCell>
         <span class="flex min-w-0 items-center gap-2">
           <span class={cn("size-2 shrink-0 rounded-full", props.tone)} aria-hidden="true" />
           <Show
@@ -597,10 +642,12 @@ function Row(props: { row: UsageSlice; total: number; tone: string; workspace: s
             )}
           </Show>
         </span>
-      </td>
-      <td class="py-2 text-right tabular-nums">{i18n.num(props.row.entries)}</td>
-      <td class="py-2 text-right tabular-nums text-muted-foreground">{share() ?? "-"}</td>
-      <td class="py-2 text-right tabular-nums">
+      </TableCell>
+      <TableCell numeric>{i18n.num(props.row.entries)}</TableCell>
+      <TableCell numeric class="text-muted-foreground">
+        {share() ?? "-"}
+      </TableCell>
+      <TableCell numeric>
         <Show when={delta()} fallback={<span class="text-muted-foreground">-</span>}>
           {(d) => (
             <span
@@ -616,7 +663,7 @@ function Row(props: { row: UsageSlice; total: number; tone: string; workspace: s
             </span>
           )}
         </Show>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }

@@ -47,6 +47,9 @@ export const dashboard = {
   "dashboard.showing": "Showing",
   "dashboard.baseline_nothing": "Nothing",
 
+  // Clicking a value on a card.
+  "dashboard.filter_by": "Filter the board by {value}",
+
   // The toolbar above the board.
   "dashboard.filter_none": "Filter",
   "dashboard.test_mode": "Test data",

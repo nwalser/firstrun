@@ -1,4 +1,4 @@
-import { Show, onCleanup, onMount, type JSX } from "solid-js";
+import { For, Show, onCleanup, onMount, type JSX } from "solid-js";
 import { Badge } from "./ui/index.js";
 
 /**
@@ -32,6 +32,42 @@ import { Badge } from "./ui/index.js";
  * lights up for a target that is 32px wide.
  */
 export const ROW_INTERACTION = "outline-none transition-colors hover:bg-accent focus-ring";
+
+/**
+ * A label that is always as wide as the widest label it could hold.
+ *
+ * For a control whose text IS its value: the window chip, the group-by
+ * dropdown, anything whose caption changes when you use it. Without this, every
+ * such control resizes as you operate it and shoves whatever sits after it
+ * along the row, so the toolbar twitches under the pointer and the thing you
+ * were about to click has moved. A filter chip APPEARING is a real change in
+ * the toolbar and should move things; the same chip merely saying something
+ * else is not.
+ *
+ * Every option is rendered into the same grid cell, all but one of them
+ * `invisible` -- hidden, but still taking part in layout, which `hidden` would
+ * not. The cell is therefore as wide as the longest option and the visible
+ * label sits on top of the others.
+ *
+ * Measured rather than declared, which is the point: this app runs in German as
+ * well as English, and German is reliably the longer of the two. Any
+ * hand-written `min-w-*` would be right in one language and wrong in the other,
+ * and would be wrong again in the next language somebody adds.
+ */
+export function SteadyLabel(props: { options: readonly string[]; children: JSX.Element }) {
+  return (
+    <span class="grid">
+      <For each={props.options}>
+        {(option) => (
+          <span class="invisible col-start-1 row-start-1 whitespace-nowrap" aria-hidden="true">
+            {option}
+          </span>
+        )}
+      </For>
+      <span class="col-start-1 row-start-1 whitespace-nowrap">{props.children}</span>
+    </span>
+  );
+}
 
 /**
  * Tell the chrome whether this page's own heading is on screen.
@@ -115,7 +151,30 @@ export function PageHeader(props: {
         <p class="max-w-2xl text-body text-muted-foreground empty:hidden">{props.description}</p>
       </div>
 
-      <div class="flex h-8 flex-wrap items-center gap-2 empty:hidden">{props.filters}</div>
+      {/*
+        A scroller, not a wrapper.
+
+        The reference's filter row is a fixed 32px band, and `flex-wrap` inside a
+        fixed height is a contradiction: the second line has nowhere to go, so at
+        a narrow pane the last chip rendered 40px down, outside its own container
+        and on top of the first card. It only showed up below about 400px, which
+        is why it survived this long.
+
+        Chips do not shrink either. A chip squeezed to half its text is not a
+        smaller chip, it is an unreadable one, so the row scrolls sideways and
+        every chip keeps the width its own words need.
+      */}
+      <div
+        class={[
+          "flex h-8 items-center gap-2 overflow-x-auto overflow-y-hidden empty:hidden",
+          "[&>*]:shrink-0",
+          // The row is 32px tall. A scrollbar inside it would eat a third of the
+          // chips, and the row is swipeable on the devices that lack one.
+          "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        ].join(" ")}
+      >
+        {props.filters}
+      </div>
     </div>
   );
 }

@@ -220,6 +220,12 @@ ATTR_URL_FULL = "url.full"
 ATTR_HTTP_REQUEST_METHOD = "http.request.method"
 ATTR_HTTP_RESPONSE_STATUS_CODE = "http.response.status_code"
 ATTR_HTTP_ROUTE = "http.route"
+# The caller hung up: a dropped connection, not a fault. Only ever the JSON
+# boolean true and only ever present when true, for the same reason
+# ``firstrun.test`` is: the dashboard matches it by containment, where the
+# string "true" is a different value from true and would match neither world.
+# The same key the .NET middleware writes, so one board reads both.
+ATTR_CLIENT_ABORTED = "firstrun.client_aborted"
 ATTR_CHANNEL = "firstrun.channel"
 # Test data. Only ever the JSON boolean true, and only ever present when true:
 # the dashboard matches it with jsonb containment, where "true" is a different

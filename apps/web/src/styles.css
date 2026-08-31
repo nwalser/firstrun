@@ -714,6 +714,27 @@
   --container-lg-page: 64rem; /* 1024px three columns, and the wide rail */
   --container-xl-page: 80rem; /* 1280px the pane the reference was measured at */
 
+  /* --- the drawer's widths -----------------------------------------------
+     A side drawer is a pane of its own, so it gets its own four steps rather
+     than borrowing the page's: a panel is never as wide as the window it opens
+     over, and a form that sizes itself against the VIEWPORT ends up drawing a
+     three-column row inside 384 pixels because the window happened to be wide.
+
+     Every step is both a width (`max-w-md-panel` on the panel) and a
+     breakpoint (`@md-panel/panel:`, `@md-panel/builder:` inside it), which is
+     what keeps the two in step: the number a drawer is opened at and the
+     number its contents reflow against are the same number.
+
+     A panel's CONTENT is one step narrower than the panel, because the drawer
+     pads by 24 on each side. So a builder in the 36rem drawer answers
+     `@md-panel` and a builder in the 42rem drawer answers `@lg-panel`. That is
+     the intended reading rather than an off-by-one: the steps are close enough
+     together that dropping a step is exactly what losing the gutters costs. */
+  --container-sm-panel: 24rem; /* 384px  a list of rows, and nothing else */
+  --container-md-panel: 30rem; /* 480px  labelled fields, one per line */
+  --container-lg-panel: 36rem; /* 576px  a field over its operator and value */
+  --container-xl-panel: 42rem; /* 672px  field, operator and value in one row */
+
   /* 4px base, `--geist-space`, which the 4/8/12/16/24/32/40 rhythm walks. */
   --spacing: 0.25rem;
 }
@@ -1053,5 +1074,576 @@
   .hljs-selector-id,
   .hljs-template-variable {
     color: var(--code-name);
+  }
+}
+
+/* ===========================================================================
+   The sign-in page's preview: a running instance of the product.
+
+   Real CSS rather than utility classes, for the same reason the sidebar widths
+   and `.ring-hairline` are: an arbitrary or non-standard Tailwind variant has
+   silently emitted nothing in this repo before, and here the failure mode is
+   the whole board going still with no error anywhere. Keyframes, per-index
+   delays and nth-child geometry have no variant to compile and nothing to
+   resolve, so there is nothing left to go wrong in.
+
+   ## The two invariants this file enforces
+
+   1. NOTHING ANIMATES WHILE `data-fr-motion` IS `off`. Every keyframe and every
+      transition below is written under that negation. The component renders
+      `off` on the server and flips it in `onMount`, never during render, so the
+      server's HTML and the client's first render are byte-identical and there
+      is no window in which a reader who stored "off" sees a frame of movement.
+
+      Stated as a negation rather than as `= "on"` so that the third state,
+      `paused`, still DECLARES its animations and can therefore have them
+      frozen by `animation-play-state` below. Written the other way the
+      animations simply did not exist while a tab was hidden, so there was
+      nothing for the pause rule to act on and everything restarted from frame
+      zero when the reader came back.
+
+   2. NO ELEMENT PRESENT AT FRAME ZERO CARRIES AN ENTRANCE ANIMATION. Entrances
+      are keyed off `fr-row-fresh` and `fr-key-fresh`, which `advance()` sets
+      and `buildFrameZero()` never does. Without that, twenty-two rows and nine
+      chips would all animate at once the instant motion turns on, on the one
+      page every signed-out visitor loads cold.
+
+   Everything moved here is `transform`, `opacity`, `color` or `box-shadow`.
+   Nothing reads geometry and nothing animates a property that triggers layout.
+   Custom properties are written inline and the TRANSFORM is transitioned, never
+   the property: no `@property` registration anywhere, because an unregistered
+   property that fails to interpolate would turn every counter and every bar
+   into a jump cut, and the boring form works in every engine.
+   =========================================================================== */
+
+[data-slot="login-preview"] {
+  /* Precomputed once here so no keyframe ever has to interpolate an unresolved
+     colour function. A `color-mix` evaluated inside a keyframe is the kind of
+     thing that quietly paints nothing. */
+  --fr-flash-info: color-mix(in oklab, var(--chart-1) 14%, transparent);
+  --fr-flash-warn: color-mix(in oklab, var(--warning) 18%, transparent);
+  --fr-accept-tint: color-mix(in oklab, var(--positive) 22%, transparent);
+  --fr-hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+
+/* --- structure, which is not conditional on motion ----------------------- */
+
+/*
+  One entry, as five columns. The order and the widths follow the real log
+  page, so somebody who signs in recognises the row they were just looking at.
+*/
+[data-slot="login-preview"] .fr-row {
+  display: grid;
+  grid-template-columns: 96px 56px minmax(0, 1fr) 150px 92px;
+  align-items: center;
+  height: 24px;
+  column-gap: 12px;
+  position: relative;
+  padding-left: 10px;
+}
+
+/*
+  The tail is the only region that reflows, four rows a second, and this is
+  what keeps that inside it. Without the containment every arriving row
+  relayouts the whole preview column above it.
+*/
+[data-slot="login-preview"] .fr-tail {
+  contain: layout paint;
+}
+
+[data-slot="login-preview"] .fr-ribbon-grid {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 148px 190px;
+  gap: 14px;
+}
+
+/* The four riser columns stand under the centres of the four meter tiles. */
+[data-slot="login-preview"] .fr-riser {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 100%;
+  overflow: hidden;
+  transform: translateX(-50%);
+  background-image: linear-gradient(
+    to bottom,
+    var(--fr-hairline) 0 3px,
+    transparent 3px 6px
+  );
+  background-size: 1px 6px;
+}
+[data-slot="login-preview"] .fr-riser:nth-child(1) { left: 12.5%; }
+[data-slot="login-preview"] .fr-riser:nth-child(2) { left: 37.5%; }
+[data-slot="login-preview"] .fr-riser:nth-child(3) { left: 62.5%; }
+[data-slot="login-preview"] .fr-riser:nth-child(4) { left: 87.5%; }
+
+/*
+  One digit position. 2rem is `--text-h2--line-height` and the mono face is
+  pinned to tabular figures, so `1ch` is exactly one digit's advance and the
+  window lands on exactly one glyph.
+*/
+[data-slot="login-preview"] .fr-odo {
+  display: inline-block;
+  overflow: hidden;
+  width: 1ch;
+  height: 2rem;
+  vertical-align: top;
+}
+
+[data-slot="login-preview"] .fr-odo-strip {
+  display: block;
+  transform: translateY(calc(var(--fr-d, 0) * -2rem));
+}
+
+/* The wire, as a dashed hairline that can be scrolled under the packets. */
+[data-slot="login-preview"] .fr-wire {
+  background-image: linear-gradient(
+    to right,
+    var(--fr-hairline) 0 4px,
+    transparent 4px 8px
+  );
+  background-size: 8px 1px;
+  background-repeat: repeat-x;
+}
+
+/* The open hour, drawn as incomplete rather than described as incomplete. */
+[data-slot="login-preview"] .fr-bar-open {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--chart-1) 0 2px,
+    transparent 2px 4px
+  );
+}
+
+/* A histogram bar and a sparkline cell both scale from their own base. */
+[data-slot="login-preview"] .fr-bar,
+[data-slot="login-preview"] .fr-cell {
+  transform: scaleY(var(--fr-v, 1));
+  transform-origin: bottom;
+}
+
+[data-slot="login-preview"] .fr-share {
+  transform: scaleX(var(--fr-share, 1));
+  transform-origin: left;
+}
+
+[data-slot="login-preview"] .fr-breakdown-row {
+  transform: translateY(calc(var(--fr-row, 0) * 22px));
+}
+
+/* An attribute map opens without anybody measuring a height. */
+[data-slot="login-preview"] .fr-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+}
+[data-slot="login-preview"] .fr-expand[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+[data-slot="login-preview"] .fr-expand > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+  The odometer's wrap, and the only reason this attribute exists.
+
+  A column passing a ten rolls FORWARD onto a duplicate zero and is then reset
+  with the transition suppressed for exactly one frame. Without the suppression
+  the reset spins the digit backwards through eight glyphs, which is the one
+  thing an odometer must never do.
+*/
+[data-slot="login-preview"] [data-fr-snap] {
+  transition: none !important;
+}
+
+/* --- everything below moves, and only when told to ----------------------- */
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-odo-strip {
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+  The 8ms per-index delay is what makes a window slide read as a slide: all
+  twenty-four bars retarget at once and the ripple crosses in 184ms.
+*/
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-bar {
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--fr-i, 0) * 8ms);
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-cell {
+  transition: transform 300ms ease-out;
+}
+
+/* Ease-in-out, because a swap has two ends: easing only the exit reads as one
+   row shoving another aside rather than as two rows trading places. */
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-breakdown-row {
+  transition: transform 520ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-share {
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-expand {
+  transition: grid-template-rows 200ms ease-in;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-expand[data-open="true"] {
+  transition: grid-template-rows 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-p50 {
+  transition: color 500ms ease;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-p50[data-late="true"] {
+  transition: color 300ms ease;
+}
+
+/* --- the keyframes ------------------------------------------------------- */
+
+@keyframes fr-row-in {
+  from { opacity: 0; transform: translateY(-7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fr-row-flash {
+  from { background-color: var(--fr-flash-info); }
+  to { background-color: transparent; }
+}
+
+@keyframes fr-row-flash-late {
+  from { background-color: var(--fr-flash-warn); }
+  to { background-color: transparent; }
+}
+
+/* Nobody reads the word INFO at four rows a second. Everybody sees red. */
+@keyframes fr-edge {
+  from { opacity: 1; transform: scaleY(1); }
+  to { opacity: 0; transform: scaleY(0.4); }
+}
+
+@keyframes fr-late-chip {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fr-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes fr-emit {
+  0% { box-shadow: 0 0 0 0 var(--chart-1); }
+  100% { box-shadow: 0 0 0 4px transparent; }
+}
+
+@keyframes fr-wire-drift {
+  from { background-position-x: 0; }
+  to { background-position-x: -8px; }
+}
+
+@keyframes fr-packet {
+  0% { opacity: 0; transform: translateX(0); }
+  12% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(var(--fr-travel, 100%)); }
+}
+
+/*
+  The three status lines light in sequence, and they are IDENTICAL for a FATAL
+  at 21 and a page view at 9. Free-running rather than per entry: something
+  arrives every 220 to 500ms, so the panel is genuinely always busy, and this
+  costs three animations rather than three per entry.
+*/
+@keyframes fr-edge-line {
+  0% { opacity: 0.5; }
+  8% { opacity: 1; }
+  40% { opacity: 1; }
+  72% { opacity: 0.5; }
+  100% { opacity: 0.5; }
+}
+
+@keyframes fr-accept {
+  0% { background-color: var(--fr-accept-tint); }
+  100% { background-color: transparent; }
+}
+
+@keyframes fr-accept-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(220%); }
+}
+
+@keyframes fr-shelf-hit {
+  0% { box-shadow: 0 0 0 0 var(--fr-hit, var(--chart-1)); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+@keyframes fr-count-flash {
+  0% { color: var(--foreground); }
+  100% { color: var(--muted-foreground); }
+}
+
+/* The sentence the brief asked for, drawn: ingested, THEN the board moved. */
+@keyframes fr-riser-spark {
+  0% { opacity: 0; transform: translateY(100%); }
+  15% { opacity: 1; }
+  70% { opacity: 0.4; }
+  100% { opacity: 0; transform: translateY(-120%); }
+}
+
+@keyframes fr-flash {
+  from { opacity: 0.85; }
+  to { opacity: 0; }
+}
+
+@keyframes fr-digit-in {
+  from { opacity: 0; transform: translateY(0.35em); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fr-chip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fr-breathe {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* Box-shadow spread, so a late entry's ring touches no layout. */
+@keyframes fr-bucket-late {
+  0% { box-shadow: 0 0 0 0 transparent; }
+  18% { box-shadow: 0 0 0 1px var(--warning); }
+  100% { box-shadow: 0 0 0 1px transparent; }
+}
+
+@keyframes fr-late-plus {
+  0% { opacity: 0; transform: translateY(0); }
+  20% { opacity: 1; }
+  78% { opacity: 0; transform: translateY(-10px); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+@keyframes fr-note-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fr-row-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) translateY(calc(var(--fr-row, 0) * 22px));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(calc(var(--fr-row, 0) * 22px));
+  }
+}
+
+@keyframes fr-key-in {
+  from { opacity: 0; transform: scale(0.86); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fr-key-glow {
+  0% { box-shadow: 0 0 0 1px var(--chart-1); }
+  100% { box-shadow: 0 0 0 1px transparent; }
+}
+
+/*
+  The band that crosses the whole board when the window slides.
+
+  This is what makes eight simultaneous changes read as one re-run of the
+  board's queries rather than as unrelated fidgeting. One measurement call
+  serves every card on a board, and this is that call made visible.
+*/
+@keyframes fr-sweep {
+  from { transform: translateX(-4%); }
+  to { transform: translateX(104%); }
+}
+
+/* --- what runs the keyframes --------------------------------------------- */
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-row-fresh {
+  animation:
+    fr-row-in 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    fr-row-flash 700ms ease-out;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-row-fresh[data-late="true"] {
+  animation:
+    fr-row-in 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    fr-row-flash-late 700ms ease-out;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-row-fresh .fr-edge {
+  animation: fr-edge 900ms ease-out forwards;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-row-fresh .fr-late-chip {
+  animation: fr-late-chip 220ms ease-out 120ms both;
+}
+
+/* Deliberately not 1000ms, so it never phases with the 1100ms throughput tick. */
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-caret {
+  animation: fr-caret 1060ms steps(1, end) infinite;
+}
+
+/*
+  The A/B pair, and why it is a pair.
+
+  These elements SURVIVE across fires, and a same-name animation re-added inside
+  its own duration does not restart. Two hits landing within 600ms happens
+  routinely at four entries a second, so the class alternates on the parity of
+  the firing beat and each name is free to run again. Everything that can be
+  destroyed and recreated instead uses a keyed `Show`, which is simpler. These
+  three cannot be.
+*/
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-emitter.fr-fired-a,
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-emitter.fr-fired-b {
+  animation: fr-emit 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-shelf.fr-fired-a,
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-shelf.fr-fired-b {
+  animation: fr-shelf-hit 440ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-count.fr-fired-a,
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-count.fr-fired-b {
+  animation: fr-count-flash 560ms ease-out;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-wire {
+  animation: fr-wire-drift 1400ms linear infinite;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-wire-1 { animation-delay: -350ms; }
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-wire-2 { animation-delay: -700ms; }
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-packet {
+  animation: fr-packet 520ms linear both;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-edge-line {
+  animation: fr-edge-line 1000ms linear infinite;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-edge-line-1 { animation-delay: 90ms; }
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-edge-line-2 { animation-delay: 180ms; }
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-accept {
+  animation: fr-accept 620ms ease-out;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-accept-sweep {
+  animation: fr-accept-sweep 620ms ease-out;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-riser-spark {
+  animation: fr-riser-spark 620ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-flash {
+  animation: fr-flash 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-flash-short {
+  animation: fr-flash 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-odo-new {
+  animation: fr-digit-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-delta-chip {
+  animation: fr-chip-in 200ms ease;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-bar-open {
+  animation: fr-breathe 2400ms ease-in-out infinite alternate;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-bucket-late {
+  animation: fr-bucket-late 900ms ease-out forwards;
+}
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-late-plus {
+  animation: fr-late-plus 900ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-note {
+  animation: fr-note-in 220ms ease-out;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-breakdown-row-in {
+  animation: fr-row-slide-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-key-fresh {
+  animation:
+    fr-key-in 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    fr-key-glow 1100ms ease-out;
+}
+
+[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-sweep {
+  animation: fr-sweep 900ms linear forwards;
+  will-change: transform;
+}
+
+/* --- suppression --------------------------------------------------------- */
+
+/*
+  A hidden tab stops the compositor too, rather than relying on the browser to
+  throttle a timer it may well keep running. The clock is cleared separately.
+*/
+[data-slot="login-preview"][data-fr-motion="paused"] * {
+  animation-play-state: paused !important;
+}
+
+/*
+  Off means STILL, not slower, and reduced motion means the same thing through
+  the same code path.
+
+  The `!important` is why this selector is scoped as tightly as it is: it has to
+  beat per-element animation shorthands, and it must not reach the pause button,
+  which lives outside this subtree and keeps its own hover and focus transitions
+  in every state.
+*/
+[data-slot="login-preview"][data-fr-motion="off"] *,
+[data-slot="login-preview"][data-fr-motion="off"] *::before,
+[data-slot="login-preview"][data-fr-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="login-preview"] *,
+  [data-slot="login-preview"] *::before,
+  [data-slot="login-preview"] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* --- responsive ---------------------------------------------------------- */
+
+/*
+  Plain viewport media queries, never container queries and never an arbitrary
+  variant. Both are load-bearing: the failure mode is a column that never
+  collapses and a row that overflows its own grid.
+*/
+@media (max-width: 1439px) {
+  [data-slot="login-preview"] .fr-row {
+    grid-template-columns: 96px 56px minmax(0, 1fr) 92px;
+  }
+  [data-slot="login-preview"] .fr-cell-did {
+    display: none;
+  }
+}
+
+/*
+  The keys strip is the first thing to go on a short window, and only then.
+
+  760px rather than 900px: everything above the tail costs 611px, so a 900px
+  laptop still has 289px of tail (twelve rows) WITH the strip, and 1440x900 is
+  the single most common size this will ever be opened at. Hiding the one
+  animation that says attributes are discovered rather than declared, on the
+  most common screen, to buy rows nobody was short of, is the wrong trade.
+*/
+@media (max-height: 760px) {
+  [data-slot="login-preview"] .fr-keys {
+    display: none;
   }
 }

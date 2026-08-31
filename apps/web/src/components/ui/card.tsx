@@ -70,9 +70,22 @@ export function CardDescription(props: ComponentProps<"p">) {
   );
 }
 
+/**
+ * `first:pt-4` is not a flourish: it is the headerless card.
+ *
+ * The top padding of a card with a header comes from `CardHeader`, so this only
+ * ever carried the sides and the bottom. A card WITHOUT a header then had 16px
+ * under its content and nothing above it, and the content sat flush against the
+ * card's top edge -- visible on any summary card, and the sort of thing that
+ * reads as a broken card rather than as a missing utility.
+ *
+ * Solving it here rather than at each call site, because the call site cannot
+ * see whether it is the first child of its card without being told, and every
+ * new headerless card would have to remember. `:first-child` already knows.
+ */
 export function CardContent(props: ComponentProps<"div">) {
   const [local, rest] = splitProps(props, ["class"]);
-  return <div class={cn("px-4 pb-4", local.class)} {...rest} />;
+  return <div class={cn("px-4 pb-4 first:pt-4", local.class)} {...rest} />;
 }
 
 export function CardFooter(props: ComponentProps<"div">) {

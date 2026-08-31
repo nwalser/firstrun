@@ -12,7 +12,7 @@ namespace Firstrun
     public sealed class FirstrunOptions
     {
         /// <summary>
-        /// The public source key for this app, e.g. <c>fr_desktop_9f3a2b1c4d5e6f70</c>.
+        /// The public source key for this app, e.g. <c>fr_9f3a2b1c4d5e6f70</c>.
         /// It ships inside your binary, identifies which ingestion site is sending, and
         /// authorises nothing.
         /// </summary>
@@ -91,18 +91,58 @@ namespace Firstrun
         public int MinSeverity { get; set; }
 
         /// <summary>
-        /// The anonymous per-install id. Leave null to load or create one under the
-        /// per-user app-data directory (see <see cref="DistinctIdStore.ResolvePath"/>).
-        /// Set it explicitly on a server, where the id belongs to the request, not the box.
+        /// The machine these entries come from, in <c>device.id</c>. Optional, like the
+        /// other two identities.
         /// </summary>
-        public string? DistinctId { get; set; }
+        /// <remarks>
+        /// Leave it null on a DESKTOP app and the client loads or creates one under the
+        /// per-user app-data directory (see <see cref="DeviceIdStore.ResolvePath"/>),
+        /// because a desktop install genuinely IS a machine. Leave it null AND set
+        /// <see cref="PersistDeviceId"/> to false on a server, where there is no device to
+        /// name: entries then carry no <c>device.id</c>, which is the truthful answer
+        /// rather than a degraded one.
+        /// </remarks>
+        public string? DeviceId { get; set; }
 
         /// <summary>
-        /// Whether to keep the anonymous id on disk. Default true. Set false in a
-        /// container or on a read-only filesystem: the client then makes a fresh id per
-        /// process instead, and never touches the disk.
+        /// Whether to load or create a persisted <c>device.id</c> on disk. Default true,
+        /// which is the desktop answer.
         /// </summary>
-        public bool PersistDistinctId { get; set; } = true;
+        /// <remarks>
+        /// Set false on a server, in a container, or on a read-only filesystem. The client
+        /// then reports NO device at all rather than minting a per-process id: an id that
+        /// changes on every restart is not a device, and one that says a fleet of pods are
+        /// distinct machines is worse than saying nothing. <c>AddFirstrunServer</c> sets
+        /// this for you.
+        /// </remarks>
+        public bool PersistDeviceId { get; set; } = true;
+
+        /// <summary>
+        /// Whether this process is one session. Default true. Set false on a server,
+        /// where it is not.
+        /// </summary>
+        /// <remarks>
+        /// A session on a desktop app is one sitting: the process starts, one person uses
+        /// the software, the process exits, and every entry in between honestly belongs to
+        /// the same session. A server process serves thousands of unrelated callers for
+        /// weeks, so a session id minted at construction is not a session at all, it is a
+        /// process id wearing the name of one. Left on, it makes
+        /// <c>count(distinct session.id)</c> on a server board answer "how many times have
+        /// you restarted", and it reports a value this library invented for itself as a
+        /// property of the caller.
+        /// <para>
+        /// With this false the client holds no session id and <c>session.id</c> is written
+        /// only when something names one: a per-call argument, or a scope pushed with
+        /// <see cref="FirstrunContext.Push"/> (which is what
+        /// <c>FirstrunMiddlewareOptions.SessionId</c> fills in on ASP.NET Core). Absent
+        /// beats invented: a key that is missing can be added by whoever knows the answer,
+        /// while one that is filled in with the wrong thing looks answered.
+        /// </para>
+        /// <para>
+        /// <c>AddFirstrunServer</c> sets this for you.
+        /// </para>
+        /// </remarks>
+        public bool SessionPerProcess { get; set; } = true;
 
         /// <summary>
         /// Emits <c>app_install</c> on the run that created the anonymous id, and

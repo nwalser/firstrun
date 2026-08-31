@@ -54,25 +54,36 @@ export interface LogEntryInput {
   attributes?: AttributesInput;
 
   /**
-   * REQUIRED unless a `distinctId` was set on the client.
-   *
-   * A server has no persistent per-user identity of its own, so there is
-   * nothing sensible to default this to. An entry without one is dropped and
-   * reported to `onDiagnostic`, which is the loud failure. The quiet failure
-   * would be defaulting to a per-process id, which silently collapses every
-   * entry in the fleet onto a handful of uniques.
-   */
-  distinctId?: string;
-
-  /**
    * The customer's own id for this person. Lands in the `user.id` attribute.
    *
    * Only ever the string you passed. Never inferred, never derived, never
-   * looked up.
+   * looked up. Optional, like the other two: an entry with no identity at all
+   * is a legal entry, and on a server it is the ordinary one.
+   *
+   * IDENTITY IS INHERITED AS A UNIT. Stating any one of `userId`, `deviceId` or
+   * `sessionId` here means this entry's identity comes from this call, and the
+   * request context and the client defaults are not consulted for the other two.
+   * Anything else lets a background job recorded inside a request keep the
+   * requester's `user.id` while naming its own device, and the unique count
+   * then quietly attributes that job to a customer.
+   *
+   * `null` is a statement ("nobody") and not silence, so it counts as stating
+   * one. Leaving all three out is silence, and silence inherits.
    */
   userId?: string | null;
 
-  /** Lands in the `session.id` attribute. */
+  /**
+   * The machine this entry is about, when there is one and you know it. Lands
+   * in `device.id`.
+   *
+   * A server does not have one and this client never invents one: a process is
+   * not a machine and a request is not a visitor. Set it where you genuinely
+   * have a machine to name, such as a worker pinned to a host, or a device id
+   * your own protocol already carries.
+   */
+  deviceId?: string | null;
+
+  /** Lands in the `session.id` attribute. `null` clears it, the same as `userId`. */
   sessionId?: string | null;
 
   /** When it happened. Defaults to now. Authoritative: the server never rebuckets. */
@@ -171,21 +182,30 @@ export type FetchLike = (
 ) => Promise<{ status: number; text?: () => Promise<string> }>;
 
 export interface FirstrunOptions {
-  /** `fr_server_...`. Public by necessity; it identifies and authorises nothing. */
+  /** `fr_9f3a2b1c4d5e6f70`. Public by necessity; it identifies and authorises nothing. */
   sourceKey: string;
   /** Origin of the firstrun edge, e.g. `https://t.example.com`. No trailing path. */
   host: string;
 
   /**
-   * A default `distinct_id` for calls that omit one.
+   * Client-level identity, for calls and requests that state none of their own.
    *
-   * Leave it unset in a multi-tenant server: passing the id per call is the
-   * whole point. Set it only where the process genuinely is the subject, such
-   * as a single-tenant worker or a CLI.
+   * NOTHING is on by default. This client generates no id of any kind: there is
+   * no per-process id, no persisted file, and no fallback. A server that sets
+   * none of these sends entries carrying no identity, which counts them as
+   * entries and in no unique, and that is the honest answer for a backend.
+   *
+   * Leave them unset in a multi-tenant server: passing identity per call, or
+   * per request through `runWithContext`, is the whole point. Set them only
+   * where the process genuinely is the subject, such as a single-tenant worker
+   * or a CLI.
+   *
+   * They are a unit here too. A call or a request that states any identity of
+   * its own replaces all three rather than merging with them.
    */
-  distinctId?: string;
-  /** A default `user_id`. Same caveat as `distinctId`. */
   userId?: string;
+  deviceId?: string;
+  sessionId?: string;
 
   /** The build of your software. Sent as the `service.version` resource attribute. */
   serviceVersion?: string;

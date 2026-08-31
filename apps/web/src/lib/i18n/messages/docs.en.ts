@@ -58,12 +58,13 @@ export const docs = {
   "docs.steps_one": "{count} step",
   "docs.steps_other": "{count} steps",
 
-  // The four sections of the contents, in the order it shows them. The literal
+  // The sections of the contents, in the order it shows them. The literal
   // in `DOCS_SECTIONS` stays the identity; these are only what it is called.
   "docs.section_getting_started": "Getting started",
   "docs.section_install_guides": "Install guides",
   "docs.section_how_it_works": "How firstrun works",
   "docs.section_reference": "Reference",
+  "docs.section_premade_events": "Premade events",
 
   /*
    * The front page.
@@ -145,6 +146,49 @@ export const docs = {
   "docs.topic_log_events_title": "Log event reference",
   "docs.topic_log_events_summary":
     "One row shape for errors, events and measurements, and the conventions we suggest.",
+  "docs.topic_premade_events_title": "All events",
+  "docs.topic_premade_events_summary":
+    "The names our clients write for you, and what every one of them carries.",
+  // The titles of the event pages are the literal value in the `name` column,
+  // so they are the same in every language, like ".NET" and "Astro" above.
+  "docs.topic_event_page_view_title": "page_view",
+  "docs.topic_event_page_view_summary":
+    "A page or screen was viewed. The tag writes one per navigation.",
+  "docs.topic_event_session_start_title": "session_start",
+  "docs.topic_event_session_start_summary":
+    "The first entry of a visit or a run. What a visits number counts.",
+  "docs.topic_event_page_leave_title": "page_leave",
+  "docs.topic_event_page_leave_summary":
+    "A page was left. Carries visible time and how far down the reader got.",
+  "docs.topic_event_outbound_click_title": "outbound_click",
+  "docs.topic_event_outbound_click_summary":
+    "A link to another site was followed. Counted, never intercepted.",
+  "docs.topic_event_file_download_title": "file_download",
+  "docs.topic_event_file_download_summary": "A link to a file was followed. A count, and not a proxy.",
+  "docs.topic_event_form_submit_title": "form_submit",
+  "docs.topic_event_form_submit_summary":
+    "A form was submitted. The identity of the form, and nothing that was in it.",
+  "docs.topic_event_web_vital_title": "web_vital",
+  "docs.topic_event_web_vital_summary":
+    "One Core Web Vital sample. Five metrics, one entry each, once per document.",
+  "docs.topic_event_app_install_title": "app_install",
+  "docs.topic_event_app_install_summary":
+    "This installation ran for the first time. One per install, ever.",
+  "docs.topic_event_app_launch_title": "app_launch",
+  "docs.topic_event_app_launch_summary": "Any launch of an installed app, including the first one.",
+  "docs.topic_event_identify_title": "identify",
+  "docs.topic_event_identify_summary":
+    "A client learned which user it belongs to. Written only when you say so.",
+  "docs.topic_event_exception_title": "exception",
+  "docs.topic_event_exception_summary":
+    "Something threw. One name for every exception, with the detail in attributes.",
+  "docs.topic_event_log_title": "log",
+  "docs.topic_event_log_summary": "A free-form line. What the level helpers name an entry.",
+  "docs.topic_event_http_request_title": "http.request",
+  "docs.topic_event_http_request_summary": "One request served. A name we suggest, written by you.",
+  "docs.topic_event_measurement_title": "measurement",
+  "docs.topic_event_measurement_summary":
+    "A plain numeric sample. The shape every number here takes.",
   "docs.topic_privacy_title": "Privacy and consent",
   "docs.topic_privacy_summary":
     "What is collected, what happens before consent, and where the data lives.",

@@ -48,7 +48,6 @@ export interface LogEntryInput {
    * the truth when the row is being written as it arrives.
    */
   observed_timestamp?: Date | number | string | null;
-  distinct_id: string;
   /** The OTel 1..24 ladder. Null is unclassified, and unclassified is allowed. */
   severity?: number | null;
   name: string;
@@ -60,7 +59,6 @@ const COLUMNS = [
   "time",
   "entry_id",
   "ingested_at",
-  "distinct_id",
   "severity",
   "name",
   "attributes",
@@ -84,7 +82,6 @@ function valuesFor(e: LogEntryInput, now: Date): unknown[] {
     e.observed_timestamp === undefined || e.observed_timestamp === null
       ? now
       : asDate(e.observed_timestamp),
-    e.distinct_id,
     e.severity ?? null,
     e.name,
     JSON.stringify(e.attributes ?? {}),
@@ -94,8 +91,8 @@ function valuesFor(e: LogEntryInput, now: Date): unknown[] {
 /**
  * How many entries go in one statement.
  *
- * Postgres caps a statement at 65535 parameters and each entry is eight, so the
- * hard ceiling is 8191. This sits well under it: a partitioned insert that spans
+ * Postgres caps a statement at 65535 parameters and each entry is seven, so the
+ * hard ceiling is 9362. This sits well under it: a partitioned insert that spans
  * several months touches several tables, and a smaller statement that succeeds
  * beats a larger one that has to be retried whole.
  */

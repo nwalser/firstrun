@@ -1,7 +1,7 @@
 import { OVERVIEW_RANGE, describeRange, overviewQuestions } from "@firstrun/schema";
 import { sparklineQuery } from "@firstrun/schema/board";
 import { queryKey, rowsAt, type LogQuery, type QueryRow } from "@firstrun/schema/query";
-import { Link, createFileRoute, notFound, redirect } from "@tanstack/solid-router";
+import { Link, createFileRoute, notFound, redirect, useRouter } from "@tanstack/solid-router";
 import ArrowRight from "lucide-solid/icons/arrow-right";
 import Calendar from "lucide-solid/icons/calendar";
 import CircleCheck from "lucide-solid/icons/circle-check";
@@ -9,8 +9,9 @@ import CircleDashed from "lucide-solid/icons/circle-dashed";
 import LayoutDashboard from "lucide-solid/icons/layout-dashboard";
 import Plug from "lucide-solid/icons/plug";
 import Plus from "lucide-solid/icons/plus";
+import RadioTower from "lucide-solid/icons/radio-tower";
 import Terminal from "lucide-solid/icons/terminal";
-import { For, Show, type JSX } from "solid-js";
+import { For, Show, createEffect, onCleanup, type JSX } from "solid-js";
 import { ROW_INTERACTION } from "../components/page-header.js";
 import {
   Badge,
@@ -112,6 +113,16 @@ const Q = overviewQuestions();
 /** How long a project can say nothing before the status card stops saying fine. */
 const QUIET_AFTER_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How often to re-ask, while the quickstart is waiting on a first entry.
+ *
+ * The same interval the event feed polls on, because it is the same promise:
+ * somebody is watching a page to see whether the thing they just installed
+ * works, and a page that only answers on reload makes them reload. It runs
+ * ONLY while a step is actually waiting, so a finished project polls nothing.
+ */
+const SETUP_POLL_MS = 8_000;
+
 function ProjectOverview() {
   const i18n = useI18n();
   const snapshot = Route.useLoaderData();
@@ -175,6 +186,13 @@ function ProjectOverview() {
         // Nothing to install until there is a key to install, and the key is on
         // the source's own page.
         ready: hasSource,
+        // A source exists and nothing has ever arrived through it. Every silent
+        // install failure lands here: a key of the wrong shape, a tag waiting
+        // on a consent call that is never made, a host that does not resolve.
+        // None of them reports anything anywhere, by design, so this row is the
+        // only place the product can say that it is listening and hearing
+        // nothing.
+        waiting: hasSource && !hasEvents,
         action: i18n.t("project.step_install_action"),
         to: "/w/$wslug/$pslug/sources",
       },
@@ -195,6 +213,27 @@ function ProjectOverview() {
     const done = steps.filter((step) => step.done).length;
     return { steps, done, remaining: steps.length - done };
   };
+
+  /**
+   * Re-ask while a step is waiting, and stop the moment none is.
+   *
+   * Invalidating the route rather than polling an endpoint of its own: the
+   * loader already answers "has anything arrived" as a side effect of answering
+   * everything else on this page, and a second request asking a narrower
+   * version of the same question is a second thing that can disagree with the
+   * first. Skipped while the tab is hidden, for the same reason the event feed
+   * skips: a background tab querying a partitioned table is work nobody is
+   * looking at.
+   */
+  const router = useRouter();
+  createEffect(() => {
+    if (!setup().steps.some((step) => step.waiting)) return;
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void router.invalidate();
+    }, SETUP_POLL_MS);
+    onCleanup(() => clearInterval(timer));
+  });
 
   return (
     // The dashboard variant of a page: a 24px-gap column of a 36px toolbar row
@@ -478,6 +517,17 @@ interface Step {
   done: boolean;
   /** Whether the action can be taken yet. A step is shown either way. */
   ready: boolean;
+  /**
+   * Everything this step needs has been done, and we are waiting on something
+   * outside this page to happen.
+   *
+   * A third state rather than a second one, because "not started" and "started,
+   * nothing arriving" are the two cases a person needs told apart and an empty
+   * circle says both. It is the difference between "I have not pasted the
+   * snippet yet" and "I pasted it and my key is wrong", and a customer who
+   * cannot tell those apart has no next move.
+   */
+  waiting?: boolean;
   action: string;
   to:
     | "/w/$wslug/$pslug/sources/new"
@@ -526,7 +576,20 @@ function Quickstart(props: { steps: Step[]; done: number; total: number }) {
           <div class="flex items-center gap-3 border-t px-4 py-3">
             <Show
               when={step.done}
-              fallback={<CircleDashed class="size-4 shrink-0 text-muted-foreground" />}
+              fallback={
+                <Show
+                  when={step.waiting}
+                  fallback={<CircleDashed class="size-4 shrink-0 text-muted-foreground" />}
+                >
+                  {/*
+                    The one animated thing on this page, and it is animating
+                    because it is reporting a live fact: we are polling, and so
+                    far there is nothing. A static icon here would be a claim
+                    about the past.
+                  */}
+                  <RadioTower class="size-4 shrink-0 animate-pulse text-foreground motion-reduce:animate-none" />
+                </Show>
+              }
             >
               <CircleCheck class="size-4 shrink-0 text-positive" />
             </Show>
@@ -541,7 +604,14 @@ function Quickstart(props: { steps: Step[]; done: number; total: number }) {
                 <step.icon class="size-3.5 shrink-0 text-muted-foreground" />
                 {step.title}
               </span>
-              <span class="text-caption text-muted-foreground">{step.body}</span>
+              <Show
+                when={step.waiting}
+                fallback={<span class="text-caption text-muted-foreground">{step.body}</span>}
+              >
+                <span class="text-caption text-foreground">
+                  {i18n.t("project.step_waiting")}
+                </span>
+              </Show>
             </div>
 
             {/*

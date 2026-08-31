@@ -6,16 +6,29 @@ For a framework install (SvelteKit, Next.js, Astro, Vue) use
 [`@firstrun/analytics`](../analytics/README.md), which mounts this same code.
 This package is the `<script>` tag.
 
+## Not published, on purpose
+
+`@firstrun/web-tag` is `private` and stays that way. Nobody installs it: a site
+loads it as `/t.js`, and a framework app gets it inlined, because
+`packages/analytics/build.ts` bundles this source into `dist/` and marks only the
+framework peers external. `@firstrun/analytics` is the one published entry point,
+which is why this package sits in its `devDependencies` rather than its
+`dependencies`. Publishing it would put a second copy of the consent rule on the
+registry and give a customer a second version to keep in step with the first.
+
 ## Install
 
 ```html
 <script async
         src="https://t.themia.app/t.js"
-        data-key="fr_web_5eed000000000001"></script>
+        data-key="fr_5eed000000000001"></script>
 ```
 
 The `data-key` is the source key from the workspace's Sources page. It is public
 by necessity and authorises nothing.
+
+`/t.js` is one file and takes no query string: every source is served the same
+bytes, so it caches for an hour in anything sitting in front of you.
 
 Serve `/t.js` from a subdomain CNAMEd at the ingest host. The tag defaults its
 API host to wherever it was served from, so first-party proxying needs no extra
@@ -66,6 +79,25 @@ fr('consent', true);   // persist a distinct id, send what was held
 fr('consent', false);  // clear the id and drop what was held
 ```
 
+### Or have nothing to ask about
+
+`data-ephemeral="true"` moves the three keys to `sessionStorage` and opens the
+gate. The id is gone when the tab closes, so there is no persistent identifier
+on the device and nothing for a banner to be about.
+
+```html
+<script async src="…/t.js" data-key="fr_…" data-ephemeral="true"></script>
+```
+
+What it costs is the returning visitor. A unique becomes one tab rather than one
+browser, so uniques across days are an overcount and comparing them week over
+week is not a comparison. Counts of entries are exactly as correct as before,
+which is why this suits a marketing site measuring signups and downloads and
+does not suit a product measuring how many people came back.
+
+It is not the tag's session. `session.id` still cuts on 30 minutes idle and on a
+new referring site, inside this id and independent of it.
+
 ## The calls
 
 ```js
@@ -113,6 +145,47 @@ like `exported_csv` or any other name you invent.
 The attribute works even with `data-auto-outbound="false"`: it is something you
 asked for by writing it, not part of the automatic measurement.
 
+### Saying which one it was
+
+Every other `data-fr-*` attribute on the same element becomes an attribute of
+the entry, with the prefix stripped:
+
+```html
+<button data-fr-event="checkout_started" data-fr-plan="pro" data-fr-seats="5">
+  Upgrade
+</button>
+```
+
+That writes `checkout_started` with `{ plan: "pro", seats: 5 }`. A value that
+reads as a number is sent as a number, so averaging it is an aggregate rather
+than a cast when you query it. Everything else travels as the string you wrote,
+because HTML has no other types and guessing at booleans would make
+`data-fr-plan="false"` a boolean.
+
+HTML lower-cases attribute names, so write them in kebab-case:
+`data-fr-plan-name` arrives as `plan-name`, and `data-fr-planName` arrives as
+`plan-name` too whether you meant it to or not.
+
+### Counting a submit instead of a click
+
+`data-fr-on="submit"` moves the trigger from the click to the form's own submit
+event, which is what you want on a form: a form sent with the Enter key never
+produced a click, and a marked submit button inside a form would otherwise be
+counted on the click and again on the submit.
+
+```html
+<form id="signup" data-fr-event="signed_up" data-fr-on="submit" data-fr-source="hero">
+  ...
+</form>
+```
+
+Like `data-fr-event`, this works with `data-auto-forms="false"`. Turning the
+automatic `form_submit` measurement off to avoid counting every search box does
+not turn off the one form you asked for by name.
+
+Neither attribute reads a field or a value, and there is no configuration that
+would make one be. What is sent is what you wrote in the markup.
+
 ## What it measures without being asked
 
 Every one of these is `severity: 9` (INFO).
@@ -146,7 +219,7 @@ to the samples you already collected.
 rejections as `exception` entries at ERROR, following the OTel convention:
 
 ```html
-<script async src="…/t.js" data-key="fr_web_…" data-auto-errors="true"></script>
+<script async src="…/t.js" data-key="fr_…" data-auto-errors="true"></script>
 ```
 
 It is the one automatic measurement that defaults to **off**, for two reasons.
@@ -176,6 +249,7 @@ only their own `fr('event', …)` calls turns all five off.
 | `data-auto-forms="false"` | `form_submit` |
 | `data-track-leave="false"` | `page_leave` |
 | `data-auto-errors="true"` | starts `exception` (off by default) |
+| `data-ephemeral="true"` | id in `sessionStorage`, no consent gate (off by default) |
 | `data-global="frx"` | renames the `fr` global |
 | `data-host="https://…"` | overrides the API host |
 | `data-mode="interval"` | changes the schedule, see below |

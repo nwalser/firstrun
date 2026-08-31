@@ -26,6 +26,10 @@ export const project = {
   "project.step_install_hint":
     "Paste the snippet into your own software. This ticks when the first event arrives.",
   "project.step_install_action": "Open sources",
+  // Replaces the step's hint once a source exists and nothing has arrived. It
+  // says what we are doing rather than what they should have done, because at
+  // this point they have done it and the next move depends on what is wrong.
+  "project.step_waiting": "Listening. Nothing has come through this source yet.",
   "project.step_board": "Make a board",
   "project.step_board_hint":
     "An arrangement of saved questions, with its own range and, if you like, one source it is " +

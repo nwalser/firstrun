@@ -198,6 +198,14 @@ async function route(request: Request): Promise<Response | null> {
     return handleEntries(request, getCtx());
   }
 
+  /*
+    The tag. One file, the same bytes for everybody, served from disk.
+
+    It takes no query string and reads nothing out of the database, which is what
+    keeps a marketing site's cold visitors off this deployment's Postgres: the
+    response is identical for every source, so it caches for an hour in every
+    browser and in whatever sits in front of us.
+  */
   if (path === "/t.js") {
     const js = await readWebTag();
     if (!js) {
@@ -206,9 +214,12 @@ async function route(request: Request): Promise<Response | null> {
         headers: { "Content-Type": "text/javascript; charset=utf-8" },
       });
     }
+
     return new Response(js, {
       headers: {
         "Content-Type": "text/javascript; charset=utf-8",
+        // An hour. The file cannot change from request to request, and the
+        // deploy that changes it is not one the customer is waiting on.
         "Cache-Control": "public, max-age=3600",
         "Access-Control-Allow-Origin": "*",
       },

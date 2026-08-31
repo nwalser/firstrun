@@ -2,12 +2,21 @@
 import { templateByKey } from "@firstrun/schema";
 import { ATTR, NAME, WEB_VITALS, type WebVital } from "@firstrun/schema/conventions";
 import { SEVERITY } from "@firstrun/schema/severity";
-import { eq, sql as raw } from "drizzle-orm";
+import { eq, inArray, sql as raw } from "drizzle-orm";
 import { createStore } from "./client.js";
 import { insertLogEntries, type AttributeValue, type LogEntryInput } from "./log-entries.js";
 import { applyMigrations } from "./migrate.js";
 import { clearProjectData } from "./repo.js";
-import { dashboards, projects, sources, users, workspaceMembers, workspaces } from "./schema.js";
+import {
+  dashboards,
+  projects,
+  sources,
+  usageDaily,
+  users,
+  workspaceMembers,
+  workspaces,
+} from "./schema.js";
+import { monthWindow, previousMonthStart } from "./usage.js";
 
 /**
  * A synthetic workspace shaped like the first real subject: a Windows desktop
@@ -226,14 +235,16 @@ type Attrs = Record<string, AttributeValue | undefined>;
 /**
  * One client: a browser, an installation, a server process.
  *
- * `distinctId` belongs to this client and to NOTHING else. A web visitor id and
- * an install id are two id spaces, never compared, here or anywhere else.
  * `base` is what this client stamps on every entry it sends, which is what the
- * real clients do rather than a shortcut the fixture takes.
+ * real clients do rather than a shortcut the fixture takes, and it is where the
+ * identity lives: `device.id`, `session.id` and `user.id` are three optional
+ * attributes and there is no id column any more.
+ *
+ * An id belongs to the client that made it and to NOTHING else. A web device id
+ * and an install id are two id spaces, never compared, here or anywhere else.
  */
 interface Client {
   source: { id: string };
-  distinctId: string;
   base: Attrs;
 }
 
@@ -275,7 +286,6 @@ function log(
     entry_id: crypto.randomUUID(),
     time: new Date(at),
     observed_timestamp: new Date(at),
-    distinct_id: c.distinctId,
     severity,
     name,
     attributes: clean({
@@ -450,10 +460,16 @@ function generateWeb(out: LogEntryInput[]): WebTotals {
       const n = visitors++;
       const utm = pick(UTM);
 
-      // The visitor id the tag generated in this browser. It means nothing
-      // outside this browser and is never compared with an install id.
-      const distinctId = `v_${n.toString(36)}_${Math.floor(rand() * 1e6).toString(36)}`;
+      // The site in this fixture has fingerprinting switched on, so the tag has
+      // a `device.id` to report. That is NOT the default: a browser has no
+      // device to find out, and a tag left alone sends `session.id` and nothing
+      // else. It is on here because a fixture with no returning visitor has no
+      // retention curve to draw, and because the option should be exercised
+      // somewhere. It means nothing outside this browser and is never compared
+      // with an install id.
+      const deviceId = `v_${n.toString(36)}_${Math.floor(rand() * 1e6).toString(36)}`;
       const base: Attrs = {
+        [ATTR.DEVICE_ID]: deviceId,
         [ATTR.BROWSER_LANGUAGE]: pick(LOCALES),
         [ATTR.OS_TYPE]: pick(OSES),
         [ATTR.URL_DOMAIN]: "themia.app",
@@ -465,7 +481,6 @@ function generateWeb(out: LogEntryInput[]): WebTotals {
       let userId: string | null = null;
       const first: Client = {
         source: WEB_SOURCE,
-        distinctId,
         base: { ...base, [ATTR.SESSION_ID]: `s_${n.toString(36)}_0` },
       };
       const endedAt = visit(first, arrival(day), utm.referrer);
@@ -494,7 +509,6 @@ function generateWeb(out: LogEntryInput[]): WebTotals {
         visit(
           {
             source: WEB_SOURCE,
-            distinctId,
             base: {
               ...base,
               [ATTR.SESSION_ID]: `s_${n.toString(36)}_${r}`,
@@ -539,10 +553,13 @@ function generateApp(out: LogEntryInput[]): AppTotals {
       const channel = weighted(CHANNELS).name;
       const os = pick(OSES);
 
-      // The install id the SDK generated on first run. It is not, and cannot
-      // be, any web visitor id: separate source, separate id space.
-      const distinctId = `i_${n.toString(36)}_${Math.floor(rand() * 1e6).toString(36)}`;
+      // The install id the SDK generated on first run and persisted to local
+      // storage. A desktop install IS a machine, which is why this client fills
+      // `device.id` in by itself and a browser does not. It is not, and cannot
+      // be, any web device id: separate source, separate id space.
+      const deviceId = `i_${n.toString(36)}_${Math.floor(rand() * 1e6).toString(36)}`;
       const base: Attrs = {
+        [ATTR.DEVICE_ID]: deviceId,
         [ATTR.SERVICE_NAME]: "themia",
         [ATTR.SERVICE_VERSION]: track.version,
         [ATTR.CHANNEL]: channel,
@@ -553,8 +570,8 @@ function generateApp(out: LogEntryInput[]): AppTotals {
       };
 
       // Signing in is what gives an install a user id, and WHEN it happens
-      // matters: `coalesce(attributes ->> 'user.id', distinct_id)` keys on the
-      // install before the sign-in and on the account after it, so an install
+      // matters: the unique coalesces `user.id` over `device.id`, so it keys on
+      // the install before the sign-in and on the account after it, so an install
       // that signs in halfway through its life is two uniques. That is a real
       // property of the counting rule rather than a fixture artefact, so most
       // of these sign in on first run (Themia asks for a licence key) and a few
@@ -566,7 +583,6 @@ function generateApp(out: LogEntryInput[]): AppTotals {
 
       const client = (extra: Attrs = {}): Client => ({
         source: APP_SOURCE,
-        distinctId,
         base: { ...base, [ATTR.USER_ID]: userId ?? undefined, ...extra },
       });
 
@@ -688,11 +704,14 @@ function generateApp(out: LogEntryInput[]): AppTotals {
 /**
  * A backend source, which is the one the old fixture had nothing of.
  *
- * `distinct_id` here is a PROCESS id, not a person: a server has no visitors,
- * and the id it persists is the identity of one running instance. Counting
- * uniques over this source counts processes, which is the correct answer to a
- * question nobody should be asking of it, and is exactly why uniques are never
- * summed across sources.
+ * A server client sets NO identity on its own: there is no visitor to find out
+ * and a process is not a person. This one names its instances anyway, by
+ * calling `device()` with the instance id, because that is the developer's
+ * decision to make and this fixture makes it. Counting uniques over this source
+ * therefore counts instances, which is the correct answer to a question nobody
+ * should be asking of it, and is exactly why uniques are never summed across
+ * sources. A backend that called none of the three would count zero uniques on
+ * every one of these entries, and that would be correct too.
  */
 interface ApiTotals {
   requests: number;
@@ -714,11 +733,10 @@ function generateApi(out: LogEntryInput[]): ApiTotals {
     const version = day < 12 ? "2026.8.3" : "2026.8.9";
 
     for (let i = 0; i < counts[day]!; i++) {
-      const distinctId = pick(instances);
       const c: Client = {
         source: API_SOURCE,
-        distinctId,
         base: {
+          [ATTR.DEVICE_ID]: pick(instances),
           [ATTR.SERVICE_NAME]: "themia-api",
           [ATTR.SERVICE_VERSION]: version,
           [ATTR.OS_TYPE]: "linux",
@@ -758,7 +776,7 @@ function generateApi(out: LogEntryInput[]): ApiTotals {
       });
 
       // A 5xx carries the exception that caused it, as its own entry. Two rows,
-      // correlated by nothing but their timestamps and their process: trace ids
+      // correlated by nothing but their timestamps and their instance: trace ids
       // are reserved in the model and no client fills them in yet.
       if (status >= 500) {
         faults++;
@@ -771,11 +789,11 @@ function generateApi(out: LogEntryInput[]): ApiTotals {
 
     // Housekeeping, once an hour per instance: the queue depth and the
     // connection pool. Metric-ish entries, on the same table as everything else.
-    for (const distinctId of instances) {
+    for (const instance of instances) {
       const c: Client = {
         source: API_SOURCE,
-        distinctId,
         base: {
+          [ATTR.DEVICE_ID]: instance,
           [ATTR.SERVICE_NAME]: "themia-api",
           [ATTR.SERVICE_VERSION]: version,
           [ATTR.OS_TYPE]: "linux",
@@ -798,6 +816,280 @@ function generateApi(out: LogEntryInput[]): ApiTotals {
   }
 
   return { requests, failures, faults };
+}
+
+// ---------------------------------------------------------------------------
+// The billing fixtures
+// ---------------------------------------------------------------------------
+
+/**
+ * Other people's workspaces, so the operator's page has something to be.
+ *
+ * The point of these is the SHAPES, not the volume: one of each state the
+ * product can be in, so that `/admin`, the plan badge, the meter and the shell
+ * banner can all be looked at without anybody having to force a row by hand.
+ *
+ * They carry no log entries at all, only the billing roll-up, because every
+ * screen that reads a plan reads `usage_daily` and none of them read the
+ * entries themselves. Generating sixty million rows to draw a number that is
+ * already in a roll-up would make the seed take an hour to tell you nothing.
+ *
+ * A plan belongs to a WORKSPACE, which is why every one of these is a workspace
+ * rather than a project inside one.
+ *
+ * The seed user administers all of them, so each state can also be looked at
+ * from the inside: the badge in the sidebar, the banner over the page and the
+ * meter on Usage all change as you switch between them.
+ */
+interface BillingFixture {
+  id: string;
+  name: string;
+  slug: string;
+  plan: "free" | "pro" | "scale";
+  status: "active" | "past_due" | "canceled";
+  /** Entries this month, and the month before it. */
+  entries: [number, number];
+  projects: number;
+  /** A hand-tuned ceiling: the lever that survives a Stripe event. */
+  overrideEntries?: number;
+  stripeCustomer?: string;
+  /** Nothing has arrived this month. The churned case. */
+  silent?: boolean;
+}
+
+const BILLING_FIXTURES: BillingFixture[] = [
+  {
+    id: "b1000000-0000-4000-8000-000000000001",
+    name: "Kestrel Audio",
+    slug: "kestrel-audio",
+    plan: "pro",
+    status: "active",
+    entries: [4_180_000, 3_640_000],
+    projects: 3,
+    stripeCustomer: "cus_seedkestrel",
+  },
+  {
+    // 87% of a million: the amber band, and the only state that is trying to
+    // sell anything, so it is the one worth being able to look at.
+    id: "b1000000-0000-4000-8000-000000000002",
+    name: "Northwind Labs",
+    slug: "northwind-labs",
+    plan: "free",
+    status: "active",
+    entries: [872_000, 610_000],
+    projects: 2,
+  },
+  {
+    // Over, and still recording. Nothing is dropped and the banner says so.
+    id: "b1000000-0000-4000-8000-000000000003",
+    name: "Vela Systems",
+    slug: "vela-systems",
+    plan: "free",
+    status: "active",
+    entries: [1_430_000, 940_000],
+    projects: 2,
+  },
+  {
+    // A failed card on a workspace well inside its plan: the banner is about
+    // the payment and not about the volume.
+    id: "b1000000-0000-4000-8000-000000000004",
+    name: "Orbit Freight",
+    slug: "orbit-freight",
+    plan: "pro",
+    status: "past_due",
+    entries: [6_050_000, 5_880_000],
+    projects: 2,
+    stripeCustomer: "cus_seedorbit",
+  },
+  {
+    // The hand-tuned ceiling, so the Override badge has a row to sit on.
+    id: "b1000000-0000-4000-8000-000000000005",
+    name: "Halcyon Data",
+    slug: "halcyon-data",
+    plan: "scale",
+    status: "active",
+    entries: [62_400_000, 51_200_000],
+    projects: 5,
+    overrideEntries: 150_000_000,
+    stripeCustomer: "cus_seedhalcyon",
+  },
+  {
+    id: "b1000000-0000-4000-8000-000000000006",
+    name: "Tessellate",
+    slug: "tessellate",
+    plan: "free",
+    status: "canceled",
+    entries: [0, 128_000],
+    projects: 1,
+    silent: true,
+  },
+];
+
+/**
+ * Spreads a month's total over its days, weekday-heavy and deterministic.
+ *
+ * Weekends at roughly half, because that is what a B2B curve does and it is
+ * what makes the daily bars read as data rather than as noise.
+ */
+function spread(total: number, days: number, from: Date): Array<[string, number]> {
+  if (total <= 0 || days <= 0) return [];
+  const weights = Array.from({ length: days }, (_, i) => {
+    const weekday = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), i + 1)).getUTCDay();
+    return (weekday === 0 || weekday === 6 ? 0.5 : 1) * between(0.85, 1.15);
+  });
+  const sum = weights.reduce((a, b) => a + b, 0);
+  return weights.map((w, i) => {
+    const day = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), i + 1));
+    return [day.toISOString().slice(0, 10), Math.round((total * w) / sum)] as [string, number];
+  });
+}
+
+/**
+ * A stable uuid per fixture and slot.
+ *
+ * The fixture's own last two characters are carried into the middle of the
+ * result, and leaving them out is a real bug rather than a tidier id: the first
+ * 24 characters are IDENTICAL across every fixture, so a slot number alone
+ * mints the same project id for all of them. With `onConflictDoNothing` that
+ * does not fail, it silently gives the row to whichever fixture inserted first
+ * and leaves the rest with fewer projects than they asked for.
+ */
+const fixtureId = (fixture: BillingFixture, slot: number): string =>
+  fixture.id.slice(0, 24) + fixture.id.slice(-2) + String(slot).padStart(10, "0");
+
+/**
+ * Writes the plans, the fixture workspaces and the billing roll-up.
+ *
+ * Upserts on the primary key rather than deleting first, so running the seed
+ * twice leaves the same numbers instead of doubling them.
+ */
+async function seedBilling(
+  db: ReturnType<typeof createStore>["db"],
+  realEntries: readonly LogEntryInput[],
+  seedUserId: string
+): Promise<number> {
+  const { from, to } = monthWindow();
+  const monthStart = new Date(from + "T00:00:00Z");
+  const prevStart = new Date(previousMonthStart(from) + "T00:00:00Z");
+
+  const now = new Date();
+  const inThisMonth =
+    now.getUTCFullYear() === monthStart.getUTCFullYear() &&
+    now.getUTCMonth() === monthStart.getUTCMonth();
+  // Days elapsed, not days in the month: a month that is a third gone should
+  // report a third of its total, or every fixture reads as ahead of pace.
+  const daysSoFar = inThisMonth
+    ? now.getUTCDate()
+    : new Date(Date.parse(to + "T00:00:00Z") - 86_400_000).getUTCDate();
+  const prevDays = new Date(Date.parse(from + "T00:00:00Z") - 86_400_000).getUTCDate();
+
+  const rows: Array<typeof usageDaily.$inferInsert> = [];
+
+  /*
+    Dropped and rebuilt, like the boards above, rather than upserted in place.
+
+    These workspaces are wholly owned by this file: their projects and sources
+    are named by a formula, so a run under an older formula leaves rows that
+    upserting cannot reach and that show up as a workspace with the wrong number
+    of projects. The cascade takes the members, the projects, the sources and
+    the meter rows with it.
+  */
+  await db.delete(workspaces).where(
+    inArray(
+      workspaces.id,
+      BILLING_FIXTURES.map((f) => f.id)
+    )
+  );
+
+  for (const fixture of BILLING_FIXTURES) {
+    const billing = {
+      name: fixture.name,
+      plan: fixture.plan,
+      billingStatus: fixture.status,
+      planLimits: fixture.overrideEntries ? { entriesPerMonth: fixture.overrideEntries } : null,
+      stripeCustomerId: fixture.stripeCustomer ?? null,
+    };
+
+    await db
+      .insert(workspaces)
+      .values({ id: fixture.id, slug: fixture.slug, ...billing })
+      .onConflictDoUpdate({ target: workspaces.id, set: billing });
+
+    await db
+      .insert(workspaceMembers)
+      .values({ workspaceId: fixture.id, userId: seedUserId, role: "admin" })
+      .onConflictDoNothing();
+
+    // Projects and one source, so the counts on the operator's page are not a
+    // column of zeroes and so the roll-up has real rows to point at.
+    const projectRows = Array.from({ length: fixture.projects }, (_, i) => ({
+      id: fixtureId(fixture, i + 1),
+      workspaceId: fixture.id,
+      name: fixture.name + " " + (i + 1),
+      slug: "product-" + (i + 1),
+    }));
+    await db.insert(projects).values(projectRows).onConflictDoNothing();
+
+    const sourceId = fixtureId(fixture, 900);
+    await db
+      .insert(sources)
+      .values({
+        id: sourceId,
+        projectId: projectRows[0]!.id,
+        name: fixture.name + " web",
+        // 5 + 11 = the 16 hex characters SOURCE_KEY_RE requires. One short and
+        // the edge answers 404 for a key the dashboard happily displays.
+        ingestKey: "fr_5eedb" + fixture.id.slice(-11),
+      })
+      .onConflictDoNothing();
+
+    const at = (day: string, entries: number) => {
+      rows.push({ workspaceId: fixture.id, day, projectId: projectRows[0]!.id, sourceId, entries });
+    };
+
+    if (!fixture.silent) {
+      for (const [day, entries] of spread(fixture.entries[0], daysSoFar, monthStart)) at(day, entries);
+    }
+    for (const [day, entries] of spread(fixture.entries[1], prevDays, prevStart)) at(day, entries);
+  }
+
+  /*
+    The real workspace's meter, bucketed on the entries' own `time`.
+
+    In production these two numbers differ: the meter counts arrivals and the
+    usage page counts `time`, and the gap between them is however much queue the
+    clients were holding. A seed has no gap to model, because every one of these
+    rows arrived in the same second, so filing them under `time` is both closer
+    to what a live deployment looks like and the only version in which the two
+    screens agree with each other.
+  */
+  const byDay = new Map<string, number>();
+  for (const entry of realEntries) {
+    const day = (entry.time as Date).toISOString().slice(0, 10);
+    if (day < from || day >= to) continue;
+    byDay.set(day, (byDay.get(day) ?? 0) + 1);
+  }
+  for (const [day, entries] of byDay) {
+    rows.push({
+      workspaceId: SEED_WORKSPACE_ID,
+      day,
+      projectId: SEED_PROJECT_ID,
+      sourceId: SEED_WEB_SOURCE_ID,
+      entries,
+    });
+  }
+
+  for (let i = 0; i < rows.length; i += 500) {
+    await db
+      .insert(usageDaily)
+      .values(rows.slice(i, i + 500))
+      .onConflictDoUpdate({
+        target: [usageDaily.workspaceId, usageDaily.day, usageDaily.projectId, usageDaily.sourceId],
+        set: { entries: raw`excluded.entries` },
+      });
+  }
+
+  return rows.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -851,21 +1143,18 @@ async function main(): Promise<void> {
           id: SEED_WEB_SOURCE_ID,
           projectId: SEED_PROJECT_ID,
           name: "themia.app",
-          assetName: null,
           ingestKey: SEED_WEB_KEY,
         },
         {
           id: SEED_DESKTOP_SOURCE_ID,
           projectId: SEED_PROJECT_ID,
           name: "Themia for Windows",
-          assetName: ASSET_NAME,
           ingestKey: SEED_DESKTOP_KEY,
         },
         {
           id: SEED_SERVER_SOURCE_ID,
           projectId: SEED_PROJECT_ID,
           name: "api.themia.app",
-          assetName: null,
           ingestKey: SEED_SERVER_KEY,
         },
       ])
@@ -916,6 +1205,9 @@ async function main(): Promise<void> {
     // Without this the first board load picks a plan built on a guess.
     await db.execute(raw`ANALYZE log_entries`);
 
+    console.log("seeding plans and the billing meter");
+    const meterRows = await seedBilling(db, rows, user.id);
+
     const names = new Set(rows.map((r) => r.name));
     const severities = new Set(rows.map((r) => r.severity));
     const attributeKeys = new Set(rows.flatMap((r) => Object.keys(r.attributes ?? {})));
@@ -940,6 +1232,8 @@ async function main(): Promise<void> {
     console.log(`  api requests     ${api.requests}`);
     console.log(`  api 5xx          ${api.failures}`);
     console.log(`  entries          ${rows.length}`);
+    console.log(`  meter rows       ${meterRows}`);
+    console.log(`  billing states   ${BILLING_FIXTURES.map((f) => f.slug).join(", ")}`);
     console.log("");
     console.log("  The three sources are NOT joined. A funnel whose steps cross");
     console.log("  from web to desktop reads zero at the crossing, by design.");

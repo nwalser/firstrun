@@ -41,7 +41,6 @@ export const ENTRY_COLUMNS = [
   "time",
   "name",
   "severity",
-  "distinct_id",
   "entry_id",
   "ingested_at",
 ] as const;
@@ -55,7 +54,6 @@ export const COLUMN_LABELS: Record<EntryColumn, string> = {
   time: "Time",
   name: "Name",
   severity: "Severity",
-  distinct_id: "Client id",
   entry_id: "Entry id",
   ingested_at: "Received at",
 };
@@ -85,8 +83,14 @@ export const pathLabel = (path: readonly string[]): string => path.join(".");
 
 /**
  * `unique` is not a column and not an attribute: it is the ONE definition of a
- * unique in this product, `coalesce(attributes ->> 'user.id', distinct_id)`. It
- * is a case in the AST rather than something a picker assembles, because a
+ * unique in this product,
+ * `coalesce(attributes ->> 'user.id', 'device.id', 'session.id')`. Best
+ * available identity wins: a named user is one person, a device is one install,
+ * a session is one visit. An entry carrying none of the three is not a unique
+ * of any kind and is counted in no unique, which is the honest answer when the
+ * developer never told us who or what sent it.
+ *
+ * It is a case in the AST rather than something a picker assembles, because a
  * picker that assembled it slightly differently would produce a number that
  * looked like a unique count and was not.
  */
@@ -295,6 +299,73 @@ export function countConditions(filter: Filter | undefined): number {
     return filter.filters.reduce((n, child) => n + countConditions(child), 0);
   }
   if (filter.op === "not") return countConditions(filter.filter);
+  return 1;
+}
+
+/**
+ * The condition a PRINTED VALUE stands for.
+ *
+ * A group value arrives from the compiler as text or as null, because that is
+ * what a row carries: the value the entries were grouped by, and null for the
+ * entries that did not have one. Null is not the string "null" and is not a
+ * missing answer, so it becomes `not_exists` rather than an equality against
+ * nothing. That is the same distinction the row itself draws when it prints
+ * "(not set)".
+ *
+ * Numeric fields are read back as numbers, because the value is text on the way
+ * out and `severity = "17"` is not a filter the compiler will take. Anything
+ * that does not parse stays text and matches nothing, which is the honest
+ * answer for a value that was never a number.
+ */
+export function conditionFor(field: Field, value: string | null): Filter {
+  if (value === null) return { op: "not_exists", field };
+  const type = fieldType(field);
+  if (type === "number" || type === "severity") {
+    const number = Number(value);
+    if (value.trim() !== "" && Number.isFinite(number)) return { op: "eq", field, value: number };
+  }
+  return { op: "eq", field, value };
+}
+
+/**
+ * The same filter with more conditions ANDed onto it, or the SAME OBJECT when
+ * there is nothing to add.
+ *
+ * Identity is the signal, not a boolean: a caller compares references to decide
+ * whether anything happened, so clicking the value a board is already filtered
+ * by writes no board and starts no refetch. Duplicates are found by comparing
+ * canonical JSON, the same normalisation `queryKey` uses, so two conditions that
+ * differ only in key order are one condition.
+ *
+ * It refuses rather than truncates at both bounds the schema enforces. A filter
+ * this cannot extend without breaking `FilterSchema` is one the save would
+ * reject, and a board that silently dropped half a drill-down would be showing
+ * numbers for a question nobody asked.
+ */
+export function withConditions(filter: Filter, conditions: readonly Filter[]): Filter {
+  if (conditions.length === 0) return filter;
+
+  // A top-level AND takes them as siblings. Anything else is wrapped, which
+  // costs a level, so the wrap is only allowed where there is one to spend.
+  const held = filter.op === "and" ? filter.filters : [filter];
+  if (filter.op !== "and" && filterDepth(filter) >= MAX_FILTER_DEPTH) return filter;
+
+  const seen = new Set(held.map((child) => JSON.stringify(canonical(child))));
+  const additions = conditions.filter((condition) =>
+    !seen.has(JSON.stringify(canonical(condition)))
+  );
+  if (additions.length === 0) return filter;
+  if (held.length + additions.length > MAX_FILTER_BRANCHES) return filter;
+
+  return { op: "and", filters: [...held, ...additions] };
+}
+
+/** How many levels of grouping a filter tree is, counting itself as one. */
+export function filterDepth(filter: Filter): number {
+  if (filter.op === "and" || filter.op === "or") {
+    return 1 + Math.max(0, ...filter.filters.map(filterDepth));
+  }
+  if (filter.op === "not") return 1 + filterDepth(filter.filter);
   return 1;
 }
 

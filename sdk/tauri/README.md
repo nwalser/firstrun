@@ -87,7 +87,7 @@ use firstrun_sdk::{Analytics, Config};
 use std::time::Duration;
 
 let analytics = Analytics::start(Config {
-    source_key: "fr_desktop_9f3a2b1c4d5e6f70".into(),
+    source_key: "fr_9f3a2b1c4d5e6f70".into(),
     host: "https://t.example.com".into(),
     app_name: "Themia".into(),
     service_version: Some(env!("CARGO_PKG_VERSION").into()),
@@ -393,7 +393,7 @@ shape from `packages/schema/src/log.ts`:
 
 ```json
 {
-  "k": "fr_desktop_9f3a2b1c4d5e6f70",
+  "k": "fr_9f3a2b1c4d5e6f70",
   "d": "0e9f...",
   "r": {
     "service.name": "Themia",

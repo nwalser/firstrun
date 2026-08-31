@@ -22,6 +22,36 @@
         "default": "./dist/cjs/index.js"
       }
     },
+    "./express": {
+      "import": {
+        "types": "./dist/esm/http/express.d.ts",
+        "default": "./dist/esm/http/express.js"
+      },
+      "require": {
+        "types": "./dist/cjs/http/express.d.ts",
+        "default": "./dist/cjs/http/express.js"
+      }
+    },
+    "./fastify": {
+      "import": {
+        "types": "./dist/esm/http/fastify.d.ts",
+        "default": "./dist/esm/http/fastify.js"
+      },
+      "require": {
+        "types": "./dist/cjs/http/fastify.d.ts",
+        "default": "./dist/cjs/http/fastify.js"
+      }
+    },
+    "./hono": {
+      "import": {
+        "types": "./dist/esm/http/hono.d.ts",
+        "default": "./dist/esm/http/hono.js"
+      },
+      "require": {
+        "types": "./dist/cjs/http/hono.d.ts",
+        "default": "./dist/cjs/http/hono.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

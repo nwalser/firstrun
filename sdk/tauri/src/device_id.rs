@@ -19,7 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The file inside the per-app directory.
-pub const DISTINCT_ID_FILE: &str = "distinct_id";
+pub const DEVICE_ID_FILE: &str = "device_id";
 
 #[derive(Debug, Clone)]
 pub struct DistinctId {
@@ -34,7 +34,7 @@ pub struct DistinctId {
 /// a failure the host has to handle: losing the continuity of one install is a
 /// worse number, not a broken application.
 pub fn load_or_create(app_dir: &Path) -> (DistinctId, Option<std::io::Error>) {
-    let path = app_dir.join(DISTINCT_ID_FILE);
+    let path = app_dir.join(DEVICE_ID_FILE);
 
     if let Ok(existing) = fs::read_to_string(&path) {
         if let Some(id) = crate::wire::clamp_id(&existing) {
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn an_empty_file_is_treated_as_no_file() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(DISTINCT_ID_FILE), "   \n").unwrap();
+        fs::write(dir.path().join(DEVICE_ID_FILE), "   \n").unwrap();
         let (distinct, error) = load_or_create(dir.path());
         assert!(distinct.first_run);
         assert!(!distinct.id.is_empty());

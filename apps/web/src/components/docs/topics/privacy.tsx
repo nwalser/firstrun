@@ -49,6 +49,23 @@ export const topics: DocsTopic[] = [
           privacy notice.
         </p>
 
+        <h2>Or nothing to ask about</h2>
+        <p>
+          The gate exists because the default visitor id survives the tab and is therefore
+          information stored on a device. <code>data-ephemeral="true"</code> on the script tag (or{" "}
+          <code>ephemeral</code> on a framework component) puts the id in{" "}
+          <code>sessionStorage</code> instead. It is discarded when the tab closes, it cannot
+          identify anyone on a second visit, and nothing persistent is written, so the tag sends
+          from the first entry without a banner.
+        </p>
+        <p>
+          What this costs is the returning visitor: a unique becomes one tab rather than one
+          browser, which overcounts uniques across days and makes a week-over-week comparison of
+          them meaningless. Counts of entries are identical either way, so a board measuring
+          signups, downloads or page views reads the same. Neither option changes{" "}
+          <code>session.id</code>, which cuts on 30 minutes idle inside whichever id you chose.
+        </p>
+
         <h2>What is collected</h2>
         <ul>
           <li>

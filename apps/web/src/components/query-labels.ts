@@ -43,7 +43,6 @@ const COLUMN_KEYS: Record<EntryColumn, SimpleKey> = {
   time: "explore.column_time",
   name: "explore.column_name",
   severity: "explore.column_severity",
-  distinct_id: "explore.column_distinct_id",
   entry_id: "explore.column_event_id",
   ingested_at: "explore.column_ingested_at",
 };

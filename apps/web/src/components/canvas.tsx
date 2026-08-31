@@ -4,6 +4,7 @@ import {
   GRID,
   MAX_WIDGETS,
   MAX_WIDGET_H,
+  MAX_WIDGET_Y,
   MIN_WIDGET_H,
   MIN_WIDGET_W,
   normaliseRect,
@@ -121,6 +122,18 @@ export const cardRect = (cell: Rect): Rect => ({
 const CANVAS_PADDING = 80;
 
 /**
+ * Extra ruled ground under the board, while it is being arranged.
+ *
+ * `CANVAS_PADDING` is the room a board keeps for a drop at all times, and it is
+ * deliberately small: a board of three cards should not sit above a screen of
+ * emptiness while somebody is reading it. Arranging asks the opposite question.
+ * Ten cells is half a card's height of visible, ruled, obviously-droppable
+ * space past the last card, which is what makes "somewhere further down" look
+ * like a place rather than the end of the page.
+ */
+const ARRANGE_ROOM = GRID * 10;
+
+/**
  * Below this, a press is a click. Above it, a drag.
  *
  * The whole card is the drag surface now, so this threshold is what keeps the
@@ -234,8 +247,12 @@ export function resizeBy(r: Rect, edge: ResizeEdge, dx: number, dy: number): Rec
     w = right - x;
   }
   if (edge.includes("n")) {
+    // Both ends: the tallest the card may be going up, and the lowest a top
+    // edge may sit going down. Either bound reached with only the size clamped
+    // afterwards would have left the origin still following the pointer.
     const tallest = Math.max(0, bottom - MAX_WIDGET_H);
-    y = Math.min(Math.max(tallest, snapToGrid(r.y + dy)), bottom - MIN_WIDGET_H);
+    const lowest = Math.min(bottom - MIN_WIDGET_H, MAX_WIDGET_Y);
+    y = Math.min(Math.max(tallest, snapToGrid(r.y + dy)), lowest);
     h = bottom - y;
   }
 
@@ -382,6 +399,18 @@ const CardTierContext = createContext<Accessor<CardTier>>();
 
 /** The tier of the card this widget is inside. 4 when it is not inside one. */
 export const useCardTier = (): Accessor<CardTier> => useContext(CardTierContext) ?? (() => 4);
+
+/*
+  There is deliberately no card-box context beside the tier one.
+
+  A tier says HOW MUCH a card may show; what SHAPE it is is a different
+  question, and 620x160 and 300x320 are the same tier while wanting opposite
+  layouts. But a widget is also rendered off the board -- the explore preview,
+  the project overview -- where there is no card to ask, and a context default
+  would be one guess standing in for every one of those boxes. A widget that
+  needs its own proportions measures them (`Measured` in `widgets.tsx`), which
+  is the same answer in all three places.
+*/
 
 // ---------------------------------------------------------------------------
 // The gesture
@@ -705,56 +734,44 @@ export function createCanvas(options: CanvasOptions): CanvasController {
 /**
  * The grid, drawn for as long as the board is being arranged.
  *
- * It marks CELL corners, which is what a drag lands on and where a card's outer
- * wall goes, so a snapped card's handles, its focus ring and its dashed wall
- * all sit on the dots. Its border sits one gutter inside them, which is the
- * padding you are looking at.
+ * RULED, at exactly the pitch a drag snaps to. It used to be dots on cell
+ * corners at two densities, which is a different claim: a dot marks where a
+ * corner may land and says nothing about the edges between them, so a card
+ * being lined up against one two columns away had nothing to follow. A line at
+ * every snap position is the same information drawn as the thing a person
+ * actually sights along, and one pitch rather than two means what you see is
+ * what the drag does.
  *
  * It is on the whole time you are arranging rather than only while the pointer
  * is down: the question a grid answers is "where can this go", and that is
  * asked before the drag starts. It stays off while you are only reading the
  * board, because a permanent grid is a wireframe.
  *
- * At 20px a dot on every intersection is graph paper, and graph paper is the
- * thing you end up looking at instead of the board. So the fine dots are barely
- * there and a second, firmer dot lands every fifth cell -- a hundred pixels,
- * which is the distance anybody is actually judging by eye. The fine layer
- * gives the drag its felt resolution; the coarse layer gives it a ruler. Both
- * come up while a gesture actually runs, so the ruler is loudest exactly while
- * somebody is measuring against it.
+ * The rules are the chrome's own hairline colour and they firm up while a
+ * gesture runs, so the ruler is loudest exactly while somebody is measuring
+ * against it. One device pixel, like every other rule in the app: at 20px a
+ * full CSS pixel in both directions reads as a solid wash rather than a grid.
  */
 function GridOverlay(props: { active?: boolean }) {
+  const rule = "var(--color-border)";
   return (
-    <>
-      <div
-        aria-hidden="true"
-        class={cn(
-          "pointer-events-none absolute inset-0 transition-opacity duration-200",
-          // A quarter rather than a seventh at rest. `--border` is an ALPHA in
-          // both themes (14% white in dark), so a further 15% of it is a dot
-          // nobody can see, and a grid you cannot see while arranging is the
-          // one state this must not have.
-          props.active ? "opacity-30" : "opacity-25"
-        )}
-        style={{
-          "background-image":
-            "radial-gradient(circle at 0.5px 0.5px, var(--color-border) 1px, transparent 0)",
-          "background-size": `${GRID}px ${GRID}px`,
-        }}
-      />
-      <div
-        aria-hidden="true"
-        class={cn(
-          "pointer-events-none absolute inset-0 transition-opacity duration-200",
-          props.active ? "opacity-70" : "opacity-30"
-        )}
-        style={{
-          "background-image":
-            "radial-gradient(circle at 0.5px 0.5px, var(--color-ring) 1.5px, transparent 0)",
-          "background-size": `${GRID * 5}px ${GRID * 5}px`,
-        }}
-      />
-    </>
+    <div
+      aria-hidden="true"
+      class={cn(
+        "pointer-events-none absolute inset-0 transition-opacity duration-200",
+        // `--border` is an ALPHA in both themes (14% white in dark), so this is
+        // already a faint line before any opacity is put on it. A grid you
+        // cannot see while arranging is the one state this must not have.
+        props.active ? "opacity-100" : "opacity-70"
+      )}
+      style={{
+        "background-image": `linear-gradient(to right, ${rule} 1px, transparent 1px), linear-gradient(to bottom, ${rule} 1px, transparent 1px)`,
+        "background-size": `${GRID}px ${GRID}px`,
+        // The lines sit ON the snap positions rather than one pixel after them,
+        // so a card's wall lands on the rule it was dragged to and not beside it.
+        "background-position": "-0.5px -0.5px",
+      }}
+    />
   );
 }
 
@@ -794,7 +811,28 @@ export function Canvas(props: {
       )}
       style={{ margin: `-${GUTTER * 2}px`, padding: `${GUTTER}px` }}
     >
-      <div class="relative" style={{ width: `${CANVAS_WIDTH}px`, height: `${props.height}px` }}>
+      {/*
+        The placeable area, and while arranging that is the whole of it.
+
+        The height normally follows the cards, which is right for reading: a
+        board of three cards should not leave a screen of emptiness under them.
+        It is the wrong answer while arranging, where the question is where a
+        card COULD go, and a grid that stops just below the lowest card answers
+        it with "nowhere else". So the box grows to fill what is left of the
+        viewport, and the grid fills the box.
+
+        The width does not grow with it. `CANVAS_WIDTH` is the placeable area,
+        not a rendering convenience, and ruling ground a card can never be
+        dropped on would be the same lie in the other direction.
+      */}
+      <div
+        class="relative"
+        style={{
+          width: `${CANVAS_WIDTH}px`,
+          height: `${props.height + (props.showGrid ? ARRANGE_ROOM : 0)}px`,
+          ...(props.showGrid ? { "min-height": "calc(100vh - 13rem)" } : {}),
+        }}
+      >
         <Show when={props.showGrid}>
           <GridOverlay active={props.gesturing} />
         </Show>

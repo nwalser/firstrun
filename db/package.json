@@ -14,7 +14,8 @@
     "./migrate": "./migrate.ts",
     "./repo": "./repo.ts",
     "./usage": "./usage.ts",
-    "./billing": "./billing.ts"
+    "./billing": "./billing.ts",
+    "./admin": "./admin.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
