@@ -598,8 +598,8 @@ func (c *Client) Log(e Entry) {
 
 	resource := c.resourceFor(e)
 	c.enqueue(item{
-		group:      resourceKey(resource),
-		resource:   resource,
+		group:    resourceKey(resource),
+		resource: resource,
 		// An unclassified entry is never urgent: severity 0 means the caller
 		// said nothing, and treating silence as ERROR would flush on every
 		// entry that skipped the field.

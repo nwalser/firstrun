@@ -27,8 +27,12 @@ import { ATTR, NAME } from "@firstrun/schema/conventions";
  * customer would have chosen, and they take exactly the same treatment as the
  * conventional ones.
  *
- * `device.id` identifies an INSTALLATION. Nothing here calls it a person, and
- * `user.id` appears only where a client would have called `identify()`.
+ * No identity is promoted and none is required. `user.id`, `device.id` and
+ * `session.id` are OPTIONAL attributes and an entry may carry none of them: the
+ * server lane below mostly carries none, which is the honest answer rather than
+ * a gap, because a process is not a device and inventing one for it is exactly
+ * what this model stopped doing. Nothing here calls a device a person, and
+ * `user.id` appears only where a client would have called `user()`.
  */
 
 // ---------------------------------------------------------------------------
@@ -422,7 +426,14 @@ export interface PreviewRow {
   severity: number;
   band: SeverityBand;
   lane: number;
-  deviceId: string;
+  /**
+   * The device this entry came from, or nothing.
+   *
+   * Nullable, and genuinely null for the whole server lane. A client sets what
+   * it can actually know, and a backend logging an exception normally knows no
+   * device at all.
+   */
+  deviceId: string | null;
   timeMs: number;
   attrs: readonly (readonly [string, string])[];
   late: boolean;
@@ -470,13 +481,35 @@ export interface PreviewFrame {
   sparks: readonly (readonly number[])[];
   breakdown: readonly BreakdownRow[];
   /**
-   * The attribute keys this project has been seen to send.
+   * The attribute keys seen IN THE VISIBLE RANGE.
+   *
+   * Not a list of every key ever sent, which is the version this started as and
+   * which was wrong twice over. It contradicted the product (the pickers list
+   * the keys actually written in the visible range, so a key nobody has sent
+   * this window is a filter that matches nothing), and it SETTLED: the
+   * vocabulary is finite, so after about a minute the strip had everything and
+   * never moved again.
+   *
+   * Scoped to the range instead, a rare key ages out when the window slides
+   * past it and is rediscovered the next time an entry carries one. The strip
+   * is therefore never finished, which is the honest behaviour and the lively
+   * one at the same time.
    *
    * Objects rather than bare strings so each carries whether it has just been
    * discovered. A string cannot hold that, and marking freshness outside the
    * array would mean rebuilding it every beat, which recreates every chip.
    */
   keys: readonly { key: string; fresh: boolean }[];
+
+  /**
+   * When each key was last carried by an entry, by key.
+   *
+   * Deliberately NOT a field on the objects above. Those are rendered, and
+   * touching one every time its key turns up would rebuild the object, which
+   * makes Solid destroy and recreate the chip and replay its entrance
+   * animation several times a second.
+   */
+  keySeen: Readonly<Record<string, number>>;
   throughput: readonly number[];
   openSecond: number;
   ratePerSec: number;
@@ -619,7 +652,9 @@ function buildRow(
     severity: template.severity,
     band: severityBand(template.severity),
     lane: template.lane,
-    deviceId: rng.pick(DEVICE_IDS),
+    // A browser and an app know their device. A server process does not, and
+    // says so rather than inventing one.
+    deviceId: template.lane === 2 ? null : rng.pick(DEVICE_IDS),
     // A late entry's `time` is its own, which is what it was stamped with on a
     // laptop that was offline. `ingested_at` is now, and is not shown on a row.
     timeMs: late ? clockMs - (lateByMs ?? 0) : clockMs,
@@ -654,6 +689,16 @@ const MAX_ROWS = 22;
  * cap would be a lie about a project that had not.
  */
 const MAX_KEYS = new Set(TEMPLATES.flatMap((t) => t.attrKeys)).size;
+
+/**
+ * How long a key stays on the strip after the last entry that carried it.
+ *
+ * Two windows. Long enough that an ordinary key never flickers (anything above
+ * about one percent of the stream turns up several times a window), short
+ * enough that the genuinely rare ones age out and come back, which is what
+ * keeps the strip working for as long as the page is open.
+ */
+const KEY_RETENTION_BEATS = SLIDE_BEATS * 2;
 const THROUGHPUT_CELLS = 40;
 const LATE_EVERY = 34;
 const EXPAND_EVERY = 26;
@@ -716,6 +761,7 @@ export function buildFrameZero(): PreviewFrame {
     sparks,
     breakdown: PREVIEW_PATHS.map((path, i) => ({ path, count: BREAKDOWN_SEEDS[i]! })),
     keys: SEED_KEYS.map((key) => ({ key, fresh: false })),
+    keySeen: Object.fromEntries(SEED_KEYS.map((key) => [key, 0])),
     throughput,
     openSecond: 0,
     ratePerSec: RATE_PER_SEC,
@@ -808,12 +854,14 @@ export function advance(frame: PreviewFrame): PreviewFrame {
   let shelves = frame.shelves;
   let breakdown = frame.breakdown;
   let keys = frame.keys;
+  let keySeen = frame.keySeen;
   let meters = frame.meters;
   let sparks = frame.sparks;
   const shelfHit = frame.shelfHit.slice();
   const meterBump = frame.meterBump.slice();
   const riserFired = frame.riserFired.slice();
   const freshKeys: string[] = [];
+  const seenThisBeat: string[] = [];
   let acceptBeat = frame.acceptBeat;
   let lateBucket = frame.lateBucket;
   let lateNote = frame.lateNote;
@@ -867,6 +915,7 @@ export function advance(frame: PreviewFrame): PreviewFrame {
       // entry carries it, and this is the only place in the product that says
       // so out loud.
       for (const k of p.attrKeys) {
+        seenThisBeat.push(k);
         const known = keys.some((e) => e.key === k) || freshKeys.includes(k);
         if (!known && keys.length + freshKeys.length < MAX_KEYS) freshKeys.push(k);
       }
@@ -889,6 +938,10 @@ export function advance(frame: PreviewFrame): PreviewFrame {
 
   if (freshKeys.length > 0) {
     keys = [...freshKeys.map((key) => ({ key, fresh: true })), ...keys];
+  }
+  if (seenThisBeat.length > 0) {
+    keySeen = { ...keySeen };
+    for (const k of seenThisBeat) (keySeen as Record<string, number>)[k] = beat;
   }
 
   // The lateness readout holds its spike for four beats and then settles back
@@ -933,6 +986,13 @@ export function advance(frame: PreviewFrame): PreviewFrame {
     // NOT tick with every entry: a baseline that moves four times a second is
     // not a baseline, and a delta whose baseline moves is not a comparison.
     deltas = frame.deltas.map((d) => d + (rng.next() * 0.008 - 0.004));
+    // The range moved, so a key nothing has carried for two windows is no
+    // longer a key in the range. Filtering PRESERVES the identity of every
+    // survivor, so no surviving chip is recreated and none of them re-animate.
+    // Only the removals leave, and the rediscoveries arrive as new chips.
+    const cutoff = beat - KEY_RETENTION_BEATS;
+    const kept = keys.filter((e) => (keySeen[e.key] ?? 0) > cutoff);
+    if (kept.length !== keys.length && kept.length > 0) keys = kept;
     slideBeat = beat;
   }
 
@@ -949,6 +1009,7 @@ export function advance(frame: PreviewFrame): PreviewFrame {
     sparks,
     breakdown,
     keys,
+    keySeen,
     throughput,
     openSecond,
     ratePerSec,

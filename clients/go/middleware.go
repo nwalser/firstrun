@@ -185,7 +185,11 @@ func (c *Client) Middleware(opts MiddlewareOptions) func(http.Handler) http.Hand
 			// map so a caller cannot race the holders, and NewContext copies it
 			// again on the way in, so reading it through the public door here
 			// would clamp the same map twice per request.
-			if id != ambient {
+			// Field by field: Identity carries an Attributes map, and a struct
+			// with a map in it is not comparable with ==.
+			if id.UserID != ambient.UserID ||
+				id.DeviceID != ambient.DeviceID ||
+				id.SessionID != ambient.SessionID {
 				ctx = NewContext(ctx, id)
 				r = r.WithContext(ctx)
 			}

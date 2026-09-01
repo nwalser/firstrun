@@ -48,8 +48,31 @@ import * as esbuild from "esbuild";
  *
  * The rule is unchanged for the next one: displace something, or make an
  * argument this size.
+ *
+ * ## 4.25 KiB to 4.75 KiB: the three identity calls, and the fingerprint
+ *
+ * The second feature to argue rather than displace, and the argument is the
+ * same shape. Identity became three optional things a customer states rather
+ * than one id the tag minted for itself: `user()`, `device()`, `session()`.
+ * Together with the session id surviving a full page load, and with the
+ * fingerprint behind `data-fingerprint`, they cost about 490 B gzipped. That
+ * does not fit, and squeezing it into 24 B of slack would have meant shipping
+ * two of the three.
+ *
+ * What it buys is the thing the tag previously faked. There is no device to
+ * find out in a browser, so the tag used to persist a storage key and report it
+ * as an identity; the fingerprint costs 179 B of the 490 and is the only honest
+ * way a site can ask for a device at all, off by default and gated twice. The
+ * rest is the vocabulary itself, which has to be the same three calls in every
+ * client or a customer who has read one has not read the others.
+ *
+ * The number moved by what the feature cost and not by more: the tag keeps the
+ * same ~280 B of slack it had at 4.25 KiB, so the next feature faces exactly the
+ * bar this one did. It is still an order of magnitude under an initial
+ * congestion window, and it is still a file a customer pastes into a `<head>`
+ * without thinking about it.
  */
-export const MAX_GZIP_BYTES = 4.25 * 1024;
+export const MAX_GZIP_BYTES = 4.75 * 1024;
 
 const here = import.meta.dir;
 

@@ -54,8 +54,8 @@ let jobsStarted = false;
  * A prune, and on the hosted service a meter push.
  *
  * There used to be a squash job here, folding merged identities back into the
- * events table. Nothing is merged any more: `distinct_id` is written once, by
- * the client that owns it, and never rewritten. Expired login sessions are the
+ * events table. Nothing is merged any more: an identity is written once, by the
+ * client that stated it, and never rewritten. Expired login sessions are the
  * only rows in this database that go stale on their own.
  *
  * The meter push reports yesterday and today to Stripe. Both, because the job

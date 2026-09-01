@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 pub const DEVICE_ID_FILE: &str = "device_id";
 
 #[derive(Debug, Clone)]
-pub struct DistinctId {
+pub struct DeviceId {
     pub id: String,
     /// True when this process created the id, i.e. nothing ran here before.
     pub first_run: bool,
@@ -33,18 +33,18 @@ pub struct DistinctId {
 /// A read-only or full disk gives a per-process id and an error to report, never
 /// a failure the host has to handle: losing the continuity of one install is a
 /// worse number, not a broken application.
-pub fn load_or_create(app_dir: &Path) -> (DistinctId, Option<std::io::Error>) {
+pub fn load_or_create(app_dir: &Path) -> (DeviceId, Option<std::io::Error>) {
     let path = app_dir.join(DEVICE_ID_FILE);
 
     if let Ok(existing) = fs::read_to_string(&path) {
         if let Some(id) = crate::wire::clamp_id(&existing) {
-            return (DistinctId { id, first_run: false }, None);
+            return (DeviceId { id, first_run: false }, None);
         }
     }
 
     let id = uuid::Uuid::new_v4().to_string();
     let error = write_atomic(app_dir, &path, &id).err();
-    (DistinctId { id, first_run: true }, error)
+    (DeviceId { id, first_run: true }, error)
 }
 
 /// Temp file then rename, so a crash leaves either no file or a complete one. A

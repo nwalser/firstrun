@@ -54,7 +54,7 @@ namespace Firstrun
         /// </remarks>
         internal string? ResourceJson { get; }
 
-        /// <summary>The distinct id and resource flattened into one comparable key.</summary>
+        /// <summary>The resource flattened into one comparable key. Identity lives in it.</summary>
         internal string GroupKey { get; }
 
         internal Dictionary<string, object?>? Attributes { get; }

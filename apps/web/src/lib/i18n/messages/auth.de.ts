@@ -49,8 +49,8 @@ export const auth: AuthMessages = {
   "auth.preview_accepted": "angenommen",
   "auth.preview_lateness": "ingested_at - time p50",
   "auth.preview_throughput": "{rate} Eintraege/Sek.",
-  "auth.preview_keys_one": "{count} Attributschluessel entdeckt",
-  "auth.preview_keys_other": "{count} Attributschluessel entdeckt",
+  "auth.preview_keys_one": "{count} Attributschluessel in diesem Zeitraum",
+  "auth.preview_keys_other": "{count} Attributschluessel in diesem Zeitraum",
 
   "auth.preview_motion_label": "Animierte Vorschau",
   "auth.preview_motion_pause": "Pause",

@@ -75,8 +75,8 @@ while the banner is still up is held in memory, and sent only if the answer is
 yes.
 
 ```js
-fr('consent', true);   // persist a distinct id, send what was held
-fr('consent', false);  // clear the id and drop what was held
+fr('consent', true);   // start storing, send what was held
+fr('consent', false);  // clear what is stored and drop what was held
 ```
 
 ### Or have nothing to ask about
@@ -89,14 +89,14 @@ on the device and nothing for a banner to be about.
 <script async src="…/t.js" data-key="fr_…" data-ephemeral="true"></script>
 ```
 
-What it costs is the returning visitor. A unique becomes one tab rather than one
-browser, so uniques across days are an overcount and comparing them week over
-week is not a comparison. Counts of entries are exactly as correct as before,
-which is why this suits a marketing site measuring signups and downloads and
-does not suit a product measuring how many people came back.
+What it costs is the visit that spans a closed tab. The session clock lives in
+the tab, so coming back tomorrow is a new session rather than a returning one,
+and uniques across days are an overcount. Counts of entries are exactly as
+correct as before, which is why this suits a marketing site measuring signups
+and downloads and does not suit a product measuring how many people came back.
 
-It is not the tag's session. `session.id` still cuts on 30 minutes idle and on a
-new referring site, inside this id and independent of it.
+It does not turn the session rules off. `session.id` still cuts on 30 minutes
+idle and on a new referring site, inside the tab's lifetime.
 
 ## The calls
 
@@ -105,8 +105,10 @@ fr('event', 'clicked_pricing', { plan: 'pro' });      // a conventional event, a
 fr('error', err, { 'firstrun.form.id': 'checkout' }); // a conventional exception, at ERROR
 fr('log', { name: 'queue.drained', severity: 5,       // anything at all
             attributes: { 'firstrun.value': 12 } });
-fr('identify', 'u_42');   // your own user id. Never inferred, never guessed
-fr('identify', null);     // signed out
+fr('user', 'u_42');       // your own user id. Never inferred, never guessed
+fr('user', null);         // signed out
+fr('device', 'mach-7');   // a machine you actually know. See below
+fr('session', 's_new');   // replace the session id. There is no newSession
 fr('page');               // an unconditional page view
 fr('flush');
 ```
@@ -122,9 +124,40 @@ an aggregate rather than a cast over every row. What JSON cannot carry
 (functions, BigInt, `NaN`, `Infinity`) is dropped from that one entry rather than
 costing the batch around it.
 
-`identify` sets `user.id` for the rest of the page and is never written to
-storage. The anonymous `distinct_id` is this browser's id and belongs to this
-surface alone: it is never linked to an id from your app or your backend.
+`user` sets `user.id` for the rest of the page and is never written to storage.
+Naming a *different* person also replaces the session id, because a sign-in is a
+boundary; naming the same one again does nothing, so a router may call it on
+every route change.
+
+`session.id` is kept for you: a visit ends after 30 idle minutes or on arrival
+from a new referring site, and it survives an ordinary page load. `session` only
+exists for an app that would rather decide itself.
+
+`device.id` is **absent by default and that is deliberate**. There is no device
+to find out in a browser: everything a page can read describes software, not a
+machine. `device` is there for a page inside a Tauri or Electron shell that can
+ask the OS. For anything else there is the fingerprint below, and neither is
+ever linked to an id from your app or your backend.
+
+## Fingerprinting
+
+Off by default, and gated twice: the attribute **and** consent.
+
+```html
+<script async src="…/t.js" data-key="fr_…" data-fingerprint="true"></script>
+```
+
+It hashes screen geometry, the device pixel ratio, the timezone, the language
+and the two hardware counters into a `device.id`. No canvas and no WebGL: they
+cost hundreds of bytes against the size budget, milliseconds on a main thread
+that is not ours, and every serious privacy tool randomises them anyway.
+
+**It collides between two identical machines and changes when the OS updates or
+the window moves to a second monitor.** It is a trend line, not a headcount. If
+you need an exact number of people, call `user` with an id you already have.
+
+Whether it is lawful where you operate is your question, which is why it is off
+until you answer it.
 
 ## Counting a click
 

@@ -135,7 +135,7 @@ export const topics: DocsTopic[] = [
 
         <h2>Uniques</h2>
         <p>
-          A unique is <code>count(distinct coalesce(user.id, distinct_id))</code>, scoped to one
+          A unique is <code>count(distinct coalesce(user.id, device.id, session.id))</code>, scoped to one
           source. An identified client folds into its user; an anonymous one stands alone. Two
           sources are never linked, so a unique count filtered to one source is the only one
           that means anything.

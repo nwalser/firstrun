@@ -81,7 +81,7 @@ export const topics: DocsTopic[] = [
           </li>
           <li>
             <strong>From you:</strong> whatever you choose to put in a name, an attribute, or an{" "}
-            <code>identify()</code> call. An error event carries the exception type, message and
+            <code>user()</code> call. An error event carries the exception type, message and
             stack you hand it.
           </li>
         </ul>

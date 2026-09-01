@@ -576,9 +576,14 @@ describe("session", () => {
     const r = recorder();
     const tag = tagFor(r);
     tag.call("consent", true);
+    // After the opening page view, so the referrer rule has already had its say:
+    // arriving from a new site cuts a session, and it would cut this one too.
+    tag.page();
+    drain(r, tag);
+
     tag.call("session", "s_mine");
     expect(tag.sessionId()).toBe("s_mine");
-    tag.page();
+    tag.call("event", "did_a_thing");
     tag.flush();
     expect(JSON.parse(r.sent[0]!.body).r["session.id"]).toBe("s_mine");
   });

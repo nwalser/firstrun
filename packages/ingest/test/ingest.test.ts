@@ -30,22 +30,40 @@ const ok = (res: Response) =>
 interface Row {
   name: string;
   severity: number | null;
-  distinct_id: string;
   attributes: Record<string, unknown>;
 }
 
-const rowsFor = (distinctId: string) =>
+/**
+ * Rows by device id, which is an ATTRIBUTE and not a column.
+ *
+ * There is no id column any more: `user.id`, `device.id` and `session.id` are
+ * three optional attributes and an entry may carry none of them. These tests
+ * each pick their own `device.id` so one test's rows can be told from another's,
+ * which is the same job the old `distinct_id` was doing for them.
+ */
+const rowsFor = (deviceId: string) =>
   stack.store.query<Row>(
-    `SELECT name, severity, distinct_id, attributes
+    `SELECT name, severity, attributes
        FROM log_entries
-      WHERE project_id = $1 AND distinct_id = $2
+      WHERE project_id = $1 AND attributes ->> 'device.id' = $2
       ORDER BY "time"`,
-    [stack.projectId, distinctId]
+    [stack.projectId, deviceId]
   );
+
+/**
+ * Timestamps step by one so `order by "time"` is a TOTAL order.
+ *
+ * Several entries built in the same millisecond used to come back in a stable
+ * order by accident, because the lookup rode an index that ended in `time` and
+ * the plan returned rows in index order. Identity is an attribute now, that
+ * index is gone, and equal timestamps come back in whatever order the sort
+ * produced. Distinct times are what these assertions actually meant all along.
+ */
+let tick = 0;
 
 const entry = (n: string, extra: Record<string, unknown> = {}) => ({
   i: crypto.randomUUID(),
-  t: Date.now(),
+  t: Date.now() + tick++,
   n,
   ...extra,
 });
@@ -55,8 +73,7 @@ describe("a batch lands", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.webKey,
-        d: "v_lands",
-        r: { "session.id": "s_1", "user.id": "user-42", "browser.language": "de-CH" },
+        r: { "device.id": "v_lands", "session.id": "s_1", "user.id": "user-42", "browser.language": "de-CH" },
         e: [
           entry("page_view", {
             s: SEVERITY.INFO,
@@ -84,8 +101,7 @@ describe("a batch lands", () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_resource",
-        r: { "service.version": "1.4.2", "os.type": "windows", "session.id": "s_9" },
+        r: { "device.id": "i_resource", "service.version": "1.4.2", "os.type": "windows", "session.id": "s_9" },
         e: [entry("app_launch"), entry("exported_csv")],
       }),
       stack.ctx
@@ -104,8 +120,7 @@ describe("a batch lands", () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_override",
-        r: { "service.version": "1.4.2" },
+        r: { "device.id": "i_override", "service.version": "1.4.2" },
         e: [entry("app_launch", { a: { "service.version": "1.5.0-beta" } })],
       }),
       stack.ctx
@@ -118,8 +133,7 @@ describe("a batch lands", () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.webKey,
-        d: "v_liar",
-        r: { "firstrun.source.id": "not-a-real-source" },
+        r: { "device.id": "v_liar", "firstrun.source.id": "not-a-real-source" },
         e: [entry("page_view", { a: { "firstrun.source.id": "also-not-real" } })],
       }),
       stack.ctx
@@ -135,7 +149,7 @@ describe("a batch lands", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_arbitrary",
+        r: { "device.id": "i_arbitrary" },
         e: [entry("invoice.exported")],
       }),
       stack.ctx
@@ -151,7 +165,7 @@ describe("one row shape for everything", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_one_shape",
+        r: { "device.id": "i_one_shape" },
         e: [
           entry("exception", {
             s: SEVERITY.ERROR,
@@ -179,7 +193,8 @@ describe("one row shape for everything", () => {
     // Nothing about the exception routed it anywhere else, and nothing derived
     // a second entry from it. Three in, three rows, one table.
     const all = await stack.store.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM log_entries WHERE project_id = $1 AND distinct_id = $2`,
+      `SELECT count(*)::int AS n FROM log_entries
+        WHERE project_id = $1 AND attributes ->> 'device.id' = $2`,
       [stack.projectId, "i_one_shape"]
     );
     expect(all[0]!.n).toBe(3);
@@ -189,7 +204,7 @@ describe("one row shape for everything", () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.webKey,
-        d: "v_types",
+        r: { "device.id": "v_types" },
         e: [
           entry("web_vital", {
             a: { "firstrun.metric": "LCP", "firstrun.value": 1834.5, "firstrun.unit": "ms" },
@@ -208,7 +223,7 @@ describe("one row shape for everything", () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_unclassified",
+        r: { "device.id": "i_unclassified" },
         e: [entry("something.happened")],
       }),
       stack.ctx
@@ -221,7 +236,7 @@ describe("one row shape for everything", () => {
     await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_ladder",
+        r: { "device.id": "i_ladder" },
         e: [entry("a", { s: 1 }), entry("b", { s: 14 }), entry("c", { s: 24 })],
       }),
       stack.ctx
@@ -238,7 +253,7 @@ describe("a malformed entry", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.webKey,
-        d: "v_partial",
+        r: { "device.id": "v_partial" },
         e: [
           entry("page_view"),
           // Not a uuid, so it could never dedup.
@@ -266,7 +281,7 @@ describe("a malformed entry", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_all_bad",
+        r: { "device.id": "i_all_bad" },
         e: [{ i: "nope", t: Date.now(), n: "app_launch" }],
       }),
       stack.ctx
@@ -284,7 +299,7 @@ describe("a malformed entry", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_bounds",
+        r: { "device.id": "i_bounds" },
         e: [entry("fine"), entry("too_many_attributes", { a: huge })],
       }),
       stack.ctx
@@ -295,32 +310,40 @@ describe("a malformed entry", () => {
   });
 
   test("a bad resource costs the resource, not the entries underneath it", async () => {
-    const huge: Record<string, number> = {};
+    const huge: Record<string, number> = { "device.id": 1 as unknown as number };
     for (let i = 0; i < 200; i++) huge["k" + i] = i;
 
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: "i_bad_resource",
         r: huge,
-        e: [entry("app_launch")],
+        e: [entry("bad_resource_probe", { a: { "device.id": "i_bad_resource" } })],
       }),
       stack.ctx
     );
 
-    // The entry is what the customer will miss. A resource is decoration on it.
+    // The entry is what the customer will miss. A resource is decoration on it,
+    // and that stays true now that the identity travels in it: this entry lands
+    // without its resource, so it lands without whatever identity the resource
+    // was carrying. An entry with no identity counts as an entry and in no
+    // unique, which is a smaller loss than the entry.
     expect(await ok(res)).toEqual({ accepted: 1, duplicates: 0, dropped: 0 });
     const row = (await rowsFor("i_bad_resource"))[0]!;
     expect(row.attributes.k0).toBeUndefined();
     expect(row.attributes["firstrun.source.id"]).toBe(stack.appSourceId);
   });
 
-  test("but a batch with no distinct id is refused: there is nothing to attribute", async () => {
+  test("and a batch with no identity at all is accepted, because that is legal", async () => {
+    // Identity is three optional attributes. An entry carrying none of them is
+    // counted as an entry and in no unique, which is the honest answer for a
+    // client that was never told who anything was for. Refusing it would lose a
+    // measurement to protect a number nobody asked for.
     const res = await handleEntries(
       beacon("http://test.local/v1/e", { k: stack.webKey, e: [entry("page_view")] }),
       stack.ctx
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(202);
+    expect(await ok(res)).toEqual({ accepted: 1, duplicates: 0, dropped: 0 });
   });
 });
 
@@ -329,7 +352,7 @@ describe("an unknown source key", () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: "fr_0123456789abcdef",
-        d: "v_unknown",
+        r: { "device.id": "v_unknown" },
         e: [entry("page_view")],
       }),
       stack.ctx
@@ -341,7 +364,7 @@ describe("an unknown source key", () => {
 
   test("and so is a body that names no source at all", async () => {
     const res = await handleEntries(
-      beacon("http://test.local/v1/e", { d: "v_none", e: [] }),
+      beacon("http://test.local/v1/e", { r: { "device.id": "v_none" }, e: [] }),
       stack.ctx
     );
     expect(res.status).toBe(400);
@@ -351,7 +374,7 @@ describe("an unknown source key", () => {
 describe("a replayed queue", () => {
   test("is deduplicated by the primary key, not by a side table", async () => {
     const one = entry("app_launch");
-    const batch = { k: stack.appKey, d: "i_replay", e: [one] };
+    const batch = { k: stack.appKey, r: { "device.id": "i_replay" }, e: [one] };
 
     const first = await handleEntries(beacon("http://test.local/v1/e", batch), stack.ctx);
     expect(await ok(first)).toEqual({ accepted: 1, duplicates: 0, dropped: 0 });
@@ -368,7 +391,7 @@ describe("a replayed queue", () => {
   test("dedups within one batch too, so a doubled queue file costs one row", async () => {
     const one = entry("app_launch");
     const res = await handleEntries(
-      beacon("http://test.local/v1/e", { k: stack.appKey, d: "i_doubled", e: [one, one] }),
+      beacon("http://test.local/v1/e", { k: stack.appKey, r: { "device.id": "i_doubled" }, e: [one, one] }),
       stack.ctx
     );
 

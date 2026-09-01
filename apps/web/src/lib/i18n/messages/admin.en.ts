@@ -1,19 +1,21 @@
 import type { Namespaced } from "./namespace.js";
 
 /**
- * The operator's page: every workspace on this deployment.
+ * The operator's pages: the deployment, its workspaces, its database, its
+ * partitions.
  *
  * Written for whoever runs the service, not for a customer, so the register is
  * flatter than the rest of the app: no reassurance, no explanation of what a
- * workspace is, and numbers rather than sentences. The one thing it does spell
- * out is the caveat about forced plans, because that is a footgun and a tooltip
- * is where somebody will look for it.
+ * workspace is, and numbers rather than sentences.
+ *
+ * There are no page descriptions and no explanatory notes here, and that is the
+ * register rather than an omission: a label, a number and a one-word qualifier
+ * on the numbers that need one. The one prose string left is the caveat about
+ * forced plans, because that one is a footgun on a control sitting directly
+ * underneath it rather than a description of what a page is for.
  */
 export const admin = {
   "admin.title": "Deployment",
-  "admin.hint":
-    "Every workspace on this instance. A plan belongs to a workspace: everything below is " +
-    "counted across all of its projects.",
   "admin.nav": "Deployment",
 
   // The summary strip.
@@ -54,11 +56,6 @@ export const admin = {
     "goes back to whatever its price says on the next Stripe event. To lift a ceiling durably, " +
     "set a limit instead.",
 
-  // The self-hosted case.
-  "admin.self_hosted":
-    "This instance is self-hosted, so nothing below is enforced or billed. Plans and limits are " +
-    "recorded and ignored.",
-
   "admin.empty": "No workspaces on this instance yet",
 
   // The shell around these pages.
@@ -72,18 +69,9 @@ export const admin = {
   "admin.edition_self": "Self-hosted",
 
   // Overview.
-  "admin.overview_hint":
-    "What this instance is running on, and how much of it there is. Sizes and row counts come " +
-    "out of the catalogue, so nothing here reads inside anybody's entries.",
   "admin.workspaces_title": "Workspaces",
   "admin.database_title": "Database",
-  "admin.database_hint":
-    "Storage, vacuum state and the connection pool, read from Postgres' own statistics. Row " +
-    "counts are exact for the small tables and estimated for the log.",
   "admin.partitions_title": "Partitions",
-  "admin.partitions_hint":
-    "log_entries is partitioned by month on the entry's own timestamp. Retention drops a " +
-    "partition; there is no bulk delete anywhere.",
 
   // Counts and sizes.
   "admin.stat_projects": "Projects",
@@ -100,16 +88,10 @@ export const admin = {
 
   // Arrivals.
   "admin.arrivals_title": "Entries received",
-  "admin.arrivals_hint":
-    "By the day they ARRIVED, across every workspace, for the last 30 days. An entry stamped " +
-    "last week that uploaded today is counted today: that is the axis the meter bills on.",
   "admin.arrivals_empty": "Nothing has arrived in the last 30 days",
 
   // The database page.
   "admin.cache_hit": "Cache hit ratio",
-  "admin.cache_hit_hint":
-    "Blocks served from shared buffers. Below about 99% the working set no longer fits in " +
-    "memory, which is the first thing to look at when reads have got slow on their own.",
   "admin.connections": "Connections",
   "admin.conn_active": "Active",
   "admin.conn_idle": "Idle",
@@ -150,15 +132,6 @@ export const admin = {
   "admin.months_other": "{count} months",
   "admin.created_ahead": "Created ahead",
   "admin.created_behind": "Created behind",
-  "admin.partitions_note":
-    "Retention is a DROP of a whole partition, so it is applied a month at a time and never " +
-    "cuts one in half. It runs only when it is called: nothing here drops anything on a " +
-    "schedule. A write arriving for a month nobody created lands in the default partition and " +
-    "moves the next time that month is created.",
-  "admin.rows_estimated":
-    "Row counts here are the planner's estimate from the catalogue. Counting them would read " +
-    "every partition of the largest table in the database, which is the one thing this page " +
-    "must not do.",
 } satisfies Namespaced<"admin">;
 
 export type AdminMessages = typeof admin;

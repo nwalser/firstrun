@@ -8,7 +8,7 @@ Nothing is stored and nothing is sent until you call `consent(true)`, or until
 you pass `ephemeral` and there is nothing persistent left to ask about.
 
 ```
-@firstrun/analytics          core: init / event / error / log / identify / consent / page / flush / stop
+@firstrun/analytics          core: init / event / error / log / user / device / session / consent / page / flush / stop
 @firstrun/analytics/react    <Analytics /> + useFirstrun()   React, Vite, Remix, Next Pages Router
 @firstrun/analytics/next     <Analytics /> wired to next/navigation   Next App Router
 @firstrun/analytics/svelte   a Svelte action and an init helper   SvelteKit
@@ -278,7 +278,7 @@ API host to wherever it was served from, so first-party proxying needs no second
 setting; `data-host` overrides it.
 
 Then `fr('consent', true)`, `fr('event', 'name', { … })`, `fr('error', err)`,
-`fr('log', { name, severity, attributes })`, `fr('identify', id)`, `fr('page')`,
+`fr('log', { name, severity, attributes })`, `fr('user', id)`, `fr('page')`,
 `fr('flush')`.
 
 ---
@@ -293,7 +293,7 @@ held like everything else.
 ```ts
 import { consent } from '@firstrun/analytics';
 
-consent(true);   // persist a distinct id, send what was held
+consent(true);   // start storing, send what was held
 consent(false);  // clear the id and drop what was held
 ```
 
@@ -306,12 +306,12 @@ In the plain-script install: `fr('consent', true)`.
 A conventional entry at INFO, under any name you like.
 
 ```ts
-import { event, identify } from '@firstrun/analytics';
+import { event, user } from '@firstrun/analytics';
 
 event('clicked_pricing', { plan: 'pro' });
 event('exported_csv', { rows: 4200 });
-identify('u_42');   // your own user id, as a string
-identify(null);     // signed out
+user('u_42');   // your own user id, as a string
+user(null);     // signed out
 ```
 
 Any name up to 128 characters of `[A-Za-z0-9_.-]`, starting with a letter or a
@@ -380,12 +380,28 @@ An entry that follows none of the conventions above is stored, indexed and
 queried identically to one that follows all of them. A customer who only ever
 calls `log` loses the suggestions in the attribute pickers and nothing else.
 
-### `identify(userId)`
+### `user(userId)`
 
 Sets the `user.id` attribute and nothing else. firstrun never infers one, never
 derives one from behaviour, and never links this browser's anonymous
-`distinct_id` to an id from your app or your backend. If you want one person
-counted once across surfaces, call `identify` with the same id on each.
+any id here to an id from your app or your backend. If you want one person
+counted once across surfaces, call `user` with the same id on each.
+
+Naming a different person replaces the session id, because a sign-in is a
+boundary. Naming the same one again does nothing at all, so this is safe to call
+from a router on every route change.
+
+### `device(deviceId)`
+
+Names the machine, for a page inside a Tauri or Electron shell that can ask the
+OS. On an ordinary website leave it alone: there is nothing honest to pass, and
+nothing is ever derived on your behalf unless you switch fingerprinting on.
+
+### `session(sessionId)`
+
+Replaces the session id. There is no separate new-session call. The tag keeps
+its own session by default (30 idle minutes, or arrival from a new site), so
+most apps never call this.
 
 The id is held for the life of the page and never written to storage.
 
@@ -588,7 +604,7 @@ way a threshold change ever reaches the samples already collected.
 
 Three more attributes ride along on every entry, sent once per batch rather than
 copied onto each one on the wire: `session.id`, `browser.language`, and
-`user.id` once you have called `identify`. A fourth, `firstrun.dropped`, appears
+`user.id` once you have called `user`. A fourth, `firstrun.dropped`, appears
 only once the buffer has had to drop something, and says how much.
 
 Sessions are cut on the client, not the server: only the client knows the tab is

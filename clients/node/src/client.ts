@@ -43,11 +43,11 @@ import {
 
 /**
  * A queued entry travels with the batch context it needs (`QueuedEntry`), because
- * `LogBatch` carries the distinct id and the resource attributes once per body
- * rather than per entry: two entries may only share a request if both match. A
- * server handling many people at once therefore sends one request per person
- * per flush, which is a property of the wire contract rather than a choice this
- * client makes.
+ * `LogBatch` carries the resource attributes once per body rather than per entry:
+ * two entries may only share a request if their resources match. Identity lives
+ * in the resource, so a server handling many people at once sends one request per
+ * identity per flush, which is a property of the wire contract rather than a
+ * choice this client makes.
  */
 type Queued = QueuedEntry;
 

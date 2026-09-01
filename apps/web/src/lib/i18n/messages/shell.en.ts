@@ -70,7 +70,10 @@ export const shell = {
    * own strings rather than a reuse of the row labels underneath them.
    */
   "shell.project": "Project",
-  "shell.account": "Account",
+  /* The one group label that is not a scope: the product itself, which is
+     the honest name for the two rows belonging to no workspace. Untranslated
+     on purpose, here and in every other catalogue: it is the product's name. */
+  "shell.product": "firstrun",
 } satisfies Namespaced<"shell">;
 
 export type ShellMessages = typeof shell;

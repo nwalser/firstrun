@@ -185,7 +185,7 @@ export function eventTopic(spec: EventSpec): DocsTopic {
         <p>
           Every entry also carries the resource its client sends once per batch:{" "}
           <code>session.id</code>, <code>user.id</code> once you have called{" "}
-          <code>identify()</code>, and the rest of{" "}
+          <code>user()</code>, and the rest of{" "}
           <Link to="/docs/$topic" params={{ topic: "premade-events" }}>
             the list on the overview
           </Link>

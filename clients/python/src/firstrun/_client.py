@@ -420,10 +420,12 @@ class Firstrun:
         # segment said "desktop" or "mobile"; a source has no such segment and no
         # kind, so the client cannot know whether app_install and app_launch mean
         # anything here. An app that wants them passes track_lifecycle=True.
+        # `app_install` is not sent at all any more. It meant "the run that
+        # created the persisted id", and this client no longer creates one: a
+        # server has no installation. A desktop program that wants it knows its
+        # own first run better than we could and sends `event("app_install")`.
         lifecycle = bool(track_lifecycle)
         if lifecycle and self._enabled:
-            if self.is_first_run:
-                self.event(_wire.APP_INSTALL)
             self.event(_wire.APP_LAUNCH)
 
     # ------------------------------------------------------------------
@@ -1323,8 +1325,10 @@ class Firstrun:
                 # `startup` over a memory queue sends nothing, ever. The child
                 # would be silent for its whole life.
                 self.delivery = INTERVAL
-        # A fresh session: the child is a different run of the program.
-        self._session_id = str(uuid.uuid4())
+        # The identity is left exactly as it was. A fork does not make a second
+        # person, a second machine or a second visit, and this client mints no
+        # id of any kind: what the parent stated is still what is true.
+
         # urllib holds no socket between calls, but the opener was built before
         # the fork and a child sharing it with the parent is not worth the doubt.
         if self._enabled:

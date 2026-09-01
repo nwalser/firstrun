@@ -52,7 +52,7 @@ namespace Firstrun
                 // person signing in to three of them would share a single device_id and read
                 // as one installation instead of three. device_id identifies an INSTALLATION,
                 // and the Local folder is what means "this machine" on Windows. Tying somebody
-                // across machines is what identify() is for.
+                // across machines is what User() is for.
                 string? local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
                 if (!string.IsNullOrEmpty(local)) return local!;
                 return Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

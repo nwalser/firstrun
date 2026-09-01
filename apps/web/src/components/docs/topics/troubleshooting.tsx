@@ -108,7 +108,7 @@ export const topics: DocsTopic[] = [
             address, a device or a coincidence in timing.
           </li>
           <li>
-            To count one person once across sources, call <code>identify()</code> with the same
+            To count one person once across sources, call <code>user()</code> with the same
             id on each. That is the only thing that joins them.
           </li>
           <li>

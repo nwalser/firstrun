@@ -102,12 +102,20 @@ function Login() {
         edge on purpose, because a log that ends in white space looks finished
         and a log that runs off the screen looks like it is still arriving.
       */}
-      <div class="relative hidden overflow-hidden border-l bg-sidebar lg:block">
+      <div class="relative hidden overflow-hidden border-l border-chrome-border bg-background lg:block">
         <LoginPreview />
 
-        {/* A short fade off the left edge only, so the board meets the form
-            without a hard seam. */}
-        <div class="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-background to-transparent" />
+        {/*
+          The board sits BEHIND the form, and this is what puts it there.
+
+          One flat translucent black over the whole column. The edge fade that
+          used to be here was a gradient, and neither design reference contains
+          a gradient anywhere: measured, it painted the page colour over the
+          page colour in light (so it did nothing at all) and dragged card text
+          toward pure black in dark. The seam between the two panes is the
+          column's own left border, which is what a border is for.
+        */}
+        <div aria-hidden="true" class="fr-scrim" />
       </div>
     </div>
   );

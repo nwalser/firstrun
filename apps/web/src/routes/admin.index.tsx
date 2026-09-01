@@ -2,15 +2,7 @@ import { createFileRoute, notFound } from "@tanstack/solid-router";
 import { For, Show, createMemo } from "solid-js";
 import { Fact, FactRow } from "../components/admin-shell.js";
 import { PageHeader } from "../components/page-header.js";
-import {
-  Alert,
-  AlertDescription,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/index.js";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/index.js";
 import { getAdminInstance } from "../lib/api.js";
 import { useI18n } from "../lib/i18n/index.js";
 
@@ -48,17 +40,9 @@ function AdminOverviewPage() {
 
   return (
     <main class="px-6 pb-6">
-      <PageHeader title={i18n.t("admin.title")} description={i18n.t("admin.overview_hint")} />
+      <PageHeader title={i18n.t("admin.title")} />
 
       <div class="flex flex-col gap-4">
-        <Show when={!view().cloud}>
-          {/* Recorded and ignored, which is worth saying out loud: the columns
-              are the same in both editions and only one of them reads them. */}
-          <Alert>
-            <AlertDescription>{i18n.t("admin.self_hosted")}</AlertDescription>
-          </Alert>
-        </Show>
-
         <FactRow>
           <Fact label={i18n.t("admin.workspaces")}>{i18n.num(view().workspaces)}</Fact>
           <Fact label={i18n.t("admin.stat_projects")}>
@@ -125,7 +109,6 @@ function ArrivalsCard(props: { days: { day: string; entries: number }[] }) {
     <Card>
       <CardHeader class="flex-col items-stretch gap-1">
         <CardTitle>{i18n.t("admin.arrivals_title")}</CardTitle>
-        <CardDescription>{i18n.t("admin.arrivals_hint")}</CardDescription>
       </CardHeader>
 
       <CardContent>

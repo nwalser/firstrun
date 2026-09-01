@@ -56,12 +56,12 @@ export const topics: DocsTopic[] = [
         <Snippet
           lang="ts"
           code={
-            `firstrun.event("exported_csv", { rows: rows.length }, { distinctId: req.user.id });\n\n` +
-            `firstrun.error(err, { "http.route": "/reports/:id" }, { distinctId: req.user.id });\n\n` +
+            `firstrun.event("exported_csv", { rows: rows.length }, { userId: req.user.id });\n\n` +
+            `firstrun.error(err, { "http.route": "/reports/:id" }, { userId: req.user.id });\n\n` +
             `firstrun.log({\n` +
             `  name: "queue_depth",\n` +
             `  severity: 9,\n` +
-            `  distinctId: "worker-3",\n` +
+            `  deviceId: "worker-3",\n` +
             `  attributes: { "firstrun.metric": "queue_depth", "firstrun.value": depth },\n` +
             `});\n\n` +
             `await firstrun.close(2000);   // on exit. Bounded, never rejects`
@@ -78,13 +78,19 @@ export const topics: DocsTopic[] = [
           }
         />
 
-        <Callout title="distinctId is yours to supply">
-          A browser has a visitor id and a desktop install has one on disk. A server has neither,
-          so pass an id you already have per call. An event without one is{" "}
-          <strong>dropped and reported</strong> rather than sent under an invented id: a loud
-          failure beats a silently wrong number nobody can spot from a dashboard. Set the
-          client-level <code>distinctId</code> only when the process really is the subject, such
-          as a CLI or a device agent.
+        <Callout title="Identity is yours to supply, and all of it is optional">
+          This client fills in nothing. A desktop install has a machine to name and a browser has a
+          visit; a server process has neither, so <code>userId</code>, <code>deviceId</code> and{" "}
+          <code>sessionId</code> stay empty until you pass one. An event with none of them is sent
+          and stored like any other: it counts as an event and in no unique, which is the honest
+          answer rather than an invented id nobody could spot from a dashboard.
+          <br />
+          <br />
+          They travel as <strong>one unit</strong>. Stating any of the three on a call means that
+          call's identity comes from the call, and the surrounding{" "}
+          <code>runWithContext()</code> and the client defaults are not consulted for the other
+          two. Set a client-level identity only when the process really is the subject, such as a
+          CLI or a single-tenant worker.
         </Callout>
       </DocsProse>
     ),

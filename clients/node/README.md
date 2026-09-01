@@ -19,7 +19,7 @@ firstrun.log({
   severity: "info",
   body: "nightly reindex finished",
   attributes: { "firstrun.duration_ms": 41_220, rows: 18_400, dry_run: false },
-  distinctId: tenant.id,
+  userId: tenant.id,
 });
 ```
 
@@ -75,9 +75,10 @@ const firstrun = new Firstrun({
   serviceVersion: process.env.GIT_SHA,
 });
 
-// distinctId identifies WHO, and you must supply it. See below.
+// Identity is three optional fields and this client fills in none of them.
+// See below.
 firstrun.event("invoice_generated", { plan: account.plan, lines: invoice.lines.length }, {
-  distinctId: account.id,
+  userId: account.id,
 });
 ```
 
@@ -91,7 +92,7 @@ try {
 } catch (err) {
   // exception.type, exception.message and exception.stacktrace are filled in
   // from the Error itself, with any `cause` chain appended to the stack.
-  firstrun.error(err, { invoice: invoice.id }, { distinctId: account.id });
+  firstrun.error(err, { invoice: invoice.id }, { userId: account.id });
   throw err;
 }
 ```
@@ -121,15 +122,15 @@ const app = express();
 // cookie or a session on its own: these are your functions, returning your ids.
 app.use(
   firstrunExpress<Request>(firstrun, {
-    distinctId: (req) => req.cookies.visitor_id,
     userId: (req) => req.user?.id,
+    sessionId: (req) => req.cookies.session_id,
     ignore: ["/health", "/assets"],
   })
 );
 
 app.post("/api/export", async (req, res) => {
   const rows = await exportCsv(req.user.id);
-  // No distinctId, and nothing threaded down five layers to get one. The
+  // No identity here, and nothing threaded down five layers to get one. The
   // middleware opened a context around this handler, so everything recorded
   // inside it is attributed to the same person. Still not awaited, and there is
   // still nothing here to await.
@@ -159,7 +160,7 @@ const firstrun = new Firstrun({
   host: process.env.FIRSTRUN_HOST!,
   // A CLI run genuinely is one subject, so a client-level id is right here.
   // Persist it somewhere per machine if you want runs to count as one user.
-  distinctId: process.env.MY_CLI_INSTALL_ID ?? randomUUID(),
+  deviceId: process.env.MY_CLI_INSTALL_ID,
 });
 
 const started = Date.now();
@@ -195,8 +196,8 @@ real request.
 // onResponse hook. `fastifyHooks` hands you the same two to add by hand.
 await app.register(
   firstrunFastify<FastifyRequest>(firstrun, {
-    distinctId: (request) => request.headers["x-visitor-id"] as string,
     userId: (request) => request.user?.id,
+    sessionId: (request) => request.headers["x-session-id"] as string,
   })
 );
 
@@ -205,8 +206,8 @@ await app.register(
 app.use(
   "*",
   firstrunHono<Context>(firstrun, {
-    distinctId: (c) => c.req.header("x-visitor-id"),
     userId: (c) => c.get("user")?.id,
+    sessionId: (c) => c.req.header("x-session-id"),
   })
 );
 ```
@@ -215,14 +216,17 @@ app.use(
 
 | Option | | |
 |---|---|---|
-| `distinctId` | required | Who this request is for. A function, because a server process is not a person |
-| `userId` | | Your own id for them, when the request is already authenticated here |
+| `userId` | | Your own id for the person, when the request is already authenticated here |
+| `deviceId` | | A machine this request names, if your protocol carries one |
 | `sessionId` | | Lands in `session.id` |
 | `attributes` | | Stamped on every entry recorded during this request: a tenant, a region, a request id |
 | `route` | | The route template, when you would rather state it than take the framework's answer |
 | `ignore` | none | Path prefixes or a predicate. Ignored requests are not touched at all |
 
-**`distinctId` is a function you write, and there is no fallback behind it.** If it returns
+**Every identity extractor is a function you write, all of them are optional, and there is no
+fallback behind any of them.** A middleware with none of them still records one entry per
+request, carrying no identity: that entry counts as an entry and in no unique, which is the
+honest answer for a backend that was never told who the request was for. If an extractor returns
 nothing, or throws, the request is not measured and nothing is recorded under an invented id.
 Identity is never inferred anywhere in this product, so nothing in these adapters reads a cookie,
 a header, an IP address or a session store on its own initiative, and nothing joins one request to
@@ -278,7 +282,7 @@ framework's answer and is the way to get the prefix back:
 ```ts
 app.use(
   firstrunExpress<Request>(firstrun, {
-    distinctId: (req) => req.cookies.visitor_id,
+    userId: (req) => req.user?.id,
     route: (req) => (req.route ? "/orgs/:orgId" + req.route.path : undefined),
   })
 );
@@ -296,50 +300,35 @@ The middleware opens an ambient context with `AsyncLocalStorage`, and every reco
 inside it inherits the identity. The precedence is always most-specific-wins: what a call names
 itself, then the request it is running inside, then the client-level defaults.
 
-**An identity is inherited as one unit, and `distinctId` selects the unit.** A call that names a
-`distinctId` of its own has named a different subject, so it does not pick up the request's
-`user.id` or `session.id` as well:
+**Identity is taken as one unit, from one layer.** The innermost layer that states **any** of
+`userId`, `deviceId` or `sessionId` supplies all three, and the layers below it are not consulted
+for the other two. Nothing is merged across layers.
 
 ```ts
-runWithContext({ distinctId: "visitor-A", userId: "person-A" }, () => {
-  firstrun.event("exported_csv");                             // visitor-A, user.id person-A
-  firstrun.event("job_ran", {}, { distinctId: "worker-7" });  // worker-7, no user.id at all
-  firstrun.event("paid", {}, { userId: "person-B" });         // visitor-A, user.id person-B
-  firstrun.event("signed_out", {}, { userId: null });         // visitor-A, no user.id
+runWithContext({ userId: "person-A", sessionId: "s-1" }, () => {
+  firstrun.event("exported_csv");                            // person-A, s-1
+  firstrun.event("job_ran", {}, { deviceId: "worker-7" });   // worker-7, no user.id, no session
+  firstrun.event("paid", {}, { userId: "person-B" });        // person-B, and no session either
+  firstrun.event("signed_out", {}, { userId: null });        // no identity at all
 });
 ```
 
-The second line is the one worth staring at. A unique in this product is
-`coalesce(user.id, distinct_id)`, so inheriting the request's person onto an entry that said it
-was about somebody else would count that worker's entries as that person. Stating a `userId` or a
-`sessionId` on its own is different: that is a more specific statement about the **same** subject,
-and it wins. So is naming the same `distinctId` the request already carries, which is why
-`identify()` inside a request keeps the request's session.
+The second line is the one worth staring at. A unique in this product coalesces `user.id` before
+`device.id`, so inheriting the request's person onto an entry that said it was about a machine
+would count that worker's entries as that customer. Stating an identity has to replace the
+identity, not a third of it.
 
-**A context with no `distinctId` claims no subject, so its person applies to whatever subject
-resolves, until something narrower names one.** The rule above is about two subjects disagreeing;
-a scope that never named a subject is not in that argument, right up until an entry supplies a
-subject of its own:
+The third line is the price of that rule: naming a person on a call drops the request's session
+too. If you want both, state both, or open a narrower `runWithContext`.
 
-```ts
-runWithContext({ userId: "person-A" }, () => {
-  firstrun.event("exported_csv");                                  // user.id person-A
-  firstrun.event("job_done", {}, { distinctId: "worker-7" });      // worker-7, no user.id
-});
-```
+**`null` states, `undefined` inherits.** `userId: null` means "nobody", explicitly, so a call
+that clears the user has spoken about identity and does not fall through to the request's.
+Leaving all three out says nothing at all, which is what inherits.
 
-The second entry named its own subject, so it has left the block's scope and does not take the
-block's person with it. Without that, a background job recorded inside the block would count as
-person-A, which is the same wrong number the previous rule exists to prevent.
-
-A client-level `userId` set without a client-level `distinctId` is the same shape and the trap is
-worse, so it warns at construction: on a server every request resolves its own `distinct_id`, and
-a process-wide person riding along on all of them would report the entire fleet as one unique.
-Set `distinctId` beside it, or pass the person per call.
-
-**`null` clears, `undefined` inherits.** `userId: null` is how a call says this entry is about
-nobody, and it beats whatever the request or the client would have supplied. Leaving the field
-out says nothing at all, which is what inherits.
+A client-level `userId` warns at construction. On a server it rides on every entry of every
+visitor, and the unique count then reports the whole fleet as one person: a wrong number that
+looks entirely plausible. It is right for a CLI or a single-tenant worker and wrong for a server,
+which is why it is a warning and not a refusal.
 
 ```ts
 import { updateContext } from "@firstrun/node";
@@ -373,7 +362,7 @@ context object alive for just as long.
 That is how the platform primitive works rather than something this library can fix, and the
 ordinary case depends on it: a handler that awaits three things and records afterwards is still
 inside its own request. So the rule is on the calling side. **Anything detached states its own
-identity**, either by naming a `distinctId` on the call, which resets the whole identity, or by
+identity**, either by stating one on the call, which replaces the whole identity, or by
 being wrapped in its own `runWithContext`.
 
 ```ts
@@ -386,7 +375,7 @@ app.post("/jobs", (req, res) => {
 
 // Right: the job is its own subject, and says so.
 app.post("/jobs", (req, res) => {
-  setInterval(() => firstrun.event("job_tick", {}, { distinctId: "job-runner" }), 60_000);
+  setInterval(() => firstrun.event("job_tick", {}, { deviceId: "job-runner" }), 60_000);
   res.json({ ok: true });
 });
 ```
@@ -507,27 +496,27 @@ outbound and file clicks, form submits and Core Web Vitals on its own. This clie
 nothing on its own. Every entry exists because you called for it, the HTTP middleware included:
 it writes one entry per request because you mounted it, and it is off until you do.
 
-**`distinctId` must be supplied by you, per call.** This is the one that matters.
+**No identity either.** This is the one that matters.
 
-A browser has a persistent per-visitor id in `localStorage`, and a desktop app has a per-install
-id on disk. A server has neither. It handles thousands of different people from one process, so
-there is nothing for this library to default to that would be correct. Get it wrong and every
-entry in your fleet collapses onto a handful of ids, and your unique counts become a count of
-your server processes.
+A desktop app has a machine to name and a browser has a visit. A server has neither: it handles
+thousands of different people from one process, so there is nothing for this library to default
+to that would be correct. A per-process id would report a fleet as a handful of people and a
+restart as a new machine, and both numbers look entirely plausible.
 
-So `distinctId` is required, and an entry without one is **dropped and reported** through
-`onDiagnostic` rather than sent under an invented id. A loud failure beats a silently wrong
-number that nobody can spot from a dashboard.
+So this client sets **nothing**. `userId`, `deviceId` and `sessionId` are empty until you state
+one, and an entry with none of them is sent and stored like any other: it counts as an entry and
+in no unique. That is the honest answer rather than an invented id nobody could spot from a
+dashboard.
 
 Per call is the floor, not the ceiling: the HTTP middleware states it once per request and every
 call inside that request inherits it, which is the same rule with the repetition removed. What it
-does not do is work the id out for you.
+does not do is work an id out for you.
 
-Set the client-level `distinctId` option only when the process really is the subject: a CLI, a
+Set the client-level identity options only when the process really is the subject: a CLI, a
 single-tenant worker, a device agent.
 
-**And one consequence of the wire format.** Entries cost one HTTP request per distinct id and
-resource pair per flush, because the wire carries the distinct id and the resource attributes once
+**And one consequence of the wire format.** Entries cost one HTTP request per distinct resource
+per flush, because the wire carries the resource attributes once
 per body rather than once per entry. Entries for the same person are grouped into one request.
 
 ## API
@@ -547,7 +536,7 @@ info(body: string, attributes?: AttributesInput, params?: EntryParams): void
 warn(body: string, attributes?: AttributesInput, params?: EntryParams): void
 errorLog(body: string, attributes?: AttributesInput, params?: EntryParams): void
 fatal(body: string, attributes?: AttributesInput, params?: EntryParams): void
-identify(distinctId: string, userId: string, params?: EntryParams): void
+user(userId: string, params?: EntryParams): void
 page(path?: string, attributes?: AttributesInput, params?: EntryParams): void
 
 flush(timeoutMs?: number): Promise<boolean>   // true if drained; never rejects
@@ -581,7 +570,7 @@ What each helper actually writes:
 | `event(n, a)` | `n` | 9 (`INFO`) | yours |
 | `error(err, a)` | `exception` | 17 (`ERROR`) | `exception.type`, `exception.message`, `exception.stacktrace` |
 | `trace` / `debug` / `info` / `warn` / `errorLog` / `fatal` | `log` | 1 / 5 / 9 / 13 / 17 / 21 | yours |
-| `identify(d, u)` | `identify` | 9 | `user.id` |
+| `user(u)` | `identify` | 9 | `user.id` |
 | `page(p, a)` | `page_view` | 9 | `url.path` |
 
 `errorLog` exists because `error` is taken by the helper that unwraps a thrown thing, which is the
@@ -591,10 +580,14 @@ Every `name` is any string matching `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`. There 
 `event("download_clicked")` and `event("exported_csv")` are treated identically by the whole
 system. `:` and `>` are rejected because the server reserves them.
 
-`identify(distinctId, userId)` takes both ids explicitly. There is no remembered "current user",
-because in a server process that would be whoever was served last. It writes an `identify` entry
-carrying `user.id`; from then on, entries you send with that `userId` count as the same unique.
-Nothing is merged retroactively, and identities are never inferred.
+`user(userId)` takes the id explicitly and does not remember it, because in a server process a
+remembered "current user" would be whoever was served last. It writes an `identify` entry carrying
+`user.id`; from then on, entries you send with that `userId` count as the same unique. Nothing is
+merged retroactively, and identities are never inferred.
+
+There is no `device()` or `session()` method on this client for the same reason: on a server they
+belong to a call or to a request scope, not to the process. Pass them per call, or open a
+`runWithContext`.
 
 ### Severity
 
@@ -618,9 +611,9 @@ classified, not what you left alone.
 
 ### Attributes
 
-Anything that is not one of the five promoted columns (`project_id`, `time`, `distinct_id`,
-`severity`, `name`) lives in `attributes` and is queried from there. That includes `os`,
-`app_version`, `url`, `session.id` and `user.id`.
+Anything that is not one of the four promoted columns (`project_id`, `time`, `severity`,
+`name`) lives in `attributes` and is queried from there. That includes `os`, `app_version`,
+`url`, and all three identity keys `user.id`, `device.id` and `session.id`.
 
 Values may be strings, numbers, booleans, null, arrays or nested objects, up to 4 levels deep.
 `undefined`, functions and non-finite numbers are dropped on the way in. Dates become ISO-8601
@@ -641,7 +634,7 @@ is only that the pickers in the dashboard will not suggest it before you have se
 |---|---|---|
 | `sourceKey` | required | `fr_9f3a2b1c4d5e6f70`. Public by necessity; it identifies and authorises nothing |
 | `host` | required | Origin only, e.g. `https://t.example.com` |
-| `distinctId`, `userId` | none | Client-level defaults. Leave unset in a multi-tenant server |
+| `userId`, `deviceId`, `sessionId` | none | Client-level defaults. Leave unset in a multi-tenant server |
 | `serviceName`, `serviceVersion`, `channel`, `os`, `arch`, `locale` | none | Resource attributes, overridable per call |
 | `resource` | none | Extra resource attributes: anything true of the process |
 | `defaultAttributes` | none | Stamped onto every entry. An entry's own attributes win |
@@ -709,7 +702,7 @@ new Firstrun({
 });
 ```
 
-A `rejected` at error level naming `distinctId` is the one worth alerting on: it means entries are
+A `rejected` at error level is the one worth alerting on: it means entries are
 being thrown away at the call site. `dropped` means the queue overflowed. `breaker_open` means we
 have stopped trying for a while. `config` is worth reading once at boot: every one of them is a
 setting that was corrected rather than obeyed, which means it does not do what it says.
@@ -763,8 +756,9 @@ body exactly the `LogBatch` shape from `packages/schema/src/log.ts`:
 ```
 
 The keys are one letter because this is the same body the browser tag posts from `sendBeacon` on
-a page being unloaded, where bytes are the constraint: `k` is the source key, `d` the distinct
-id, `r` the resource and `e` the entries. One shape for every client rather than a compact
+a page being unloaded, where bytes are the constraint: `k` is the source key, `r` the resource
+and `e` the entries. There is no top-level id field: identity is three optional attributes and
+they travel inside `r`. One shape for every client rather than a compact
 browser dialect beside a verbose SDK one.
 
 `r` is the **resource**: what is true of the whole process rather than of one entry. It sits once
@@ -776,8 +770,8 @@ rather than counted twice. `t` is stamped when the thing happens and is authorit
 queued during an outage and delivered later is still counted at the moment it occurred.
 
 There are five entry fields and no sixth. `body`, `trace_id` and `span_id` are **attributes**,
-under the spec's own names, because this product promotes five columns and no more: `project_id`,
-`time`, `distinct_id`, `severity` and `name`. Promoting one of them later is a generated column
+under the spec's own names, because this product promotes four columns and no more: `project_id`,
+`time`, `severity` and `name`. Promoting one of them later is a generated column
 over `attributes` rather than a schema break.
 
 `traceId` and `spanId` are accepted by `log()` and travel as the `trace_id` and `span_id`

@@ -84,7 +84,7 @@ func main() {
 		// unaffected by anything firstrun does or fails to do.
 		analytics.Event("exported_csv",
 			firstrun.Attributes{"rows": len(rows)},
-			firstrun.Entry{DistinctID: user.ID})
+			firstrun.Entry{DeviceID: user.ID})
 
 		w.WriteHeader(http.StatusOK)
 	})
@@ -130,7 +130,7 @@ func main() {
 		Host:      os.Getenv("FIRSTRUN_HOST"),
 		// A CLI run genuinely is one subject, so a client-level id is right
 		// here. Persist it per machine if you want runs to count as one user.
-		DistinctID:     installID(),
+		DeviceID:     installID(),
 		ServiceVersion: version,
 	})
 	// Bounded, and it never blocks past the context. Safe even if it already ran.
@@ -172,7 +172,7 @@ func (c *Client) Info(body string, attrs Attributes, e Entry)
 func (c *Client) Warn(body string, attrs Attributes, e Entry)
 func (c *Client) ErrorLog(body string, attrs Attributes, e Entry)
 func (c *Client) Fatal(body string, attrs Attributes, e Entry)
-func (c *Client) Identify(distinctID, userID string, e Entry)
+func (c *Client) User(userID string, e Entry)
 func (c *Client) Page(path string, e Entry)
 
 func (c *Client) Flush(ctx context.Context) error   // nil, ctx.Err(), or ErrClosed
@@ -199,7 +199,7 @@ type Entry struct {
 	Severity   int        // 1..24 on the ladder; 0 means you had nothing to say
 	Attributes Attributes // map[string]any, copied on the way in; reuse your map freely
 
-	DistinctID string     // REQUIRED unless Options.DistinctID is set
+	DeviceID string     // REQUIRED unless Options.DeviceID is set
 	UserID     string     // the customer's own id; lands in the user.id attribute
 	SessionID  string     // optional; lands in the session.id attribute
 	Time       time.Time  // zero means now; authoritative
@@ -211,11 +211,11 @@ type Entry struct {
 ```
 
 The third parameter carries identity, which a server needs per call. The zero `Entry` is fine
-where `Options.DistinctID` is set:
+where `Options.DeviceID` is set:
 
 ```go
-c.Event("exported_csv", firstrun.Attributes{"rows": 1200}, firstrun.Entry{DistinctID: userID})
-c.Error(err, nil, firstrun.Entry{DistinctID: userID})
+c.Event("exported_csv", firstrun.Attributes{"rows": 1200}, firstrun.Entry{DeviceID: userID})
+c.Error(err, nil, firstrun.Entry{DeviceID: userID})
 c.Info("cache warmed", firstrun.Attributes{"keys": 4096}, firstrun.Entry{})
 ```
 
@@ -231,13 +231,13 @@ walks, which is the nearest thing Go has to a stack on an error value), names th
 one name and "this exception" is a filter on a path, rather than a thousand names nobody can
 enumerate.
 
-`Identify(distinctID, userID, e)` takes both ids explicitly. There is no remembered "current
+`User(deviceID, userID, e)` takes both ids explicitly. There is no remembered "current
 user", because in a server process that would be whoever was served last. It emits an `identify`
 entry; from then on, entries carrying that `userID` count as the same unique. Nothing is merged
 retroactively, and identities are never inferred.
 
 `Page(path, e)` emits `page_view` with the path as the conventional `url.path` attribute. There
-is no url column: everything that is not one of the five promoted columns lives in attributes and
+is no url column: everything that is not one of the four promoted columns lives in attributes and
 is queried from there.
 
 ### Identity on a context
@@ -253,7 +253,7 @@ func withIdentity(next http.Handler) http.Handler {
 		// visitorID is YOUR function. This library never works out who somebody
 		// is on its own initiative: no cookie, no header, no IP, no session.
 		ctx := firstrun.NewContext(r.Context(), firstrun.Identity{
-			DistinctID: visitorID(r),
+			DeviceID: visitorID(r),
 			UserID:     userIDFrom(r), // "" when nobody is signed in
 			Attributes: firstrun.Attributes{"tenant": tenantFrom(r)},
 		})
@@ -273,7 +273,7 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 `Debug`, `Info`, `Warn`, `ErrorLog`, `Fatal`, `Page`) with the same arguments. Precedence is one
 rule and it does not vary by helper or by field: **what the call site states wins, then what the
 context carries, then what the client was configured with in `Options`.** An `Entry` with its own
-`DistinctID` uses that one; everything else gets the request's. `Identity.Attributes` sit under the
+`DeviceID` uses that one; everything else gets the request's. `Identity.Attributes` sit under the
 entry's own attributes for the same reason.
 
 A nil context, or one carrying no identity, gives a handle that behaves exactly like the client
@@ -292,7 +292,7 @@ attributes for that context and nothing else. `NewContext` on a nil parent retur
 rather than panicking, for the same reason.
 
 `Flush` and `Close` have no scoped form: they are lifecycle, and a per-request handle is not where a
-process decides to stop. Neither has `Identify`, which needs no shorter form here:
+process decides to stop. Neither has `User`, which needs no shorter form here:
 `s.Event(firstrun.NameIdentify, nil, firstrun.Entry{UserID: id})` is the same entry.
 
 ### The HTTP middleware
@@ -305,7 +305,7 @@ handed anything.
 mw := analytics.Middleware(firstrun.MiddlewareOptions{
 	// visitorID is YOUR function. This library never works out who somebody is
 	// on its own initiative: no cookie, no header, no IP, no session.
-	DistinctID: visitorID,
+	DeviceID: visitorID,
 	UserID:     func(r *http.Request) string { return sessionUser(r) },
 	Ignore:     func(r *http.Request) bool { return r.URL.Path == "/healthz" },
 	Route: func(r *http.Request) string {
@@ -336,7 +336,7 @@ Severity is `INFO`, or `ERROR` for a 5xx. **A 4xx stays at `INFO`.** It is the c
 rather than the server's, and a board where every 404 is an error is a board nobody can filter back
 down.
 
-`DistinctID` is required, and it is a function you write for the same reason `Identity` is: identity
+`DeviceID` is required, and it is a function you write for the same reason `Identity` is: identity
 is never inferred here. Return your own visitor cookie, your own header, your own session, whatever
 your application already treats as one browser or one installation. Returning `""` costs the entry
 rather than inventing a subject for it.
@@ -347,7 +347,7 @@ in from whatever an outer context happened to be carrying. If you set `UserID` a
 the request carries no user id, even when an outer middleware of yours had put one on: inheriting it
 would attribute an entry to somebody your own code just said was not there, and it would not stop at
 that entry, because the id goes onto the request context and every `Ctx` call underneath would pick
-it up. The same holds for `DistinctID`. A field you leave **nil** keeps whatever the context had, and
+it up. The same holds for `DeviceID`. A field you leave **nil** keeps whatever the context had, and
 so do the session id and the ambient attributes, which nothing here has an opinion about.
 
 `Route` must return the route TEMPLATE (`/users/{id}`), never the resolved path (`/users/8814`). A
@@ -435,7 +435,7 @@ firstrun.AttrBody, AttrExceptionType, AttrExceptionMessage, AttrExceptionStacktr
 |---|---|---|
 | `SourceKey` | required | `fr_<16 hex>`. Public by necessity; it identifies and authorises nothing |
 | `Host` | required | Origin only, e.g. `https://t.example.com` |
-| `DistinctID`, `UserID` | none | Client-level defaults. Leave empty in a multi-tenant server |
+| `DeviceID`, `UserID` | none | Client-level defaults. Leave empty in a multi-tenant server |
 | `ServiceName`, `ServiceVersion`, `Channel`, `OS`, `Arch`, `Locale` | none | Resource attributes, overridable per call |
 | `Resource` | none | Extra resource attributes; the named options above win on a clash |
 | `DefaultAttributes` | none | Stamped onto every entry; an entry's own attributes win |
@@ -465,7 +465,7 @@ firstrun.AttrBody, AttrExceptionType, AttrExceptionMessage, AttrExceptionStacktr
 concurrent use. Keep it cheap: it runs inline on whichever goroutine called `Log`.
 
 Diagnostic codes are `rejected`, `dropped`, `retry`, `abandoned`, `breaker_open`, `breaker_close`,
-`config` and `restored`. A `rejected` at `LevelError` naming `DistinctID` is the one worth alerting
+`config` and `restored`. A `rejected` at `LevelError` naming `DeviceID` is the one worth alerting
 on: it means entries are being thrown away at the call site. A `config` at `LevelWarn` means a
 delivery setting could not be honoured as written and says what was used instead.
 
@@ -556,7 +556,7 @@ because a client that silently sends nothing is the worst outcome available.
 c, _ := firstrun.New(firstrun.Options{
 	SourceKey:   key,
 	Host:        host,
-	DistinctID:  installID(),
+	DeviceID:  installID(),
 	Schedule:    firstrun.ScheduleStartup,
 	Persistence: firstrun.PersistenceDisk,
 })
@@ -573,7 +573,7 @@ The reliability rules outrank all of the above and none of them move. No schedul
 throws into your program, retries unboundedly, grows without limit, writes to your stdout or stderr,
 or leaves a goroutine behind after `Close`.
 
-## `DistinctID` is yours to supply
+## `DeviceID` is yours to supply
 
 This is the one thing to get right.
 
@@ -583,11 +583,11 @@ there is nothing this library could default to that would be correct. Get it wro
 in your fleet collapses onto a handful of ids, and your unique counts become a count of your
 server processes.
 
-So `DistinctID` is required, and an event without one is **dropped and reported** through
+So `DeviceID` is required, and an event without one is **dropped and reported** through
 `OnDiagnostic` rather than sent under an invented id. A loud failure beats a silently wrong number
 that nobody can spot from a dashboard.
 
-Set `Options.DistinctID` only when the process really is the subject: a CLI, a single-tenant
+Set `Options.DeviceID` only when the process really is the subject: a CLI, a single-tenant
 worker, a device agent.
 
 ## What goes on the wire
@@ -613,8 +613,9 @@ One `POST` per identity group to `{Host}/v1/e`, `Content-Type: application/json`
 ```
 
 The keys are one letter because this is the same body the browser tag posts from `sendBeacon` on
-a page being unloaded, where bytes are the constraint: `k` is the source key, `d` the distinct
-id, `r` the resource and `e` the entries. One shape for every client rather than a compact
+a page being unloaded, where bytes are the constraint: `k` is the source key, `r` the resource
+and `e` the entries. There is no top-level id field: identity is three optional attributes and
+they travel inside `r`. One shape for every client rather than a compact
 browser dialect beside a verbose SDK one.
 
 `r` is the **resource**: what is true of the whole process rather than of one entry. It is
@@ -623,7 +624,7 @@ same request, and the edge merges it under each entry's own attributes so an ent
 same key wins.
 
 `d` sits on the batch too, so entries for the same person are grouped into one request and a
-flush costs one request per distinct id. `user.id` and `session.id` are per-entry attributes and
+flush costs one request per device id. `user.id` and `session.id` are per-entry attributes and
 never split a batch. `i` is generated here, so a request that times out and is retried is
 deduplicated by the server rather than counted twice. `t` is stamped when the thing happens and
 is authoritative: an entry queued during an outage and delivered later is still counted at the

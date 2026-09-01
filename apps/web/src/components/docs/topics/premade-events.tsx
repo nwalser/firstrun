@@ -33,7 +33,7 @@ const RESOURCE: Array<{ key: string; from: string; what: string }> = [
   },
   {
     key: "user.id",
-    from: "Every client, after identify()",
+    from: "Every client, after user()",
     what: "Only ever the string you passed. Absent until you pass one, and never inferred from anything.",
   },
   {
@@ -146,7 +146,7 @@ const ON_YOUR_CALL: CatalogueRow[] = [
   {
     name: "identify",
     topic: "event-identify",
-    written: "identify()",
+    written: "user()",
     what: "This client now knows its user id. Every SDK, not the browser tag.",
   },
   {

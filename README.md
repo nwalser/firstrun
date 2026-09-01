@@ -55,19 +55,19 @@ const firstrun = new Firstrun({
   host: "https://t.example.com",
 });
 
-firstrun.event("invoice_generated", { plan: account.plan }, { distinctId: account.id });
+firstrun.event("invoice_generated", { plan: account.plan }, { userId: account.id });
 firstrun.error(err);
 ```
 
 | | |
 |---|---|
-| `@firstrun/web-tag` | the script tag. No dependencies, 4KB, consent-gated |
+| `@firstrun/web-tag` | the script tag. No dependencies, under 5KB, consent-gated |
 | `@firstrun/analytics` | npm wrapper for the tag: `/react`, `/next`, `/svelte`, `/vue`, `/astro` |
 | `clients/node` `clients/python` `clients/go` `clients/dotnet` | the server and desktop SDKs |
 | `sdk/tauri` | Rust crate for Tauri apps, with a queue that survives a restart |
 
-They all offer the same handful of calls (`event`, `error`, `log`, `identify`, `flush`), so
-reading one means you have read all of them. All of them queue in the background, bound what they
+They all offer the same handful of calls (`event`, `error`, `log`, `user`, `device`, `session`,
+`flush`), so reading one means you have read all of them. All of them queue in the background, bound what they
 hold, and never throw into your program. An entry stamped three days ago on a laptop that was
 offline still lands on the right day when it finally arrives.
 
@@ -87,7 +87,7 @@ each board carries its own filters, date range and comparison window.
 ## A little of how it works
 
 Everything is stored as one kind of row, following
-[OpenTelemetry's log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/). Five
+[OpenTelemetry's log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/). Four
 things are promoted to columns:
 
 | | |
@@ -96,16 +96,18 @@ things are promoted to columns:
 | `time` | when it happened, according to whatever sent it |
 | `name` | what happened. Any string you like, no allowlist |
 | `severity` | 1..24: TRACE, DEBUG, INFO, WARN, ERROR, FATAL |
-| `distinct_id` | the anonymous id that installation or browser generated for itself |
 
-Everything else (`os.type`, `url.path`, `user.id`, `exception.message`, whatever else you send)
-lives in an open JSON map and is queried by path. Keys follow the OpenTelemetry conventions where
-they exist, but they are conventions rather than rules: your own keys are stored, indexed and
-queried identically.
+Everything else (`os.type`, `url.path`, `exception.message`, whatever else you send) lives in an
+open JSON map and is queried by path. Keys follow the OpenTelemetry conventions where they exist,
+but they are conventions rather than rules: your own keys are stored, indexed and queried
+identically.
 
-Identity is deliberately dull. Each source has its own anonymous id space, nothing is ever
-merged, matched or guessed, and the only way a person is joined across two of them is you calling
-`identify()` with the same id on both.
+Identity is deliberately dull, and it lives in that map like everything else. Three optional
+fields, set by `user()`, `device()` and `session()`, and an event may carry none of them. Nothing
+is inferred: a browser has no device to find out, a server process is not a person, and a client
+that was not told simply reports nothing rather than making something up. Each source has its own
+id space, nothing is ever merged or matched, and the only way a person is joined across two of
+them is you calling `user()` with the same id on both.
 
 Things are organised **workspace** (who can see and change things) > **project** (one product) >
 **source** (one thing that writes).

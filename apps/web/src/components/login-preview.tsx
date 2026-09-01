@@ -32,7 +32,7 @@ import {
   type PreviewFrame,
   type PreviewRow,
 } from "./login-preview.data.js";
-import { Badge, Card } from "./ui/index.js";
+import { Badge, Card, CardContent, CardHeader, CardTitle } from "./ui/index.js";
 
 /**
  * The product, running, beside the sign-in form.
@@ -58,8 +58,9 @@ import { Badge, Card } from "./ui/index.js";
  * ## What it is not allowed to say
  *
  * It is decorative and `aria-hidden`, but it is on screen, so it has to be
- * true. Nothing here is labelled estimated. `device.id` is an installation
- * and is never called a person. Uniques are scoped to one source and are never
+ * true. Nothing here is labelled estimated. No identity is promoted or
+ * required: `device.id` is optional, is absent for the whole server lane, and
+ * is never called a person. Uniques are scoped to one source and are never
  * summed across them. `ingested_at` appears in exactly one readout, as the
  * debugging stamp it is, and nothing sorts, buckets or retains on it.
  */
@@ -85,6 +86,27 @@ const BAND_FILL: Record<SeverityBand, string> = {
   ERROR: "bg-negative",
   FATAL: "bg-negative",
 };
+
+/**
+ * One cell of a sparkline: a neutral slot with the mark inside it.
+ *
+ * The slot is drawn whether or not there is anything in it, which is what the
+ * product's own sparkline does and for the reason it gives: a quiet window
+ * without slots is an empty box, and the tile then reads as "this was never
+ * measured" rather than "this was measured and nothing happened". The mark
+ * itself is the series colour at full strength, because it is a mark and not a
+ * tint, and a tinted one would disappear under the scrim.
+ */
+function SparkCell(props: { value: number }) {
+  return (
+    <i class="block h-full w-[3px] shrink-0 overflow-hidden rounded-xs bg-muted">
+      <i
+        class="fr-cell block h-full w-full bg-chart-1"
+        style={{ "--fr-v": String(props.value) }}
+      />
+    </i>
+  );
+}
 
 /** The last beat whose one-shot effects are still worth drawing. */
 function isRecent(beat: number, stamp: number, within = 3): boolean {
@@ -216,8 +238,8 @@ export function LoginPreview() {
         data-slot="login-preview"
         data-fr-motion={motionState()}
         class={cn(
-          "pointer-events-none absolute inset-0 flex select-none flex-col overflow-hidden",
-          "px-8 pt-6 font-sans"
+          "pointer-events-none absolute inset-0 flex select-none flex-col gap-6 overflow-hidden",
+          "px-6 pt-6 font-sans"
         )}
       >
         {/* A. The chrome. What board this is, what it is filtered to, and the
@@ -225,13 +247,13 @@ export function LoginPreview() {
         <div class="flex h-9 shrink-0 items-center justify-between gap-4">
           <div class="flex min-w-0 items-center gap-2">
             <span class="text-body text-muted-foreground">Themia</span>
-            <span class="text-muted-foreground opacity-50">/</span>
-            <span class="text-body font-medium text-foreground">Overview</span>
+            <span class="text-border">/</span>
+            <span class="text-body font-medium tracking-snug text-foreground">Overview</span>
             <Index each={PREVIEW_FILTERS}>
               {(filter) => (
-                <span class="ring-hairline rounded-xs px-1.5 py-0.5 font-mono text-mono text-muted-foreground">
+                <Badge variant="outline" class="font-mono font-normal text-muted-foreground">
                   {filter()}
-                </span>
+                </Badge>
               )}
             </Index>
             {/*
@@ -245,8 +267,8 @@ export function LoginPreview() {
             <Badge variant="secondary">{i18n.t("auth.preview_sample")}</Badge>
           </div>
 
-          <div class="flex shrink-0 items-center gap-3">
-            <span class="flex items-center gap-1.5 text-label-13 text-muted-foreground">
+          <div class="flex shrink-0 items-center gap-2">
+            <span class="flex items-center gap-1.5 text-caption text-muted-foreground">
               <span class="relative flex size-1.5 shrink-0">
                 {/* The halo pulses, never the dot, so the word beside it does
                     not move. A stopped board shows no halo at all: a live dot
@@ -264,9 +286,9 @@ export function LoginPreview() {
               </span>
               {i18n.t("auth.preview_live")}
             </span>
-            <span class="ring-hairline rounded-xs px-1.5 py-0.5 text-caption text-muted-foreground">
+            <Badge variant="outline" class="text-muted-foreground">
               {i18n.t("auth.preview_range")}
-            </span>
+            </Badge>
             <span class="font-mono text-mono text-muted-foreground">
               {i18n.t("auth.preview_windows", {
                 window: PREVIEW_WINDOW,
@@ -276,30 +298,38 @@ export function LoginPreview() {
           </div>
         </div>
 
-        {/* B. The two cards a board is mostly made of: a series and a group by. */}
-        <div class="mt-3 grid h-[196px] shrink-0 grid-cols-3 gap-3">
-          <Card class="col-span-2 p-3">
-            <div class="flex h-5 items-center justify-between">
-              <span class="text-small font-semibold uppercase tracking-wider text-muted-foreground">
-                {i18n.t("auth.preview_chart_title", { name: "page_view" })}
-              </span>
-              <span class="text-small uppercase tracking-wider text-muted-foreground">
-                {i18n.t("auth.preview_agg_count")}
-              </span>
-            </div>
-            {/* The saved query itself, because a widget IS a saved query plus a
-                way of drawing its answer. Not translated: it is code. */}
-            <div class="h-4 truncate font-mono text-mono text-muted-foreground opacity-70">
-              {PREVIEW_QUERY_LINE}
-            </div>
+        <div class="flex min-h-0 flex-1 flex-col gap-4">
+          {/*
+            B. The two cards a board is mostly made of: a series and a group by.
 
-            <div class="mt-2 flex h-[104px] items-end gap-[3px]">
+            Four columns rather than three, and the same four the meters below
+            use, so the breakdown card's left edge and the boundary between the
+            third and fourth meter are the same line.
+          */}
+          <div class="grid h-60 shrink-0 grid-cols-4 gap-4">
+            <Card class="col-span-3 shadow-2xs">
+              <CardHeader>
+                <CardTitle class="min-w-0 truncate">
+                  {i18n.t("auth.preview_chart_title", { name: "page_view" })}
+                </CardTitle>
+                <span class="shrink-0 text-caption uppercase tracking-wide text-muted-foreground">
+                  {i18n.t("auth.preview_agg_count")}
+                </span>
+              </CardHeader>
+              <CardContent class="flex min-h-0 flex-1 flex-col">
+                {/* The saved query itself, because a widget IS a saved query
+                    plus a way of drawing its answer. Not translated: it is code. */}
+                <div class="h-4 truncate font-mono text-mono text-muted-foreground">
+                  {PREVIEW_QUERY_LINE}
+                </div>
+
+                <div class="mt-3 flex min-h-0 flex-1 items-end gap-1">
               <Index each={buckets()}>
                 {(value, i) => (
                   <div class="relative h-full flex-1">
                     <i
                       class={cn(
-                        "fr-bar absolute inset-x-0 bottom-0 h-full rounded-[1px] bg-chart-1",
+                        "fr-bar absolute inset-x-0 bottom-0 h-full rounded-xs bg-chart-1",
                         i === 23 && "fr-bar-open",
                         frame().lateBucket?.value === i &&
                           isRecent(beat(), frame().lateBucket?.beat ?? 0, 5) &&
@@ -318,7 +348,7 @@ export function LoginPreview() {
                       }
                       keyed
                     >
-                      <i class="fr-late-plus absolute -top-3 left-1/2 -translate-x-1/2 font-mono text-[9px] text-warning not-italic">
+                      <i class="fr-late-plus absolute -top-3 left-1/2 -translate-x-1/2 font-mono text-mono leading-none text-warning not-italic">
                         +1
                       </i>
                     </Show>
@@ -330,50 +360,56 @@ export function LoginPreview() {
             {/* Relative on purpose. The window advances every 10.56 seconds, so
                 an absolute hour of the day would contradict the tail's own
                 clock inside a minute. A relative label contradicts nothing. */}
-            <div class="mt-1 flex h-4 justify-between font-mono text-mono text-muted-foreground opacity-70">
-              <span>-24h</span>
-              <span>-16h</span>
-              <span>-8h</span>
-              <span>{i18n.t("auth.preview_open_bucket")}</span>
-            </div>
-
-            <div class="h-4">
-              <Show when={frame().lateNote} keyed>
-                {(note) => (
-                  <span class="fr-note block truncate font-mono text-mono text-warning">
-                    {i18n.t("auth.preview_late_note", { delay: i18n.duration(note.delayMs) })}
+                <div class="mt-2 flex h-4 justify-between font-mono text-mono text-muted-foreground">
+                  <span>-24h</span>
+                  <span>-16h</span>
+                  <span>-8h</span>
+                  <span class="font-sans text-caption">
+                    {i18n.t("auth.preview_open_bucket")}
                   </span>
-                )}
-              </Show>
-            </div>
-          </Card>
+                </div>
 
-          <Card class="relative p-3">
-            <div class="flex h-5 items-center justify-between">
-              <span class="text-small font-semibold uppercase tracking-wider text-muted-foreground">
-                {i18n.t("auth.preview_breakdown_title")}
-              </span>
-              <span class="font-mono text-mono text-muted-foreground">
-                {i18n.t("auth.preview_breakdown_by", { key: "url.path" })}
-              </span>
-            </div>
-            {/* Absolutely positioned on a slot index, so two rows trading places
-                slide PAST each other instead of jumping. */}
-            <div class="relative mt-2 h-[132px]">
+                <div class="h-4">
+                  <Show when={frame().lateNote} keyed>
+                    {(note) => (
+                      <span class="fr-note block truncate text-caption text-warning">
+                        {i18n.t("auth.preview_late_note", { delay: i18n.duration(note.delayMs) })}
+                      </span>
+                    )}
+                  </Show>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card class="relative shadow-2xs">
+              <CardHeader>
+                <CardTitle class="min-w-0 truncate">
+                  {i18n.t("auth.preview_breakdown_title")}
+                </CardTitle>
+                <span class="shrink-0 text-label-13 text-muted-foreground">
+                  {i18n.t("auth.preview_breakdown_by", { key: "url.path" })}
+                </span>
+              </CardHeader>
+              <CardContent class="flex min-h-0 flex-1 flex-col">
+                {/* Absolutely positioned on a slot index, so two rows trading
+                    places slide PAST each other instead of jumping. */}
+                <div class="relative min-h-0 flex-1">
               <For each={breakdown()}>
                 {(row) => (
                   <Show when={row.slot >= 0}>
                     <div
                       class={cn(
-                        "fr-breakdown-row absolute inset-x-0 top-0 flex h-[22px] items-center gap-2 px-1",
+                        "fr-breakdown-row absolute inset-x-0 top-0 flex h-6 items-center gap-2 px-2",
                         row.entering && "fr-breakdown-row-in"
                       )}
                       style={{ "--fr-row": String(row.slot) }}
                     >
-                      <i
-                        class="fr-share absolute inset-y-0 left-0 rounded-xs bg-chart-1/15"
-                        style={{ "--fr-share": String(row.share), width: "100%" }}
-                      />
+                      <i class="absolute inset-y-0 left-0 w-full overflow-hidden rounded-sm">
+                        <i
+                          class="fr-share block h-full w-full bg-muted"
+                          style={{ "--fr-share": String(row.share) }}
+                        />
+                      </i>
                       <span class="relative truncate font-mono text-mono text-foreground">
                         {row.path}
                       </span>
@@ -383,283 +419,298 @@ export function LoginPreview() {
                     </div>
                   </Show>
                 )}
-              </For>
-            </div>
-          </Card>
-        </div>
+                  </For>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        {/* C. Four meters. Each names the query it is, not a word for it. */}
-        <div class="mt-3 grid h-[104px] shrink-0 grid-cols-4 gap-px overflow-hidden rounded-md bg-border shadow-sm">
-          <Index each={meters()}>
-            {(value, i) => (
-              <div class="relative overflow-hidden bg-card p-3">
-                <div class="h-5 truncate font-mono text-mono text-muted-foreground">
-                  {METER_QUERIES[i]}
-                </div>
-                <Odometer
-                  value={value()}
-                  format={(n) => i18n.num(n)}
-                  class="h-8 text-h2 text-foreground"
-                />
-                <div class="mt-0.5 flex h-4 items-center gap-1.5">
-                  <span
-                    class={cn(
-                      "font-mono text-mono",
-                      // Only on the beat the window slid. Unconditional, this
-                      // crossfaded all four chips on hydration for no reason:
-                      // a delta that has not been recomputed has not changed.
-                      isRecent(beat(), frame().slideBeat, 3) && "fr-delta-chip",
-                      (frame().deltas[i] ?? 0) >= 0 ? "text-positive" : "text-negative"
-                    )}
-                  >
-                    {i18n.percent(frame().deltas[i] ?? 0)}
+          {/*
+            C, D and E are one group with no gaps between them, so the riser
+            gutter reads as the connector from the ribbon up into the meters
+            rather than as a third floating strip. That is the whole gesture:
+            ingested, THEN the board moved.
+          */}
+          <div class="flex shrink-0 flex-col">
+            {/* C. Four meters. Each names the query it is, not a word for it. */}
+            <div class="grid h-40 shrink-0 grid-cols-4 gap-4">
+              <Index each={meters()}>
+                {(value, i) => (
+                  <Card class="relative overflow-hidden p-3 shadow-2xs">
+                    <div class="h-5 truncate font-mono text-mono text-muted-foreground">
+                      {METER_QUERIES[i]}
+                    </div>
+                    {/* Mono, like every other figure in the product. A column of
+                        numbers set in one face on one card and another face on
+                        the next reads as two different measurements. */}
+                    <Odometer
+                      value={value()}
+                      format={(n) => i18n.num(n)}
+                      class="h-8 font-mono text-h2 text-foreground"
+                    />
+                    <div class="mt-1 flex h-5 items-center gap-2">
+                      {/* A tinted pill, not coloured text: green words beside a
+                          24px number read as a second number, and a pill reads
+                          as an annotation on the first. */}
+                      <span
+                        class={cn(
+                          "shrink-0 rounded-sm px-1.5 py-0.5 text-caption font-semibold",
+                          // Only on the beat the window slid. Unconditional, this
+                          // crossfaded all four chips on hydration for no reason:
+                          // a delta that has not been recomputed has not changed.
+                          isRecent(beat(), frame().slideBeat, 3) && "fr-delta-chip",
+                          (frame().deltas[i] ?? 0) >= 0
+                            ? "bg-positive/10 text-positive"
+                            : "bg-destructive/10 text-negative"
+                        )}
+                      >
+                        {i18n.percent(frame().deltas[i] ?? 0)}
+                      </span>
+                      <span class="truncate text-caption text-muted-foreground">
+                        {i === 2
+                          ? i18n.t("auth.preview_agg_errors")
+                          : i === 3
+                            ? i18n.t("auth.preview_agg_uniques", { source: PREVIEW_SOURCES[0] })
+                            : i18n.t("auth.preview_agg_count")}
+                      </span>
+                    </div>
+                    {/* Pinned to the tile's bottom padding edge, so all four
+                        sparklines share one baseline. */}
+                    <div class="mt-auto flex h-3 items-end gap-[2px]">
+                      <Index each={frame().sparks[i] ?? []}>
+                        {(cell) => <SparkCell value={cell()} />}
+                      </Index>
+                    </div>
+                    {/* Keyed, so Solid destroys and recreates the node: a fresh
+                        node runs its animation from frame zero with no class
+                        juggling. */}
+                    <Show when={isRecent(beat(), frame().meterBump[i] ?? 0, 3)}>
+                      <Show when={frame().meterBump[i]} keyed>
+                        <i class="fr-flash pointer-events-none absolute inset-0 bg-chart-1/20" />
+                      </Show>
+                    </Show>
+                  </Card>
+                )}
+              </Index>
+            </div>
+
+            {/* D. The gutter the sparks climb, on the same four-column grid the
+                meters sit on, so each riser stands on its tile's centre by
+                construction rather than by four hardcoded percentages. */}
+            <div class="fr-riser-gutter h-6 shrink-0">
+              <Index each={[0, 1, 2, 3]}>
+                {(_, i) => (
+                  <div class="fr-riser">
+                    <Show when={isRecent(beat(), frame().riserFired[i] ?? 0, 4)}>
+                      <Show when={frame().riserFired[i]} keyed>
+                        <i class="fr-riser-spark absolute inset-x-0 bottom-0 block h-1.5 bg-chart-1" />
+                      </Show>
+                    </Show>
+                  </div>
+                )}
+              </Index>
+            </div>
+
+            {/* E. The plumbing: three sources, one endpoint, three partitions. */}
+            <Card class="shrink-0 overflow-hidden shadow-2xs">
+              <div class="fr-ribbon-grid p-3">
+                <div class="flex flex-col gap-1">
+                  <span class="text-label-13 text-muted-foreground">
+                    {i18n.t("auth.preview_sources")}
                   </span>
-                  <span class="truncate text-small text-muted-foreground">
-                    {i === 2
-                      ? i18n.t("auth.preview_agg_errors")
-                      : i === 3
-                        ? i18n.t("auth.preview_agg_uniques", { source: PREVIEW_SOURCES[0] })
-                        : i18n.t("auth.preview_agg_count")}
-                  </span>
-                </div>
-                <div class="mt-1.5 flex h-3 items-end gap-[2px]">
-                  <Index each={frame().sparks[i] ?? []}>
-                    {(cell) => (
-                      <i
-                        class="fr-cell h-full w-[3px] rounded-[1px] bg-chart-1/40"
-                        style={{ "--fr-v": String(cell()) }}
-                      />
+                  <Index each={PREVIEW_SOURCES}>
+                    {(source, i) => (
+                      <div class="flex h-5 items-center gap-2">
+                        <i
+                          class={cn(
+                            "fr-emitter ring-hairline block size-2 shrink-0 rounded-sm bg-chart-1",
+                            firedClass(beat(), frame().laneFired[i] ?? 0)
+                          )}
+                        />
+                        <span class="truncate font-mono text-mono text-muted-foreground">
+                          {source()}
+                        </span>
+                      </div>
                     )}
                   </Index>
                 </div>
-                {/* Keyed, so Solid destroys and recreates the node: a fresh node
-                    runs its animation from frame zero with no class juggling. */}
-                <Show when={isRecent(beat(), frame().meterBump[i] ?? 0, 3)}>
-                  <Show when={frame().meterBump[i]} keyed>
-                    <i class="fr-flash pointer-events-none absolute inset-0 bg-chart-1/25" />
-                  </Show>
-                </Show>
-              </div>
-            )}
-          </Index>
-        </div>
 
-        {/* D. The gutter the sparks climb: ingested, THEN the board moved. */}
-        <div class="relative h-[30px] shrink-0">
-          <Index each={[0, 1, 2, 3]}>
-            {(_, i) => (
-              <div class="fr-riser">
-                <Show when={isRecent(beat(), frame().riserFired[i] ?? 0, 4)}>
-                  <Show when={frame().riserFired[i]} keyed>
-                    <i class="fr-riser-spark absolute inset-x-0 bottom-0 block h-1.5 bg-chart-1" />
-                  </Show>
-                </Show>
-              </div>
-            )}
-          </Index>
-        </div>
+                <div class="flex flex-col gap-1">
+                  <span class="text-label-13 text-muted-foreground">
+                    {i18n.t("auth.preview_wire")}
+                  </span>
+                  <Index each={[0, 1, 2]}>
+                    {(_, lane) => (
+                      <div class="relative flex h-5 items-center">
+                        <i class={cn("fr-wire block h-px w-full", `fr-wire-${lane}`)} />
+                        {/* One mark per entry, crossing in 520ms: travel outlasts a
+                            beat, so the wire is always carrying something. */}
+                        <For each={frame().inflight.filter((p) => p.lane === lane)}>
+                          {(packet) => (
+                            <i
+                              class="fr-packet absolute left-0 block h-[2px] w-2 rounded-full bg-chart-1"
+                              style={{ "--fr-travel": "calc(100% * 12)" }}
+                              data-id={packet.id}
+                            />
+                          )}
+                        </For>
+                      </div>
+                    )}
+                  </Index>
+                </div>
 
-        {/* E. The plumbing: three sources, one endpoint, three partitions. */}
-        <div class="ring-hairline shrink-0 overflow-hidden rounded-md bg-card">
-          <div class="fr-ribbon-grid p-3">
-            <div class="flex flex-col gap-1">
-              <span class="text-small uppercase tracking-wider text-muted-foreground">
-                {i18n.t("auth.preview_sources")}
-              </span>
-              <Index each={PREVIEW_SOURCES}>
-                {(source, i) => (
-                  <div class="flex h-[18px] items-center gap-1.5">
-                    <i
-                      class={cn(
-                        "fr-emitter ring-hairline block size-2 shrink-0 rounded-[2px] bg-chart-1/30",
-                        firedClass(beat(), frame().laneFired[i] ?? 0)
-                      )}
-                    />
-                    <span class="truncate font-mono text-mono text-muted-foreground">
-                      {source()}
-                    </span>
-                  </div>
-                )}
-              </Index>
-            </div>
+                <div class="flex flex-col gap-1">
+                  <span class="font-mono text-mono text-foreground">POST /v1/e</span>
+                  {/* Identical for a FATAL at 21 and a page view at 9. The edge
+                      validates shape and writes: it never branches on a name or a
+                      severity, and this is that said out loud. */}
+                  <Index each={["resolved", "validated", "stamped"] as const}>
+                    {(step, i) => (
+                      <div
+                        class={cn(
+                          "fr-edge-line flex h-4 items-center gap-2 opacity-50",
+                          `fr-edge-line-${i}`
+                        )}
+                      >
+                        <i class="block size-1 rounded-full bg-positive" />
+                        <span class="truncate font-mono text-mono leading-none text-muted-foreground">
+                          {i18n.t(`auth.preview_${step()}` as "auth.preview_resolved")}
+                        </span>
+                      </div>
+                    )}
+                  </Index>
+                  {/*
+                    The chip is always here and only the FLASH is conditional.
 
-            <div class="flex flex-col gap-1">
-              <span class="text-small uppercase tracking-wider text-muted-foreground">
-                {i18n.t("auth.preview_wire")}
-              </span>
-              <Index each={[0, 1, 2]}>
-                {(_, lane) => (
-                  <div class="relative flex h-[18px] items-center">
-                    <i class={cn("fr-wire block h-px w-full", `fr-wire-${lane}`)} />
-                    {/* One mark per entry, crossing in 520ms: travel outlasts a
-                        beat, so the wire is always carrying something. */}
-                    <For each={frame().inflight.filter((p) => p.lane === lane)}>
-                      {(packet) => (
-                        <i
-                          class="fr-packet absolute left-0 block h-[2px] w-2 rounded-full bg-chart-1"
-                          style={{ "--fr-travel": "calc(100% * 12)" }}
-                          data-id={packet.id}
-                        />
-                      )}
-                    </For>
-                  </div>
-                )}
-              </Index>
-            </div>
-
-            <div class="flex flex-col gap-1">
-              <span class="font-mono text-mono text-foreground">POST /v1/e</span>
-              {/* Identical for a FATAL at 21 and a page view at 9. The edge
-                  validates shape and writes: it never branches on a name or a
-                  severity, and this is that said out loud. */}
-              <Index each={["resolved", "validated", "stamped"] as const}>
-                {(step, i) => (
-                  <div
+                    Gating the element itself on the accept beat looked right and
+                    was not: the beat starts negative, which is truthy, so the chip
+                    rendered at frame zero and flashed the moment motion turned on.
+                    A still board should show a dim 202, because the endpoint is
+                    still there when nothing is arriving.
+                  */}
+                  <span
                     class={cn(
-                      "fr-edge-line flex h-[14px] items-center gap-1.5 opacity-50",
-                      `fr-edge-line-${i}`
+                      "relative mt-1 block overflow-hidden rounded-sm px-1 font-mono text-mono",
+                      isRecent(beat(), frame().acceptBeat, 3)
+                        ? "fr-accept text-positive"
+                        : "text-muted-foreground"
                     )}
                   >
-                    <i class="block size-1 rounded-full bg-positive" />
-                    <span class="truncate font-mono text-[10px] leading-none text-muted-foreground">
-                      {i18n.t(`auth.preview_${step()}` as "auth.preview_resolved")}
-                    </span>
-                  </div>
-                )}
-              </Index>
-              {/*
-                The chip is always here and only the FLASH is conditional.
+                    202 {i18n.t("auth.preview_accepted")}
+                    <Show when={isRecent(beat(), frame().acceptBeat, 3)}>
+                      <Show when={frame().acceptBeat} keyed>
+                        <i class="fr-accept-sweep absolute inset-y-0 left-0 block w-4 bg-positive/20" />
+                      </Show>
+                    </Show>
+                  </span>
+                </div>
 
-                Gating the element itself on the accept beat looked right and
-                was not: the beat starts negative, which is truthy, so the chip
-                rendered at frame zero and flashed the moment motion turned on.
-                A still board should show a dim 202, because the endpoint is
-                still there when nothing is arriving.
-              */}
-              <span
-                class={cn(
-                  "relative mt-0.5 block overflow-hidden rounded-xs px-1 font-mono text-mono",
-                  isRecent(beat(), frame().acceptBeat, 3)
-                    ? "fr-accept text-positive"
-                    : "text-positive/50"
-                )}
-              >
-                202 {i18n.t("auth.preview_accepted")}
-                <Show when={isRecent(beat(), frame().acceptBeat, 3)}>
-                  <Show when={frame().acceptBeat} keyed>
-                    <i class="fr-accept-sweep absolute inset-y-0 left-0 block w-4 bg-positive/25" />
-                  </Show>
-                </Show>
-              </span>
-            </div>
+                <div class="flex flex-col gap-1">
+                  <span class="font-mono text-mono text-muted-foreground">log_entries</span>
+                  {/*
+                    The only place in the product where a partition is visible.
 
-            <div class="flex flex-col gap-1">
-              <span class="font-mono text-mono text-muted-foreground">log_entries</span>
-              {/*
-                The only place in the product where a partition is visible.
-
-                The newest shelf ticks four times a second. The older two tick
-                ONLY when something arrives late, which is the whole argument
-                for partitioning by the client's own `time` in one object.
-              */}
-              <Index each={PREVIEW_SHELVES}>
-                {(shelf, i) => (
-                  <div
-                    class={cn(
-                      "fr-shelf ring-hairline flex h-[18px] items-center justify-between gap-2 rounded-xs px-1.5",
-                      firedClass(beat(), frame().shelfHit[i]?.beat ?? 0)
+                    The newest shelf ticks four times a second. The older two tick
+                    ONLY when something arrives late, which is the whole argument
+                    for partitioning by the client's own `time` in one object.
+                  */}
+                  <Index each={PREVIEW_SHELVES}>
+                    {(shelf, i) => (
+                      <div
+                        class={cn(
+                          "fr-shelf ring-hairline flex h-5 items-center justify-between gap-2 rounded-sm px-1.5",
+                          firedClass(beat(), frame().shelfHit[i]?.beat ?? 0)
+                        )}
+                        style={{ "--fr-hit": "var(--chart-1)" }}
+                      >
+                        <span class="truncate font-mono text-mono leading-none text-muted-foreground">
+                          {shelf()}
+                        </span>
+                        <span
+                          class={cn(
+                            "fr-count shrink-0 font-mono text-mono leading-none text-muted-foreground",
+                            firedClass(beat(), frame().shelfHit[i]?.beat ?? 0)
+                          )}
+                        >
+                          {i18n.num(frame().shelves[i] ?? 0)}
+                        </span>
+                      </div>
                     )}
-                    style={{ "--fr-hit": "var(--chart-1)" }}
+                  </Index>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-4 border-t px-3 py-2">
+                <span class="font-mono text-mono text-muted-foreground">
+                  {i18n.t("auth.preview_throughput", { rate: frame().ratePerSec.toFixed(1) })}
+                </span>
+                <div class="flex h-4 flex-1 items-end justify-end gap-[2px]">
+                  <Index each={throughput()}>
+                    {(cell) => <SparkCell value={cell() / throughputMax()} />}
+                  </Index>
+                </div>
+                {/*
+                  The two stamps, and the difference between them, as a number
+                  that reacts. This is the ONLY place `ingested_at` appears
+                  anywhere in the preview, and nothing sorts, buckets or retains
+                  on it.
+                */}
+                <span class="shrink-0 font-mono text-mono text-muted-foreground">
+                  {i18n.t("auth.preview_lateness")}{" "}
+                  <span
+                    class={cn("fr-p50", frame().p50Late ? "text-warning" : "text-foreground")}
+                    data-late={frame().p50Late ? "true" : "false"}
                   >
-                    <span class="truncate font-mono text-[10px] leading-none text-muted-foreground">
-                      {shelf()}
-                    </span>
-                    <span
-                      class={cn(
-                        "fr-count shrink-0 font-mono text-[10px] leading-none text-muted-foreground",
-                        firedClass(beat(), frame().shelfHit[i]?.beat ?? 0)
-                      )}
-                    >
-                      {i18n.num(frame().shelves[i] ?? 0)}
-                    </span>
-                  </div>
-                )}
-              </Index>
-            </div>
+                    {frame().p50Late ? i18n.duration(frame().p50Ms) : `${frame().p50Ms}ms`}
+                  </span>
+                </span>
+              </div>
+            </Card>
           </div>
 
-          <div class="flex items-center justify-between gap-4 border-t px-3 py-2">
-            <span class="font-mono text-mono text-muted-foreground">
-              {i18n.t("auth.preview_throughput", { rate: frame().ratePerSec.toFixed(1) })}
+          {/*
+            F. Attributes are DISCOVERED, not declared.
+
+            A chip appears the first time an entry carries a key nobody has sent
+            in this range. There is no registration step and no schema to
+            declare, and this is the only animation in the product that says so.
+          */}
+          <div class="fr-keys flex h-6 shrink-0 items-center gap-2 overflow-hidden">
+            <span class="shrink-0 text-label-13 text-muted-foreground">
+              {i18n.t("auth.preview_keys", { count: keys().length })}
             </span>
-            <div class="flex h-4 flex-1 items-end justify-end gap-[2px]">
-              <Index each={throughput()}>
-                {(cell) => (
-                  <i
-                    class="fr-cell h-full w-[3px] rounded-[1px] bg-chart-1/40"
-                    style={{ "--fr-v": String(cell() / throughputMax()) }}
-                  />
-                )}
-              </Index>
+            <For each={keys()}>
+              {(entry) => (
+                <Badge
+                  variant="outline"
+                  class={cn(
+                    "shrink-0 font-mono font-normal text-muted-foreground",
+                    entry.fresh && "fr-key-fresh"
+                  )}
+                >
+                  {entry.key}
+                </Badge>
+              )}
+            </For>
+          </div>
+
+          {/*
+            G. The tail.
+
+            No column-header row: the product's own log page does not draw one,
+            and the tracked-out uppercase header this used to have is the one
+            pattern the table component names in prose as not what a Geist table
+            does. The rows separate themselves the way every other list in the
+            app does.
+          */}
+          <div class="flex min-h-0 flex-1 flex-col">
+            <div class="fr-tail relative min-h-0 flex-1 overflow-hidden">
+              <ul class="divide-y">
+                <For each={rows()}>
+                  {(row) => <TailRow row={row} expanded={frame().expandedId === row.id} />}
+                </For>
+              </ul>
             </div>
-            {/*
-              The two stamps, and the difference between them, as a number that
-              reacts. This is the ONLY place `ingested_at` appears anywhere in
-              the preview, and nothing sorts, buckets or retains on it.
-            */}
-            <span class="shrink-0 font-mono text-mono text-muted-foreground">
-              {i18n.t("auth.preview_lateness")}{" "}
-              <span
-                class={cn("fr-p50", frame().p50Late ? "text-warning" : "text-foreground")}
-                data-late={frame().p50Late ? "true" : "false"}
-              >
-                {frame().p50Late ? i18n.duration(frame().p50Ms) : `${frame().p50Ms}ms`}
-              </span>
-            </span>
-          </div>
-        </div>
-
-        {/*
-          F. Attributes are DISCOVERED, not declared.
-
-          A chip appears the first time an entry carries a key nobody has sent.
-          There is no registration step and no schema to declare, and this is
-          the only animation in the product that says so.
-        */}
-        <div class="fr-keys mt-3 flex h-6 shrink-0 items-center gap-1.5 overflow-hidden">
-          <span class="shrink-0 text-small uppercase tracking-wider text-muted-foreground">
-            {i18n.t("auth.preview_keys", { count: keys().length })}
-          </span>
-          <For each={keys()}>
-            {(entry) => (
-              <span
-                class={cn(
-                  "ring-hairline shrink-0 rounded-xs px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground",
-                  entry.fresh && "fr-key-fresh"
-                )}
-              >
-                {entry.key}
-              </span>
-            )}
-          </For>
-        </div>
-
-        {/* G. The tail. Four of the five promoted columns and the map. */}
-        <div class="mt-2 flex min-h-0 flex-1 flex-col">
-          <div class="fr-row shrink-0 pb-1 font-mono text-mono uppercase tracking-wider text-muted-foreground opacity-60">
-            <span>time</span>
-            <span>severity</span>
-            <span>name</span>
-            <span class="fr-cell-did">device.id</span>
-            <span>attributes</span>
-          </div>
-          <div class="fr-tail relative min-h-0 flex-1 overflow-hidden">
-            <i class="fr-caret absolute left-2 top-0 block h-3 w-px bg-foreground" />
-            <ul class="mt-3">
-              <For each={rows()}>
-                {(row) => <TailRow row={row} expanded={frame().expandedId === row.id} />}
-              </For>
-            </ul>
           </div>
         </div>
 
@@ -673,7 +724,7 @@ export function LoginPreview() {
         */}
         <Show when={isRecent(beat(), frame().slideBeat, SLIDE_BEATS)}>
           <Show when={frame().slideBeat} keyed>
-            <i class="fr-sweep pointer-events-none absolute inset-y-0 left-0 block w-1/4 bg-gradient-to-r from-transparent via-foreground/[0.06] to-transparent" />
+            <i class="fr-sweep pointer-events-none absolute inset-y-0 left-0 block w-1/4" />
           </Show>
         </Show>
       </div>
@@ -698,9 +749,9 @@ export function LoginPreview() {
           aria-label={i18n.t("auth.preview_motion_label")}
           title={i18n.t("auth.preview_motion_label")}
           class={cn(
-            "focus-ring ring-hairline absolute bottom-4 right-4 z-10 inline-flex items-center gap-1.5",
+            "focus-ring ring-hairline absolute bottom-6 right-6 z-10 inline-flex items-center gap-2",
             "h-control-sm rounded-sm bg-card/80 px-2.5 backdrop-blur-sm",
-            "text-caption text-muted-foreground opacity-70 transition-opacity duration-150",
+            "text-control-sm text-muted-foreground opacity-70 transition-opacity duration-150",
             "hover:text-foreground hover:opacity-100 focus-visible:opacity-100"
           )}
         >
@@ -751,13 +802,17 @@ function TailRow(props: { row: PreviewRow; expanded: boolean }) {
         </span>
         <span class="truncate text-body text-foreground">{row().name}</span>
         <span class="fr-cell-did truncate font-mono text-mono text-muted-foreground">
-          {row().deviceId}
+          {/* Absent is a real answer here, drawn the way the log page draws a
+              missing severity rather than left blank. */}
+          <Show when={row().deviceId} fallback={<span class="opacity-60">--</span>}>
+            {(id) => id()}
+          </Show>
         </span>
         <span class="truncate font-mono text-mono text-muted-foreground">
           <Show
             when={row().late}
             fallback={
-              <span class="opacity-70">
+              <span>
                 {row().attrs.length} {row().attrs.length === 1 ? "key" : "keys"}
               </span>
             }
@@ -770,22 +825,23 @@ function TailRow(props: { row: PreviewRow; expanded: boolean }) {
               that, which is why it is at the top of an arrival-ordered tail
               while showing an older clock.
             */}
-            <span class="fr-late-chip text-warning">
+            <Badge variant="estimate" class="fr-late-chip">
               {i18n.t("auth.preview_late_by", { delay: i18n.duration(row().lateByMs ?? 0) })}
-            </span>
+            </Badge>
           </Show>
         </span>
       </div>
 
-      {/* The whole entry, opened in place. No height is ever measured. */}
+      {/* The whole entry, opened in place. No height is ever measured, and the
+          indent is summed from the row's own tracks in the stylesheet. */}
       <div class="fr-expand" data-open={props.expanded ? "true" : "false"}>
         <div>
-          <div class="flex flex-col gap-0.5 py-1 pl-[110px] font-mono text-mono">
+          <div class="flex flex-col gap-0.5 py-1 font-mono text-mono">
             <For each={row().attrs}>
               {([key, value]) => (
                 <div class="flex gap-2">
-                  <span class="w-[190px] shrink-0 truncate text-code-name">{key}</span>
-                  <span class="truncate text-code-string">{value}</span>
+                  <span class="w-[190px] shrink-0 truncate text-muted-foreground">{key}</span>
+                  <span class="truncate text-foreground">{value}</span>
                 </div>
               )}
             </For>

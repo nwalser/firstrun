@@ -53,8 +53,8 @@ export const auth = {
   // reaches one here, but `Intl.PluralRules` is what decides the form
   // everywhere else in this catalogue and an exception would be the thing
   // somebody copies.
-  "auth.preview_keys_one": "{count} attribute key discovered",
-  "auth.preview_keys_other": "{count} attribute keys discovered",
+  "auth.preview_keys_one": "{count} attribute key in this range",
+  "auth.preview_keys_other": "{count} attribute keys in this range",
 
   "auth.preview_motion_label": "Animated preview",
   "auth.preview_motion_pause": "Pause",

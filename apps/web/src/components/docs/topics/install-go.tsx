@@ -59,13 +59,13 @@ export const topics: DocsTopic[] = [
           lang="go"
           code={
             `analytics.Event("exported_csv", firstrun.Attrs{"rows": len(rows)},\n` +
-            `\tfirstrun.With{DistinctID: user.ID})\n\n` +
+            `\tfirstrun.With{UserID: user.ID})\n\n` +
             `analytics.Error(err, firstrun.Attrs{"http.route": "/reports/{id}"},\n` +
-            `\tfirstrun.With{DistinctID: user.ID})\n\n` +
+            `\tfirstrun.With{UserID: user.ID})\n\n` +
             `analytics.Log(firstrun.Entry{\n` +
             `\tName:       "queue_depth",\n` +
             `\tSeverity:   firstrun.INFO,\n` +
-            `\tDistinctID: "worker-3",\n` +
+            `\tDeviceID:   "worker-3",\n` +
             `\tAttributes: firstrun.Attrs{"firstrun.metric": "queue_depth", "firstrun.value": depth},\n` +
             `})\n\n` +
             `_ = analytics.Close(ctx)   // on shutdown. Bounded by the context, idempotent`
@@ -82,13 +82,18 @@ export const topics: DocsTopic[] = [
           }
         />
 
-        <Callout title="DistinctID is yours to supply">
-          A browser has a visitor id and a desktop install has one on disk. A server has neither,
-          so pass an id you already have per call. An event without one is{" "}
-          <strong>dropped and reported</strong> rather than sent under an invented id: a loud
-          failure beats a silently wrong number nobody can spot from a dashboard. Set{" "}
-          <code>Options.DistinctID</code> only when the process really is the subject, such as a
-          CLI or a device agent.
+        <Callout title="Identity is yours to supply, and all of it is optional">
+          This client fills in nothing. A desktop install has a machine to name and a browser has a
+          visit; a server has neither, so <code>UserID</code>, <code>DeviceID</code> and{" "}
+          <code>SessionID</code> stay empty until you pass one. An event with none of them is sent
+          and stored like any other: it counts as an event and in no unique, which is the honest
+          answer rather than an invented id nobody could spot from a dashboard.
+          <br />
+          <br />
+          They travel as <strong>one unit</strong>. Setting any of the three on an entry means that
+          entry&rsquo;s identity comes from the entry, and neither the scoped handle nor the client
+          options are consulted for the other two. Set them in <code>Options</code> only when the
+          process really is the subject, such as a CLI or a device agent.
         </Callout>
       </DocsProse>
     ),

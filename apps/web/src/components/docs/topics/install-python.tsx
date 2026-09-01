@@ -40,7 +40,7 @@ export const topics: DocsTopic[] = [
             `    source_key=os.environ["FIRSTRUN_SOURCE_KEY"],   # fr_9f3a2b1c4d5e6f70\n` +
             `    host="${ctx.vars.origin}",\n` +
             `    service_name="etl",\n` +
-            `    persist_distinct_id=False,      # on a server the id belongs to the request\n` +
+            `    # No identity is set: on a server it belongs to the request, not the box\n` +
             `)`
           }
           note={
@@ -50,8 +50,7 @@ export const topics: DocsTopic[] = [
               client. Calling <code>configure()</code> before a fork is fine: Gunicorn, uWSGI and
               Celery are handled by an <code>os.register_at_fork</code> handler that replaces the
               locks, starts a fresh sender and drops the inherited queue so parent and child do
-              not both send it. The anonymous id survives, because a fork is not a second
-              installation.
+              not both send it.
             </>
           }
         />
@@ -63,7 +62,7 @@ export const topics: DocsTopic[] = [
             `firstrun.event(\n` +
             `    "order_placed",\n` +
             `    {"currency": order.currency, "total": order.total},\n` +
-            `    distinct_id=request.session.session_key or "anon",\n` +
+            `    session_id=request.session.session_key,\n` +
             `)\n\n` +
             `firstrun.error(exc, {"http.route": "/orders"})\n\n` +
             `firstrun.log({\n` +
@@ -71,7 +70,7 @@ export const topics: DocsTopic[] = [
             `    "severity": 9,\n` +
             `    "attributes": {"firstrun.metric": "queue_depth", "firstrun.value": depth},\n` +
             `})\n\n` +
-            `firstrun.identify("acct_8812")   # sets user.id from here on\n` +
+            `firstrun.user("acct_8812")       # sets user.id from here on\n` +
             `firstrun.shutdown(timeout=5)     # atexit already does this with a 3s budget`
           }
           note={
@@ -86,11 +85,12 @@ export const topics: DocsTopic[] = [
           }
         />
 
-        <Callout title="On a server, distinct_id is yours to supply">
+        <Callout title="On a server, identity is yours to supply">
           A server process serves thousands of different people and has nothing correct to default
-          to, so pass an id you already have: a session key, a cookie, an account id. Leave it out
-          and every event in your fleet collapses onto a handful of ids, and your unique counts
-          become a count of your workers.
+          to, so this client sets nothing at all: no device, no session, no user. Pass an id you
+          already have, per call or through <code>firstrun.context()</code>: a session key, a
+          cookie, an account id. An event with none of them counts as an event and in no unique,
+          which is the truthful answer for a process that was never told who a request was for.
         </Callout>
       </DocsProse>
     ),

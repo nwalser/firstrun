@@ -1997,6 +1997,29 @@ function RootNav(props: {
           </SidebarMenuItem>
 
           {/*
+            Usage. Here rather than in the group below, which is where it used
+            to be because the reference's account group has one. Theirs is
+            billing at account level; ours is a count of the customer's own
+            entries, workspace-wide and narrowed by a search param at project
+            scope, which is Events exactly, one row up. A page the same shape as
+            Events belongs beside it rather than under a different heading two
+            groups away.
+          */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              as={Link}
+              to="/w/$wslug/usage"
+              params={{ wslug: props.workspace.slug }}
+              search={props.project ? { project: props.project.slug } : {}}
+              tooltip={i18n.t("shell.usage")}
+              isActive={isActive(`${base()}/usage`)}
+            >
+              <CircleGauge />
+              <SidebarLabel>{i18n.t("shell.usage")}</SidebarLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          {/*
             People, at workspace scope only.
 
             Membership is per WORKSPACE and covers every project in it, so there
@@ -2023,6 +2046,58 @@ function RootNav(props: {
                 <SidebarLabel>{i18n.t("shell.people")}</SidebarLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
+          </Show>
+
+          {/*
+            Settings, last in the group, because it configures the thing the
+            group is NAMED after: a workspace's settings at workspace scope, a
+            project's at project scope, and the label above says which. It used
+            to sit in the group below, alongside the documentation and the
+            deployment, which put this workspace's configuration in the same
+            list as two things that belong to no workspace at all.
+
+            Last rather than first, and the only row in this group carrying a
+            chevron: it is a door, and everything above it is a destination
+            inside the frame you are already in.
+
+            Admin only at workspace scope, unchanged: a reader cannot change
+            anything in the pane behind it.
+          */}
+          <Show
+            when={props.project}
+            fallback={
+              <Show when={props.workspace.role === "admin"}>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    as={Link}
+                    to="/w/$wslug/settings"
+                    params={{ wslug: props.workspace.slug }}
+                    tooltip={i18n.t("shell.settings")}
+                    isActive={isActive(`${base()}/settings`)}
+                    submenu
+                  >
+                    <Settings />
+                    <SidebarLabel>{i18n.t("shell.settings")}</SidebarLabel>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </Show>
+            }
+          >
+            {(project) => (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  as={Link}
+                  to="/w/$wslug/$pslug/settings"
+                  params={{ wslug: props.workspace.slug, pslug: project().slug }}
+                  tooltip={i18n.t("shell.settings")}
+                  isActive={isActive(`${base()}/${project().slug}/settings`)}
+                  submenu
+                >
+                  <Settings />
+                  <SidebarLabel>{i18n.t("shell.settings")}</SidebarLabel>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
           </Show>
         </SidebarMenu>
 
@@ -2070,60 +2145,35 @@ function RootNav(props: {
 
       <SidebarGroup>
         {/*
-          Settings, the documentation and usage. The reference calls this the
-          account group and puts these in it, which is also
-          the only honest name for a set whose one shared property is that
-          none of it is the data you came here to read.
-        */}
-        <SidebarGroupLabel>{i18n.t("shell.account")}</SidebarGroupLabel>
-        <SidebarMenu aria-label={i18n.t("shell.account")}>
-          <Show
-            when={props.project}
-            fallback={
-              <Show when={props.workspace.role === "admin"}>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    as={Link}
-                    to="/w/$wslug/settings"
-                    params={{ wslug: props.workspace.slug }}
-                    tooltip={i18n.t("shell.settings")}
-                    isActive={isActive(`${base()}/settings`)}
-                    submenu
-                  >
-                    <Settings />
-                    <SidebarLabel>{i18n.t("shell.settings")}</SidebarLabel>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </Show>
-            }
-          >
-            {(project) => (
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  as={Link}
-                  to="/w/$wslug/$pslug/settings"
-                  params={{ wslug: props.workspace.slug, pslug: project().slug }}
-                  tooltip={i18n.t("shell.settings")}
-                  isActive={isActive(`${base()}/${project().slug}/settings`)}
-                  submenu
-                >
-                  <Settings />
-                  <SidebarLabel>{i18n.t("shell.settings")}</SidebarLabel>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
-          </Show>
+          The destinations that belong to NO workspace.
 
+          This was the reference's account group and it held four unrelated
+          things under a label that was true of none of them: a workspace's
+          settings, a workspace's usage, the product documentation and the
+          deployment. The comment here used to admit as much, that the only
+          property the set shared was not being the data you came here to read,
+          which is a leftover bin rather than a category. None of it was your
+          ACCOUNT either: that is the footer menu, with the language and sign
+          out in it.
+
+          Split by what a row is ABOUT instead. Everything above the rule is
+          about the thing named at the top of the sidebar, so all of it changes
+          meaning when you switch workspace. These two do not: the documentation
+          is the same pages for everyone and reads with no session at all, and
+          the deployment is the box every workspace on it shares. Hence the
+          label, which is the product's name because that is what both of them
+          are genuinely about.
+        */}
+        <SidebarGroupLabel>{i18n.t("shell.product")}</SidebarGroupLabel>
+        <SidebarMenu aria-label={i18n.t("shell.product")}>
           {/*
-            The documentation is not part of this workspace -- it is the same pages for
-            everyone and reads fine with no session at all -- but it is still an
-            account-level destination, which is the group the reference puts
-            Settings in.
+            The documentation: the same pages for everyone, readable with no
+            session at all, and so the clearest member of this group.
 
             `submenu`, like Settings and Deployment: it is a door out of this
             shell into `DocsShell`, and the chevron is the only thing in the
-            column that says so. Every other row here changes the page inside
-            the frame you are already in; these three change the frame.
+            column that says so. Every row without one changes the page inside
+            the frame you are already in; those three change the frame.
 
             There used to be a Support row beside this one, pointing at the
             troubleshooting topic, and this row had to exclude that one path
@@ -2146,26 +2196,6 @@ function RootNav(props: {
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          {/*
-            Usage. The reference's account group has it and this did not,
-            because there was no data model behind it; there is now, and it is
-            the same one everything else here reads. Workspace-wide, narrowed by
-            a search param at project scope, exactly like Events.
-          */}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              as={Link}
-              to="/w/$wslug/usage"
-              params={{ wslug: props.workspace.slug }}
-              search={props.project ? { project: props.project.slug } : {}}
-              tooltip={i18n.t("shell.usage")}
-              isActive={isActive(`${base()}/usage`)}
-            >
-              <CircleGauge />
-              <SidebarLabel>{i18n.t("shell.usage")}</SidebarLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
 
           {/*
             The deployment, for whoever operates it.
@@ -2174,9 +2204,8 @@ function RootNav(props: {
             used to be and where nobody found it: an operator opening the app
             has one job that is not in any workspace, and a destination hidden
             two clicks inside a menu about your own account is a destination you
-            have to already know exists. It sits last in the account group
-            because none of this group is the data you came here to read, and
-            this is the row furthest from it.
+            have to already know exists. Last in the group, under the
+            documentation, because it is the row fewest people can see.
 
             `submenu`, because it is a door: it leads out of this shell into the
             operator's own, which is the same thing Settings' chevron promises.

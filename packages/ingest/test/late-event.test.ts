@@ -28,15 +28,14 @@ afterAll(async () => {
 });
 
 describe("a late-arriving entry", () => {
-  const distinctId = "i_late";
+  const deviceId = "i_late";
   const threeDaysAgo = Date.now() - 3 * DAY;
 
   test("is stored with the day it happened, not the day it arrived", async () => {
     const res = await handleEntries(
       beacon("http://test.local/v1/e", {
         k: stack.appKey,
-        d: distinctId,
-        r: { "service.version": "1.4.2" },
+        r: { "device.id": deviceId, "service.version": "1.4.2" },
         e: [{ i: crypto.randomUUID(), t: threeDaysAgo, n: "app_launch" }],
       }),
       stack.ctx
@@ -47,8 +46,8 @@ describe("a late-arriving entry", () => {
       `SELECT to_char("time"      AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS event_day,
               to_char(ingested_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS ingest_day
          FROM log_entries
-        WHERE project_id = $1 AND distinct_id = $2`,
-      [stack.projectId, distinctId]
+        WHERE project_id = $1 AND attributes ->> 'device.id' = $2`,
+      [stack.projectId, deviceId]
     );
 
     expect(rows.length).toBe(1);

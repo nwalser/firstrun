@@ -94,12 +94,13 @@ export const topics: DocsTopic[] = [
           }
         />
 
-        <Callout title="On a server, distinctId is yours to supply">
-          A desktop install has a per-machine id on disk. A server process serves thousands of
-          different people and has nothing correct to default to, so pass an id you already have
-          per call: a cookie, a session key, an account id. Leave it out and every event in your
-          fleet collapses onto a handful of ids, and your unique counts become a count of your
-          processes.
+        <Callout title="On a server, identity is yours to supply">
+          A desktop install has a machine to name, so this client persists a <code>device.id</code>{" "}
+          and opens a session per run. A server process has neither, which is what{" "}
+          <code>AddFirstrunServer</code> turns off: pass an id you already have per call or per
+          request instead, such as a cookie, a session key or an account id. An event with no
+          identity counts as an event and in no unique, and that is the truthful answer rather
+          than a fleet of processes reported as a handful of people.
         </Callout>
       </DocsProse>
     ),

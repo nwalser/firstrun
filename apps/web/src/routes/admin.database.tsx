@@ -55,10 +55,7 @@ function AdminDatabasePage() {
 
   return (
     <main class="px-6 pb-6">
-      <PageHeader
-        title={i18n.t("admin.database_title")}
-        description={i18n.t("admin.database_hint")}
-      />
+      <PageHeader title={i18n.t("admin.database_title")} />
 
       <div class="flex flex-col gap-4">
         <FactRow>
@@ -88,7 +85,6 @@ function AdminDatabasePage() {
         <Card>
           <CardHeader class="flex-col items-stretch gap-1">
             <CardTitle>{i18n.t("admin.tables_title")}</CardTitle>
-            <CardDescription>{i18n.t("admin.rows_estimated")}</CardDescription>
           </CardHeader>
 
           <CardContent class="px-0">

@@ -1120,10 +1120,22 @@
   /* Precomputed once here so no keyframe ever has to interpolate an unresolved
      colour function. A `color-mix` evaluated inside a keyframe is the kind of
      thing that quietly paints nothing. */
-  --fr-flash-info: color-mix(in oklab, var(--chart-1) 14%, transparent);
-  --fr-flash-warn: color-mix(in oklab, var(--warning) 18%, transparent);
-  --fr-accept-tint: color-mix(in oklab, var(--positive) 22%, transparent);
-  --fr-hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
+  /* One flash strength for the whole board. Six accent alphas between 6 and 40
+     percent for one idea is what made the regions read as unrelated. */
+  --fr-flash-info: color-mix(in oklab, var(--chart-1) 20%, transparent);
+  --fr-flash-warn: color-mix(in oklab, var(--warning) 20%, transparent);
+  --fr-accept-tint: color-mix(in oklab, var(--positive) 20%, transparent);
+
+  /* The measured hairline, not a hand-mixed approximation of it. */
+  --fr-hairline: var(--border);
+
+  /* The tail's grid, stated once. The expanded attribute map indents itself by
+     summing these, so the map can never drift out of line with the column it
+     belongs under. */
+  --fr-col-1: 96px;
+  --fr-col-2: 56px;
+  --fr-gap: 12px;
+  --fr-row-pad: 12px;
 }
 
 /* --- structure, which is not conditional on motion ----------------------- */
@@ -1134,12 +1146,12 @@
 */
 [data-slot="login-preview"] .fr-row {
   display: grid;
-  grid-template-columns: 96px 56px minmax(0, 1fr) 150px 92px;
+  grid-template-columns: var(--fr-col-1) var(--fr-col-2) minmax(0, 1fr) 150px 92px;
   align-items: center;
   height: 24px;
-  column-gap: 12px;
+  column-gap: var(--fr-gap);
   position: relative;
-  padding-left: 10px;
+  padding-left: var(--fr-row-pad);
 }
 
 /*
@@ -1149,22 +1161,37 @@
 */
 [data-slot="login-preview"] .fr-tail {
   contain: layout paint;
+  /* `fr-row-in` enters from 7px above, and the containment clips it. */
+  padding-top: 8px;
 }
 
 [data-slot="login-preview"] .fr-ribbon-grid {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 148px 190px;
-  gap: 14px;
+  grid-template-columns: 148px minmax(0, 1fr) 148px 188px;
+  gap: 16px;
 }
 
-/* The four riser columns stand under the centres of the four meter tiles. */
+/*
+  The gutter the sparks climb, as the SAME four-column grid the meters sit on.
+
+  It was four hardcoded percentages, which were only ever correct while the
+  meter tiles were welded together with a zero gap. The moment they became four
+  separate cards with a 16px gutter, every riser stood off its tile's centre.
+  Sharing the grid means each riser is centred in its own column by
+  construction, at any width, with nothing to keep in sync.
+*/
+[data-slot="login-preview"] .fr-riser-gutter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
 [data-slot="login-preview"] .fr-riser {
-  position: absolute;
-  bottom: 0;
+  position: relative;
+  justify-self: center;
   width: 1px;
   height: 100%;
   overflow: hidden;
-  transform: translateX(-50%);
   background-image: linear-gradient(
     to bottom,
     var(--fr-hairline) 0 3px,
@@ -1172,10 +1199,6 @@
   );
   background-size: 1px 6px;
 }
-[data-slot="login-preview"] .fr-riser:nth-child(1) { left: 12.5%; }
-[data-slot="login-preview"] .fr-riser:nth-child(2) { left: 37.5%; }
-[data-slot="login-preview"] .fr-riser:nth-child(3) { left: 62.5%; }
-[data-slot="login-preview"] .fr-riser:nth-child(4) { left: 87.5%; }
 
 /*
   One digit position. 2rem is `--text-h2--line-height` and the mono face is
@@ -1193,6 +1216,17 @@
 [data-slot="login-preview"] .fr-odo-strip {
   display: block;
   transform: translateY(calc(var(--fr-d, 0) * -2rem));
+}
+
+/*
+  The band that crosses the board on a window slide.
+
+  The gradient lives here rather than as an arbitrary bracketed alpha in the
+  markup, which is the form that has silently emitted nothing in this repo, and
+  it uses a measured gray-alpha step so it survives the scrim over it.
+*/
+[data-slot="login-preview"] .fr-sweep {
+  background-image: linear-gradient(to right, transparent, var(--gray-alpha-200), transparent);
 }
 
 /* The wire, as a dashed hairline that can be scrolled under the packets. */
@@ -1228,7 +1262,7 @@
 }
 
 [data-slot="login-preview"] .fr-breakdown-row {
-  transform: translateY(calc(var(--fr-row, 0) * 22px));
+  transform: translateY(calc(var(--fr-row, 0) * 24px));
 }
 
 /* An attribute map opens without anybody measuring a height. */
@@ -1242,6 +1276,14 @@
 [data-slot="login-preview"] .fr-expand > * {
   min-height: 0;
   overflow: hidden;
+}
+
+/* Summed from the row's own tracks rather than written as a number, so the map
+   stays under the name column when those tracks change. */
+[data-slot="login-preview"] .fr-expand > * > div {
+  padding-left: calc(
+    var(--fr-row-pad) + var(--fr-col-1) + var(--fr-gap) + var(--fr-col-2) + var(--fr-gap)
+  );
 }
 
 /*
@@ -1327,14 +1369,19 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes fr-caret {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
+/*
+  The ring is carried through the flash, not replaced by it.
 
+  `box-shadow` is one property, so animating it to a bare halo silently deletes
+  the element's hairline for the whole 260ms and puts it back at the end. Both
+  stops therefore restate the base ring as their first layer. `fr-key-glow` is
+  deliberately NOT given this treatment: its element is a Badge, which draws a
+  real border, and a ring on top of that is two hairlines and the one-pixel
+  shift the card component warns about.
+*/
 @keyframes fr-emit {
-  0% { box-shadow: 0 0 0 0 var(--chart-1); }
-  100% { box-shadow: 0 0 0 4px transparent; }
+  0% { box-shadow: var(--geist-shadow-border-base), 0 0 0 0 var(--chart-1); }
+  100% { box-shadow: var(--geist-shadow-border-base), 0 0 0 4px transparent; }
 }
 
 @keyframes fr-wire-drift {
@@ -1374,8 +1421,8 @@
 }
 
 @keyframes fr-shelf-hit {
-  0% { box-shadow: 0 0 0 0 var(--fr-hit, var(--chart-1)); }
-  100% { box-shadow: 0 0 0 3px transparent; }
+  0% { box-shadow: var(--geist-shadow-border-base), 0 0 0 0 var(--fr-hit, var(--chart-1)); }
+  100% { box-shadow: var(--geist-shadow-border-base), 0 0 0 3px transparent; }
 }
 
 @keyframes fr-count-flash {
@@ -1433,11 +1480,11 @@
 @keyframes fr-row-slide-in {
   from {
     opacity: 0;
-    transform: translateX(-8px) translateY(calc(var(--fr-row, 0) * 22px));
+    transform: translateX(-8px) translateY(calc(var(--fr-row, 0) * 24px));
   }
   to {
     opacity: 1;
-    transform: translateX(0) translateY(calc(var(--fr-row, 0) * 22px));
+    transform: translateX(0) translateY(calc(var(--fr-row, 0) * 24px));
   }
 }
 
@@ -1480,11 +1527,6 @@
 }
 [data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-row-fresh .fr-late-chip {
   animation: fr-late-chip 220ms ease-out 120ms both;
-}
-
-/* Deliberately not 1000ms, so it never phases with the 1100ms throughput tick. */
-[data-slot="login-preview"]:not([data-fr-motion="off"]) .fr-caret {
-  animation: fr-caret 1060ms steps(1, end) infinite;
 }
 
 /*
@@ -1646,4 +1688,34 @@
   [data-slot="login-preview"] .fr-keys {
     display: none;
   }
+}
+
+/*
+  The scrim that sets the board back behind the sign-in form.
+
+  One flat translucent black over the whole column, never a gradient and never a
+  vignette: the references contain no gradient anywhere, and the edge fade this
+  replaces was painting the page colour over the page colour in light (doing
+  nothing at all) while dragging card text toward pure black in dark.
+
+  Two alphas, because black over the two page colours is two different moves.
+  Light `background-200` is near white, so 8 percent takes the page and the
+  cards each down one measured grey step and leaves the text alone. Dark
+  `background-200` is pure black, so black cannot darken the page at all and
+  only the raised surfaces, their rings and their text recede. Both numbers are
+  already in this file as measured values rather than chosen here.
+
+  Real CSS rather than a utility for the usual reason, and no `z-index`: it is a
+  later sibling, so it paints over the board on document order alone. The pause
+  button carries its own layer and stays above it.
+*/
+.fr-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: #00000014;
+}
+
+.dark .fr-scrim {
+  background-color: #00000052;
 }

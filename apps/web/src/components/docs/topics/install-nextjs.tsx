@@ -90,7 +90,7 @@ export const topics: DocsTopic[] = [
             `event("download_clicked", { platform: "windows" });\n` +
             `error(err);\n` +
             `log({ name: "checkout_stalled", severity: 13, attributes: { step: 3 } });\n` +
-            `identify("u_42");`
+            `user("u_42");`
           }
           note={
             <>

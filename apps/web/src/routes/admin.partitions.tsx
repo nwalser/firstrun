@@ -4,8 +4,6 @@ import { For, Show, createMemo } from "solid-js";
 import { Fact, FactRow } from "../components/admin-shell.js";
 import { PageHeader } from "../components/page-header.js";
 import {
-  Alert,
-  AlertDescription,
   Badge,
   Card,
   CardContent,
@@ -62,10 +60,7 @@ function AdminPartitionsPage() {
 
   return (
     <main class="px-6 pb-6">
-      <PageHeader
-        title={i18n.t("admin.partitions_title")}
-        description={i18n.t("admin.partitions_hint")}
-      />
+      <PageHeader title={i18n.t("admin.partitions_title")} />
 
       <div class="flex flex-col gap-4">
         <FactRow>
@@ -84,10 +79,6 @@ function AdminPartitionsPage() {
             {i18n.t("admin.months", { count: view().monthsBack })}
           </Fact>
         </FactRow>
-
-        <Alert>
-          <AlertDescription>{i18n.t("admin.partitions_note")}</AlertDescription>
-        </Alert>
 
         <Card>
           <CardContent class="px-0">

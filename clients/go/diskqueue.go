@@ -89,9 +89,9 @@ func (q *diskQueue) load(max int, flushOnSeverity int) []item {
 		}
 		out = append(out, item{
 			group:    resourceKey(rec.Resource),
-			resource:   rec.Resource,
-			urgent:     rec.Entry.Severity != 0 && rec.Entry.Severity >= flushOnSeverity,
-			entry:      rec.Entry,
+			resource: rec.Resource,
+			urgent:   rec.Entry.Severity != 0 && rec.Entry.Severity >= flushOnSeverity,
+			entry:    rec.Entry,
 		})
 	}
 	if err := scanner.Err(); err != nil {

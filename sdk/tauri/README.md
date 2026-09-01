@@ -114,8 +114,8 @@ if let Err(e) = std::fs::read(&path) {
     analytics.error(&e, &[("path", "project.json")]);
 }
 
-analytics.identify(Some("acct_8812"));   // your own id, when they sign in
-analytics.identify(None);                // on sign out
+analytics.user(Some("acct_8812"));   // your own id, when they sign in
+analytics.user(None);                // on sign out
 
 analytics.flush(Duration::from_secs(2)); // optional: dropping the handle already
                                          // flushes, bounded the same way
@@ -259,10 +259,10 @@ impl Analytics {
     pub fn error_log(&self, body: &str, attributes: &[(&str, &str)]);
     pub fn fatal(&self, body: &str, attributes: &[(&str, &str)]);
     pub fn page(&self, path: &str, attributes: &[(&str, &str)]);
-    pub fn identify(&self, user_id: Option<&str>);
+    pub fn user(&self, user_id: Option<&str>);
 
     pub fn flush(&self, timeout: Duration) -> bool;     // bounded, never required
-    pub fn distinct_id(&self) -> &str;
+    pub fn device_id(&self) -> &str;
     pub fn session_id(&self) -> &str;
     pub fn is_enabled(&self) -> bool;
     pub fn delivery(&self) -> DeliveryMode;             // what is actually in force
@@ -279,7 +279,7 @@ What each helper actually writes:
 | `error(e, a)` | `exception` | 17 (`ERROR`) | `exception.type`, `exception.message`, `exception.stacktrace` |
 | `trace` / `debug` / `info` / `warn` / `error_log` / `fatal` | `log` | 1 / 5 / 9 / 13 / 17 / 21 | yours |
 | `page(p, a)` | `page_view` | 9 | `url.path` |
-| `identify(u)` | `identify` | 9 | `user.id`, on this and every later entry |
+| `user(u)` | `identify` | 9 | `user.id`, on this and every later entry |
 
 `error_log` exists because `error` is taken by the helper that unwraps an error
 value, which is the one worth the shorter name. Use `error_log` when you have a
@@ -312,8 +312,8 @@ The number is what travels; text is derived from it for display.
 
 ## Attributes
 
-Anything that is not one of the five promoted columns (`project_id`, `time`,
-`distinct_id`, `severity`, `name`) lives in `attributes` and is queried from
+Anything that is not one of the four promoted columns (`project_id`, `time`,
+`device_id`, `severity`, `name`) lives in `attributes` and is queried from
 there. That includes the operating system, the app version, the session id and
 the user id.
 
@@ -330,23 +330,23 @@ entry, so they sit once per request rather than on every entry.
 
 Two fields, and nothing is inferred.
 
-`distinct_id` is anonymous, generated on this machine, and scoped to this
+`device_id` is anonymous, generated on this machine, and scoped to this
 surface. It is never received from the server, never derived from anything, and
 never linked to a website visitor or to another app. The same human on your site
 and in your app is two anonymous subjects, and that is the correct answer. If
-you want them joined, call `identify` with the same id on both.
+you want them joined, call `user` with the same id on both.
 
-`user.id` is only ever the string you passed to `identify`, and it is stamped
+`user.id` is only ever the string you passed to `user`, and it is stamped
 onto an entry by the sender thread using the id that was in force when the entry
 was queued: an entry from before somebody signed in is not theirs.
-`identify(None)` goes back to anonymous and keeps the anonymous id, because it
+`user(None)` goes back to anonymous and keeps the anonymous id, because it
 belongs to the installation rather than to whoever was signed in.
 
 | OS | Path |
 |---|---|
-| Windows | `%LOCALAPPDATA%\firstrun\<app>\distinct_id` |
-| macOS | `~/Library/Application Support/firstrun/<app>/distinct_id` |
-| Linux | `$XDG_DATA_HOME/firstrun/<app>/distinct_id`, or `~/.local/share/...` |
+| Windows | `%LOCALAPPDATA%\firstrun\<app>\device_id` |
+| macOS | `~/Library/Application Support/firstrun/<app>/device_id` |
+| Linux | `$XDG_DATA_HOME/firstrun/<app>/device_id`, or `~/.local/share/...` |
 
 Local application data on Windows rather than roaming, on purpose: this id
 identifies one installation, so a roaming profile carrying it to a second
@@ -375,9 +375,9 @@ it identifies the installation and has to survive a restart.
 - Entry ids are generated before the write, so a request that timed out is
   retried from disk and deduplicated by the server rather than counted twice.
 
-A batch is the whole peeked run either way. The distinct id and the resource are
-the only things sitting on the body, and neither changes while the process runs,
-so there is no grouping pass: `user.id` varies per entry and rides in that
+A batch is the whole peeked run either way. The resource is the only thing
+sitting on the body, and it does not change while the process runs, so there is
+no grouping pass: the three identity keys vary per entry and ride in that
 entry's own attributes.
 
 `cargo test` covers all of the above, including a deliberately half-written final
@@ -432,8 +432,9 @@ shape from `packages/schema/src/log.ts`:
 ```
 
 The keys are one letter because this is the same body the browser tag posts from `sendBeacon` on
-a page being unloaded, where bytes are the constraint: `k` is the source key, `d` the distinct
-id, `r` the resource and `e` the entries. One shape for every client rather than a compact
+a page being unloaded, where bytes are the constraint: `k` is the source key, `r` the resource
+and `e` the entries. There is no top-level id field: identity is three optional attributes and
+they travel inside `r`. One shape for every client rather than a compact
 browser dialect beside a verbose SDK one.
 
 `r` is the **resource**: what is true of the whole process rather than of one entry. It sits once
@@ -445,8 +446,8 @@ rather than counted twice. `t` is stamped when the thing happens and is authorit
 queued during an outage and delivered later is still counted at the moment it occurred.
 
 There are five entry fields and no sixth. `body`, `trace_id` and `span_id` are **attributes**,
-under the spec's own names, because this product promotes five columns and no more: `project_id`,
-`time`, `distinct_id`, `severity` and `name`. Promoting one of them later is a generated column
+under the spec's own names, because this product promotes four columns and no more: `project_id`,
+`time`, `device_id`, `severity` and `name`. Promoting one of them later is a generated column
 over `attributes` rather than a schema break.
 
 No cookies, no auth header, and nothing identifying beyond the user agent.

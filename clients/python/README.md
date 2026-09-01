@@ -225,16 +225,16 @@ firstrun.configure(
 ## Ambient request identity
 
 On a server the identity belongs to the request rather than to the process, so every call in a
-handler ends up repeating `distinct_id=` and `user_id=`. Say it once instead:
+handler ends up repeating `device_id=` and `user_id=`. Say it once instead:
 
 ```python
-with firstrun.context(distinct_id=session_key, user_id=account_id):
+with firstrun.context(device_id=session_key, user_id=account_id):
     firstrun.event("order_placed", {"total": order.total})
     firstrun.event("receipt_queued")
 ```
 
 Both entries carry the identity and neither call names it. The precedence is the call, then the
-context, then the client's own, so an entry that passes `distinct_id=` still wins.
+context, then the client's own, so an entry that passes `device_id=` still wins.
 
 It is a [context variable](https://docs.python.org/3/library/contextvars.html), which is the
 design rather than an implementation detail. A module global is shared by every request in the
@@ -250,7 +250,7 @@ hashed. The context carries what you put in it, and `user.id` is only ever a str
 Attributes work the same way and sit under the entry's own:
 
 ```python
-with firstrun.context(distinct_id=visitor, attributes={"tenant": tenant.slug}):
+with firstrun.context(device_id=visitor, attributes={"tenant": tenant.slug}):
     firstrun.event("report_run", {"rows": 1200})     # carries tenant as well
 ```
 
@@ -264,7 +264,7 @@ the conventional keys are dotted, so those go in `attributes`.
 in a `finally`: one request's identity left in scope would be stamped on the next one's entries.
 
 ```python
-token = firstrun.replace_context(distinct_id=visitor_id, user_id=account_id)
+token = firstrun.replace_context(device_id=visitor_id, user_id=account_id)
 try:
     return handle(request)
 finally:
@@ -292,7 +292,7 @@ request's identity in scope, it writes **one `http.request` entry** for the requ
 the identity back down in a `finally`, because one request's identity left in scope is the next
 request's entries stamped with somebody else's.
 
-**The distinct id extractor is required, and it is yours.** None of them reads a cookie, a header,
+**Every identity extractor is optional, and all of them are yours.** None of them reads a cookie, a header,
 a session or an address on its own initiative, and `user.id` is only ever the string your own
 function returned. An id we invented would describe the server rather than whoever is on the other
 end of it, and one we guessed at from the request would be identity inference, which this product
@@ -360,7 +360,6 @@ import firstrun
 firstrun.configure(
     source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
-    persist_distinct_id=False,   # on a server the id belongs to the request, not the box
     track_lifecycle=False,
 )
 
@@ -396,7 +395,7 @@ The other spelling takes the extractors directly, which is the one that keeps a 
 from firstrun.integrations.django import firstrun_middleware
 
 identity = firstrun_middleware(
-    distinct_id=lambda request: request.session.session_key,
+    device_id=lambda request: request.session.session_key,
     ignore_paths=["/static/"],
 )
 # settings.py: MIDDLEWARE = [..., "myapp.telemetry.identity"]
@@ -414,7 +413,7 @@ def checkout(request):
     return redirect("thanks")
 ```
 
-Passing `distinct_id=` on a call still works and still wins: the context is the default, not a
+Passing `device_id=` on a call still works and still wins: the context is the default, not a
 lock.
 
 Both request modes are supported. Under WSGI Django hands it a synchronous `get_response` and it
@@ -436,18 +435,17 @@ from firstrun.integrations.flask import FirstrunExtension
 firstrun.configure(
     source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
-    persist_distinct_id=False,
     track_lifecycle=False,
 )
 
 telemetry = FirstrunExtension(
-    distinct_id=lambda: request.cookies.get("visitor"),
     user_id=lambda: session.get("account_id"),
+    session_id=lambda: request.cookies.get("session"),
     ignore_paths=["/static/"],
 )
 
 app = Flask(__name__)
-telemetry.init_app(app)          # or FirstrunExtension(app, distinct_id=...)
+telemetry.init_app(app)          # or FirstrunExtension(app, device_id=...)
 
 @app.post("/orders")
 def create_order():
@@ -502,7 +500,6 @@ from firstrun.integrations.asgi import FirstrunMiddleware
 firstrun.configure(
     source_key="fr_9f3a2b1c4d5e6f70",
     host="https://t.example.com",
-    persist_distinct_id=False,
     track_lifecycle=False,
 )
 
@@ -516,7 +513,7 @@ def visitor_id(scope):
     return None
 
 app = FastAPI()
-app.add_middleware(FirstrunMiddleware, distinct_id=visitor_id, ignore_paths=["/healthz"])
+app.add_middleware(FirstrunMiddleware, device_id=visitor_id, ignore_paths=["/healthz"])
 
 @app.post("/orders/{order_id}")
 async def create_order(order_id: int):
@@ -532,7 +529,7 @@ same object works under FastAPI, Starlette, Litestar, Quart, Django's ASGI handl
 wrote by hand:
 
 ```python
-app = FirstrunMiddleware(app, distinct_id=visitor_id)
+app = FirstrunMiddleware(app, device_id=visitor_id)
 ```
 
 `BaseHTTPMiddleware` buys its friendlier API by running the endpoint in a separate task with a
@@ -574,9 +571,8 @@ client:
 - forgets the thread, so the next `log()` starts a new sender in the child;
 - resets the failure count, the backoff and the circuit, since they described the parent's
   network, not the child's;
-- starts a new `session_id`, because the child is a different run of the program;
-- **keeps the anonymous id**, because it describes the installation and a fork does not make a
-  second installation;
+- **keeps the identity exactly as it was**, because a fork does not make a second person, a
+  second machine or a second visit, and this client mints no id of any kind to have to reconcile;
 - **drops the disk queue** and runs the child in memory, if you had turned persistence on. One
   file cannot have two writers: parent and child would take turns rewriting it with their own idea
   of what is pending, and whichever wrote last would erase the other's entries. A child under
@@ -592,29 +588,32 @@ The practical consequence for pre-forked servers (Gunicorn, uWSGI, Celery with `
 configuring before the fork is fine. Events tracked in the master before forking are sent by the
 master. Each worker sends its own from a clean queue.
 
-## Where the anonymous id is stored
+## This client sets no identity at all
 
-`distinct_id` is anonymous, generated on this machine, and scoped to this surface. It is never
-sent to you by the server, never derived from anything, and never joined to a browser visitor or
-to another app. Exact paths:
+`user.id`, `device.id` and `session.id` are three OPTIONAL attributes and this client fills in
+none of them. There is no per-install id, no persisted file, and no fallback: a server process is
+not a machine and not a person, and an id invented so that every entry had something to be
+attributed to would be a number nobody could tell apart from a real one.
 
-| OS | Path |
-|---|---|
-| Windows | `%LOCALAPPDATA%\firstrun\{app}\distinct_id`  (e.g. `C:\Users\you\AppData\Local\firstrun\etl\distinct_id`) |
-| macOS | `~/Library/Application Support/firstrun/{app}/distinct_id` |
-| Linux / other Unix | `$XDG_DATA_HOME/firstrun/{app}/distinct_id`, or `~/.local/share/firstrun/{app}/distinct_id` when `XDG_DATA_HOME` is unset |
+An entry carrying none of the three is sent and stored like any other. It counts as an entry and
+in no unique, which is the honest answer for a backend that was never told who a request was for.
 
-`{app}` is `app_name` lowercased and slugged, or the source key when `app_name` is not set. Set
-`app_name` so the id survives a source key rotation. Read the resolved path at runtime from
-`client.distinct_id_path`, or compute one with `firstrun.distinct_id_path("etl")`.
+State what you actually know, per call or through `firstrun.context()`:
 
-The file is written temp-then-`os.replace`, which is atomic on both POSIX and Windows, so a
-crash mid-write leaves either no file or a complete one. If the write fails (read-only
-filesystem, no `HOME`, a container), the client uses a per-process id and reports a diagnostic.
-It never raises.
+```python
+firstrun.user("acct_8812")                 # from here on. None signs out
+firstrun.device("worker-7")                # a host you pinned this process to
+firstrun.session(request.session.session_key)
+```
 
-**On a server, pass `persist_distinct_id=False`** and supply `distinct_id` per call. A server's
-anonymous id is a property of the request, not of the container.
+They travel as **one unit**. Stating any of the three on a call means that call's identity comes
+from the call, and the surrounding context and the client's own defaults are not consulted for
+the other two. Filling them in one `or` chain each is how a background job recorded inside a
+request keeps the requester's `user.id` while naming its own device, and a unique coalesces
+`user.id` first, so that job would be counted as that customer.
+
+Naming a **different** person also starts a new session, because a sign-in is a boundary. Naming
+the same one again does nothing at all.
 
 ## Public API
 
@@ -631,8 +630,9 @@ class Firstrun:
                  resource: Mapping[str, Any] | None = None,
                  default_attributes: Mapping[str, Any] | None = None,
                  min_severity: int = 0,
-                 distinct_id: str | None = None,
-                 persist_distinct_id: bool = True,
+                 user_id: str | None = None,
+                 device_id: str | None = None,
+                 session_id: str | None = None,
                  track_lifecycle: bool | None = None,          # default: desktop/mobile only
                  # when it sends
                  delivery: str = "interval",          # immediate | interval | startup | manual
@@ -661,7 +661,7 @@ class Firstrun:
     # The raw escape hatch. Everything below is one call to this one.
     def log(self, name: str, *, body: str | None = None, severity: Any = None,
             attributes: Mapping[str, Any] | None = None,
-            distinct_id: str | None = None, user_id: str | None = None,
+            device_id: str | None = None, user_id: str | None = None,
             session_id: str | None = None, timestamp: float | None = None,
             trace_id: str | None = None, span_id: str | None = None) -> None
 
@@ -675,9 +675,9 @@ class Firstrun:
     def error_log(self, body: str, attributes=None, **kwargs) -> None
     def fatal(self, body: str, attributes=None, **kwargs) -> None
     def page(self, path: str, attributes=None, **kwargs) -> None
-    def identify(self, user_id: str | None, attributes=None) -> None
-    def reset(self) -> None
-    def new_session(self) -> str
+    def user(self, user_id: str | None, attributes=None) -> None
+    def device(self, device_id: str | None) -> None
+    def session(self, session_id: str | None) -> None
 
     def flush(self, timeout: float | None = None) -> bool
     def close(self, timeout: float = 3.0) -> bool
@@ -688,11 +688,9 @@ class Firstrun:
     # context manager: __enter__/__exit__ and __aenter__/__aexit__
 
     enabled: bool                 # property
-    distinct_id: str              # property
     user_id: str | None           # property
-    session_id: str               # property
-    is_first_run: bool
-    distinct_id_path: str | None
+    device_id: str | None         # property
+    session_id: str | None        # property
     queue_path: str | None        # None unless persistence == "disk"
     source_key: str;  host: str
     resource: dict[str, Any];  default_attributes: dict[str, Any];  min_severity: int
@@ -707,17 +705,17 @@ firstrun.event(name, attributes=None, **kwargs) -> None
 firstrun.error(err, attributes=None, **kwargs) -> None
 firstrun.trace / debug / info / warn / error_log / fatal(body, attributes=None, **kwargs) -> None
 firstrun.page(path, attributes=None, **kwargs) -> None
-firstrun.identify(user_id, attributes=None) -> None
-firstrun.reset() -> None
+firstrun.user(user_id, attributes=None) -> None
+firstrun.device(device_id) -> None
+firstrun.session(session_id) -> None
 firstrun.flush(timeout=None) -> bool
 firstrun.shutdown(timeout=3.0) -> bool
 firstrun.stats() -> Stats | None
-firstrun.distinct_id_path(app_folder) -> str
 firstrun.queue_path(app_folder) -> str
 
 # ambient identity for one request. A context variable, so it does not leak
 # between concurrent requests and does follow a task the handler awaits.
-firstrun.context(distinct_id=None, *, user_id=None, session_id=None,
+firstrun.context(user_id=None, *, device_id=None, session_id=None,
                  attributes=None, **attrs)                    # with firstrun.context(...):
 firstrun.current_context() -> RequestContext | None
 firstrun.set_context(...) -> Token | None       # same arguments, layers like context()
@@ -725,26 +723,26 @@ firstrun.replace_context(...) -> Token | None   # same arguments, REPLACES: for 
 firstrun.reset_context(token) -> None           # accepts None
 
 class RequestContext:            # frozen
-    distinct_id: str | None
+    device_id: str | None
     user_id: str | None
     session_id: str | None
     attributes: Mapping[str, Any]
 
-# HTTP middleware. The distinct_id extractor is required in all three, and none
+# HTTP middleware. The device_id extractor is required in all three, and none
 # of these modules imports its framework at the top.
 from firstrun.integrations.django import FirstrunMiddleware, firstrun_middleware
 FirstrunMiddleware(get_response, **config)      # config from settings when named in MIDDLEWARE
-firstrun_middleware(distinct_id=None, *, user_id=None, ignore_paths=None,
+firstrun_middleware(device_id=None, *, user_id=None, ignore_paths=None,
                     ignore=None, client=None)   # -> the factory MIDDLEWARE wants
 
 from firstrun.integrations.flask import FirstrunExtension
-FirstrunExtension(app=None, distinct_id=None, *, user_id=None, ignore_paths=None,
+FirstrunExtension(app=None, device_id=None, *, user_id=None, ignore_paths=None,
                   ignore=None, client=None)     # extractors take no argument
     .init_app(app) -> None
     .enabled: bool
 
 from firstrun.integrations.asgi import FirstrunMiddleware
-FirstrunMiddleware(app, distinct_id=None, *, user_id=None, ignore_paths=None,
+FirstrunMiddleware(app, device_id=None, *, user_id=None, ignore_paths=None,
                    ignore=None, client=None)    # extractors take the ASGI scope
 
 class Stats(NamedTuple):
@@ -829,17 +827,17 @@ becomes its text, and anything unserialisable is dropped rather than costing the
 existence. The mapping is copied at call time, so mutating yours afterwards cannot rewrite an
 entry already recorded.
 
-Only five things are columns: `project_id`, `time`, `distinct_id`, `severity` and `name`.
+Only four things are columns: `project_id`, `time`, `severity` and `name`.
 Everything else, including `body`, `session.id`, `user.id`, `os.type` and `service.version`,
 lives in attributes and is queried from there. A closed set of columns is a closed set of
 questions, and which question you need is the one thing nobody can know in advance.
 
 Identity is two fields and no inference:
 
-- `distinct_id` is anonymous, per install or per request, required on every entry.
-- `user.id` is only ever the string you passed to `identify()` or to `log(user_id=...)`. We
+- `device_id` is anonymous, per install or per request, required on every entry.
+- `user.id` is only ever the string you passed to `user()` or to `log(user_id=...)`. We
   never invent, derive, look up or merge one, and this surface is never linked to your website's
-  visitors. If you want the same person on both, call `identify` with the same id on both. That
+  visitors. If you want the same person on both, call `user` with the same id on both. That
   is your data and your decision.
 
 `time` is stamped when you call `log()`, not when the batch is sent. An entry that happened on
@@ -875,15 +873,16 @@ One `POST {host}/v1/e` per batch, `Content-Type: application/json`:
 ```
 
 The keys are one letter because this is the same body the browser tag posts from `sendBeacon` on
-a page being unloaded, where bytes are the constraint: `k` is the source key, `d` the distinct
-id, `r` the resource and `e` the entries. One shape for every client rather than a compact
+a page being unloaded, where bytes are the constraint: `k` is the source key, `r` the resource
+and `e` the entries. There is no top-level id field: identity is three optional attributes and
+they travel inside `r`. One shape for every client rather than a compact
 browser dialect beside a verbose SDK one.
 
 `r` is the **resource**: what is true of the whole process rather than of one entry. It sits once
 per body because it does not change between two entries in the same request, and the edge merges
 it under each entry's own attributes, so an entry that sets the same key wins.
 
-`d` sits on the batch, not the entry, so entries with different distinct ids are grouped into
+`r` sits on the batch, not the entry, so entries with different resources are grouped into
 separate batches automatically. That is what makes passing them per call safe. `user.id` and
 `session.id` are per-entry attributes and never split a batch.
 

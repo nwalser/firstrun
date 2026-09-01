@@ -75,7 +75,7 @@ export const topics: DocsTopic[] = [
             `    attributes: attrs! { "frames_dropped" => 41 },\n` +
             `    ..Entry::now()\n` +
             `});\n\n` +
-            `analytics.identify(Some("acct_8812"));   // your own id, when they sign in\n` +
+            `analytics.user(Some("acct_8812"));       // your own id, when they sign in\n` +
             `analytics.flush(Duration::from_secs(2)); // on exit. Optional: dropping it flushes too`
           }
           note={

@@ -36,7 +36,7 @@ export const LOG_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 /** `LogBatch.entries` is bounded. A larger body is rejected whole. */
 export const MAX_ENTRIES_PER_BATCH = 500;
 
-/** `distinct_id` and the id-shaped attributes are bounded. */
+/** The identity attributes and every id-shaped attribute are bounded. */
 export const MAX_ID_LEN = 512;
 
 /** The one ingestion path. Every body shape goes to it. */

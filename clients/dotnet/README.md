@@ -22,7 +22,7 @@ This is the whole design, and it outranks every feature in the library.
 
 **If firstrun is unreachable, slow, or returning errors, your application is unaffected.**
 
-- `Track`, `Page` and `Identify` append to an in-memory queue and return. They never touch a
+- `Track`, `Page` and `User` append to an in-memory queue and return. They never touch a
   socket on your thread, and they are safe to call from a UI thread, a request handler, or a
   tight loop.
 - **Nothing throws into your code.** Not a bad event name, not a dead host, not a full disk,
@@ -103,8 +103,8 @@ catch (Exception ex) { App.Analytics.Error(ex); }
 App.Analytics.Info("render pipeline warmed");
 
 App.Analytics.Page("/settings/appearance");
-App.Analytics.Identify("acct_8812");   // your own user id, when they sign in
-App.Analytics.Reset();                 // on sign out
+App.Analytics.User("acct_8812");   // your own user id, when they sign in
+App.Analytics.User(null);          // on sign out. The session is cut for you
 ```
 
 `ServiceVersion` defaults to the entry assembly's informational version, `Os`, `Arch` and
@@ -130,7 +130,7 @@ app.MapPost("/orders", (FirstrunClient analytics, HttpContext http, Order order)
     // account id. We never invent one and never derive one.
     analytics.Event("order_placed",
         new FirstrunAttributes().Set("currency", order.Currency).Set("total", order.Total),
-        distinctId: http.Request.Cookies["visitor"] ?? http.Connection.Id,
+        deviceId: http.Request.Cookies["visitor"] ?? http.Connection.Id,
         userId: http.User.Identity?.Name);
 
     return Results.Ok();
@@ -142,7 +142,7 @@ app.Run();
 `AddFirstrunServer` registers the client as a **singleton** (one thread, one `HttpClient`, one
 queue) plus an `IHostedService` that flushes inside the graceful shutdown window, bounded by
 `ExitFlushTimeout`. It sets
-`PersistDistinctId = false`, `TrackLifecycleEvents = false` and `SessionPerProcess = false`,
+`PersistDeviceId = false`, `TrackLifecycleEvents = false` and `SessionPerProcess = false`,
 which is what a server wants.
 `AddFirstrun(options => ...)` is the general form. Neither can fail your startup: the hosted
 service does no work in `StartAsync`.
@@ -171,7 +171,7 @@ app.Use(async (http, next) =>
     // Whatever YOU already have. Nothing is read on your behalf: this library never
     // looks at a cookie, a header, an IP or a principal on its own initiative.
     var identity = new FirstrunIdentity(
-        distinctId: http.Request.Cookies["visitor"] ?? http.Connection.Id,
+        deviceId: http.Request.Cookies["visitor"] ?? http.Connection.Id,
         userId: http.User.Identity?.Name);
 
     using (FirstrunContext.Push(identity))
@@ -215,7 +215,7 @@ An identity can also carry attributes, for the things that are true of the whole
 otherwise be repeated at every call inside it:
 
 ```csharp
-new FirstrunIdentity(distinctId: visitor)
+new FirstrunIdentity(deviceId: visitor)
     .WithAttribute(FirstrunAttr.HttpRoute, "/orders/{id}")
     .WithAttribute("tenant", tenant.Slug);
 ```
@@ -255,7 +255,7 @@ app.UseFirstrun(o =>
 {
     // Required, and used verbatim. Nothing here reads a cookie, a header, an IP or a
     // principal on its own initiative: what these return is all it knows.
-    o.DistinctId = http => http.Request.Cookies["visitor"] ?? http.Connection.Id;
+    o.DeviceId = http => http.Request.Cookies["visitor"] ?? http.Connection.Id;
     o.UserId = http => http.User.Identity?.Name;
     // Optional. Leave it out and session.id is simply absent, here and on the entries
     // your own code records inside the request. Nothing fills it in.
@@ -339,10 +339,10 @@ and is still an ERROR that names its exception.
 
 Two things turn a request off. `Ignore` returning true skips it completely: no entry, no scope,
 and the other three delegates are not called, which is what you want for a probe hit sixty times a
-minute. `DistinctId` returning null leaves the request unrecorded rather than filing it under the
+minute. `DeviceId` returning null leaves the request unrecorded rather than filing it under the
 client's own process-wide id, which would report every unattributed request as one install.
 
-Two wiring mistakes disable the middleware instead of failing anything: no `DistinctId`, and no
+Two wiring mistakes disable the middleware instead of failing anything: no `DeviceId`, and no
 `AddFirstrunServer`. Both write one line to your logger at startup and leave the pipeline exactly
 as it was. A third writes a line without disabling anything: a client registered with plain
 `AddFirstrun` still holds the desktop default of one session id per process, which would then be
@@ -462,25 +462,25 @@ have the whole session, use `Interval` with a period that suits you. It is one l
 
 ## Where the anonymous id is stored
 
-`distinct_id` is anonymous, generated on this machine, and scoped to this surface. It is never
+`device_id` is anonymous, generated on this machine, and scoped to this surface. It is never
 sent to you by the server, never derived from anything, and never joined to a browser visitor
 or to another app. Exact paths:
 
 | OS | Path |
 |---|---|
-| Windows | `%LOCALAPPDATA%\firstrun\{app}\distinct_id`  (e.g. `C:\Users\you\AppData\Local\firstrun\themia\distinct_id`) |
-| macOS | `~/Library/Application Support/firstrun/{app}/distinct_id` |
-| Linux / other Unix | `$XDG_DATA_HOME/firstrun/{app}/distinct_id`, or `~/.local/share/firstrun/{app}/distinct_id` when `XDG_DATA_HOME` is unset |
+| Windows | `%LOCALAPPDATA%\firstrun\{app}\device_id`  (e.g. `C:\Users\you\AppData\Local\firstrun\themia\device_id`) |
+| macOS | `~/Library/Application Support/firstrun/{app}/device_id` |
+| Linux / other Unix | `$XDG_DATA_HOME/firstrun/{app}/device_id`, or `~/.local/share/firstrun/{app}/device_id` when `XDG_DATA_HOME` is unset |
 
 `{app}` is `AppName` lowercased and slugged, or the source key when `AppName` is not set. Set
 `AppName` so the id survives a source key rotation. Read the resolved path at runtime from
-`client.DistinctIdPath`.
+`client.DeviceIdPath`.
 
-Local (`%LOCALAPPDATA%`, not `%APPDATA%`) on Windows: `distinct_id` identifies an
+Local (`%LOCALAPPDATA%`, not `%APPDATA%`) on Windows: `device_id` identifies an
 INSTALLATION, not a person. On a roaming profile the roaming folder syncs between machines, so
 one person signing in to three of them would share a single id and report as one install instead
 of three. That is a real trade-off and it cuts the other way for anyone who wanted person-level
-counting, but tying somebody together across machines is exactly what `identify()` is for, and
+counting, but tying somebody together across machines is exactly what `User()` is for, and
 doing it silently and anonymously instead would make a number nobody could explain. Every
 firstrun client stores this the same way, so the same install counts the same everywhere.
 
@@ -488,7 +488,7 @@ The file is written temp-then-rename, so a crash mid-write leaves either no file
 one. If the write fails (read-only filesystem, full disk), the client uses a per-process id and
 reports a diagnostic. It never throws.
 
-`PersistDistinctId = false` skips the disk entirely; `DistinctId = "..."` supplies your own.
+`PersistDeviceId = false` skips the disk entirely; `DeviceId = "..."` supplies your own.
 
 ## Public API
 
@@ -499,14 +499,14 @@ class FirstrunClient : IDisposable, IAsyncDisposable   // IAsyncDisposable on ne
     // The raw escape hatch. Everything below is one call to this one.
     void  Log(string name, string? body = null, int severity = 0,
               IReadOnlyDictionary<string,object?>? attributes = null,
-              string? distinctId = null, string? userId = null, string? sessionId = null,
+              string? deviceId = null, string? userId = null, string? sessionId = null,
               long timestampMs = 0, string? traceId = null, string? spanId = null)
 
     // Convenience helpers. Conventional entries, not a schema.
     void  Event(string name, IReadOnlyDictionary<string,object?>? attributes = null,
-                string? distinctId = null, string? userId = null, string? sessionId = null)
+                string? deviceId = null, string? userId = null, string? sessionId = null)
     void  Error(Exception error, IReadOnlyDictionary<string,object?>? attributes = null,
-                string? distinctId = null, string? userId = null, string? sessionId = null)
+                string? deviceId = null, string? userId = null, string? sessionId = null)
     void  Trace(string body, IReadOnlyDictionary<string,object?>? attributes = null)
     void  Debug(string body, IReadOnlyDictionary<string,object?>? attributes = null)
     void  Info(string body, IReadOnlyDictionary<string,object?>? attributes = null)
@@ -514,9 +514,9 @@ class FirstrunClient : IDisposable, IAsyncDisposable   // IAsyncDisposable on ne
     void  ErrorLog(string body, IReadOnlyDictionary<string,object?>? attributes = null)
     void  Fatal(string body, IReadOnlyDictionary<string,object?>? attributes = null)
     void  Page(string path, IReadOnlyDictionary<string,object?>? attributes = null)
-    void  Identify(string? userId, IReadOnlyDictionary<string,object?>? attributes = null)
-    void  Reset()
-    void  NewSession()
+    void  User(string? userId, IReadOnlyDictionary<string,object?>? attributes = null)
+    void  Device(string? deviceId)
+    void  Session(string? sessionId)
 
     void  Flush()                       // fire and forget
     bool  Flush(TimeSpan timeout)       // bounded wait; never required
@@ -527,8 +527,8 @@ class FirstrunClient : IDisposable, IAsyncDisposable   // IAsyncDisposable on ne
     FirstrunSurface Surface { get; }
     bool            IsEnabled { get; }
     bool            IsFirstRun { get; }
-    string?         DistinctIdPath { get; }
-    string          DistinctId { get; }
+    string?         DeviceIdPath { get; }
+    string          DeviceId { get; }
     string?         UserId { get; }
     string          SessionId { get; }
     FirstrunStats   Stats { get; }
@@ -546,13 +546,13 @@ static class FirstrunContext
     IDisposable       Push(FirstrunIdentity? identity)  // restores the previous scope on Dispose
 
 class FirstrunIdentity                                  // immutable: build a copy, do not mutate
-    FirstrunIdentity(string? distinctId = null, string? userId = null, string? sessionId = null,
+    FirstrunIdentity(string? deviceId = null, string? userId = null, string? sessionId = null,
                      IReadOnlyDictionary<string,object?>? attributes = null)
-    string? DistinctId { get; }
+    string? DeviceId { get; }
     string? UserId { get; }
     string? SessionId { get; }
     IReadOnlyDictionary<string,object?>? Attributes { get; }
-    FirstrunIdentity WithDistinctId(string? distinctId)
+    FirstrunIdentity WithDeviceId(string? deviceId)
     FirstrunIdentity WithUserId(string? userId)
     FirstrunIdentity WithSessionId(string? sessionId)
     FirstrunIdentity WithAttribute(string key, object? value)   // null value removes the key
@@ -607,7 +607,7 @@ static class Wire
     long  NowMs();  string OsName();  string ArchName();  string? LocaleName()
     const int LogNameMaxLength = 128, IdMaxLength = 512
 
-static class DistinctIdStore
+static class DeviceIdStore
     string ResolvePath(string appFolder)
     (string Id, bool FirstRun) LoadOrCreate(string appFolder, Action<Exception>? onError)
 
@@ -624,7 +624,7 @@ static class FirstrunApplicationBuilderExtensions
                                     Action<FirstrunMiddlewareOptions>? configure = null)
 
 class FirstrunMiddlewareOptions
-    Func<HttpContext,string?>? DistinctId { get; set; }   // required; null return, no entry
+    Func<HttpContext,string?>? DeviceId { get; set; }   // required; null return, no entry
     Func<HttpContext,string?>? UserId { get; set; }       // null return, anonymous
     Func<HttpContext,string?>? SessionId { get; set; }    // null return, session.id absent
     Func<HttpContext,bool>?    Ignore { get; set; }       // true, no entry and no scope
@@ -652,8 +652,8 @@ catch (Exception ex) { client.Error(ex, new FirstrunAttributes().Set("rows", row
 | `Resource` | `null` | Extra resource attributes; the named options above win on a clash. |
 | `DefaultAttributes` | `null` | Stamped onto every entry; an entry's own attributes win. |
 | `MinSeverity` | `0` | Entries classified below this are dropped. Unclassified ones never are. |
-| `DistinctId` | from disk | Override the anonymous id. |
-| `PersistDistinctId` | `true` | False keeps it in memory only. |
+| `DeviceId` | from disk | Override the anonymous id. |
+| `PersistDeviceId` | `true` | False keeps it in memory only. |
 | `SessionPerProcess` | `true` | Whether this process is one session. False on a server: `session.id` is then written only when a call or a scope names one. `AddFirstrunServer` sets it. |
 | `TrackLifecycleEvents` | desktop/mobile | Emits `app_install` on first run and `app_launch` on every run. |
 | `Mode` | by surface | The schedule: `Immediate`, `Interval`, `Startup` or `Manual`. See below. |
@@ -714,17 +714,17 @@ text, and anything unserialisable is dropped rather than costing the batch its e
 are written with the invariant culture, so a German machine does not send `1,5`. The dictionary
 is copied at call time, so mutating yours afterwards cannot rewrite an entry already recorded.
 
-Only five things are columns: `project_id`, `time`, `distinct_id`, `severity` and `name`.
+Only four things are columns: `project_id`, `time`, `severity` and `name`.
 Everything else, including `body`, `session.id`, `user.id`, `os.type` and `service.version`,
 lives in attributes and is queried from there. A closed set of columns is a closed set of
 questions, and which question you need is the one thing nobody can know in advance.
 
 Identity is two fields and no inference:
 
-- `distinct_id` is anonymous, per install, required on every entry.
-- `user.id` is only ever the string you passed to `Identify`. We never invent, derive, look up
+- `device_id` is anonymous, per install, required on every entry.
+- `user.id` is only ever the string you passed to `User`. We never invent, derive, look up
   or merge one, and this surface is never linked to your website's visitors. If you want the
-  same person on both, call `Identify` with the same id on both. That is your data and your
+  same person on both, call `User` with the same id on both. That is your data and your
   decision.
 
 `time` is stamped when you call `Log`, not when the batch is sent. An entry that happened on
@@ -760,15 +760,16 @@ One `POST {Host}/v1/e` per batch, `Content-Type: application/json`:
 ```
 
 The keys are one letter because this is the same body the browser tag posts from `sendBeacon` on
-a page being unloaded, where bytes are the constraint: `k` is the source key, `d` the distinct
-id, `r` the resource and `e` the entries. One shape for every client rather than a compact
+a page being unloaded, where bytes are the constraint: `k` is the source key, `r` the resource
+and `e` the entries. There is no top-level id field: identity is three optional attributes and
+they travel inside `r`. One shape for every client rather than a compact
 browser dialect beside a verbose SDK one.
 
 `r` is the **resource**: what is true of the whole process rather than of one entry. It sits once
 per body because it does not change between two entries in the same request, and the edge merges
 it under each entry's own attributes, so an entry that sets the same key wins.
 
-`d` sits on the batch, not the entry, so entries with different distinct ids are grouped into
+`r` sits on the batch, not the entry, so entries with different resources are grouped into
 separate batches automatically. That is what makes the server overload safe. `user.id` and
 `session.id` are per-entry attributes and never split a batch.
 

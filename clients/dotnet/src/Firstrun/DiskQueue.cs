@@ -22,8 +22,8 @@ namespace Firstrun
     ///   with a header, a footer or an index can be left in a state where the whole file
     ///   is unreadable, which loses a month of queue instead of one entry.
     ///
-    /// - <b>Entries are stored as the JSON we already wrote.</b> A line is the distinct
-    ///   id, the resource object and the entry object, separated by a control character
+    /// - <b>Entries are stored as the JSON we already wrote.</b> A line is the resource
+    ///   object and the entry object, separated by a control character
     ///   that this library's JSON writer escapes and therefore cannot emit inside a value.
     ///   Storing what we serialised means replaying it needs no JSON reader, which is the
     ///   difference between this file and a parser nobody wants to own.

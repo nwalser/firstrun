@@ -31,7 +31,6 @@ const SHAPE: Row[] = [
   { key: "time", what: "When it happened. Stamped by the client, and what every query buckets on." },
   { key: "name", what: "What happened. Any string up to 128 characters." },
   { key: "severity", what: "1 to 24. A number, not a word. See the ladder below." },
-  { key: "distinct_id", what: "The anonymous id that client generated for itself. Required." },
   { key: "attributes", what: "Everything else, as JSON. Up to 64 keys, 4 levels deep." },
 ];
 
@@ -55,7 +54,7 @@ const NAMES: Array<{ name: string; from: string }> = [
   { name: "session_start", from: "Browser tag" },
   { name: "app_install", from: "Desktop SDK, first run only" },
   { name: "app_launch", from: "Desktop SDK, every run" },
-  { name: "identify", from: "Any client, on identify()" },
+  { name: "identify", from: "Any client, on user()" },
   { name: "page_leave", from: "Browser tag" },
   { name: "outbound_click", from: "Browser tag" },
   { name: "file_download", from: "Browser tag" },
@@ -71,8 +70,9 @@ const ATTRIBUTES: Array<{ key: string; what: string }> = [
   { key: "exception.type", what: "The class of the thrown thing." },
   { key: "exception.message", what: "The message on it." },
   { key: "exception.stacktrace", what: "The formatted stack, as one string." },
-  { key: "session.id", what: "The visit or the run this belongs to." },
-  { key: "user.id", what: "Whatever you passed to identify(). Never anything else." },
+  { key: "session.id", what: "The visit or the run this belongs to. Optional." },
+  { key: "user.id", what: "Whatever you passed to user(). Never anything else. Optional." },
+  { key: "device.id", what: "The machine, where there honestly is one. Optional." },
   { key: "service.version", what: "The build of your software that wrote this." },
   { key: "os.type", what: "windows, darwin, linux, ios, android." },
   { key: "host.arch", what: "The machine architecture." },

@@ -162,17 +162,9 @@ function AdminWorkspacesPage() {
     <main class="px-6 pb-6">
       {/* No width cap and no centring here: the shell's content track is the
           same 1620px every other page in the product sits in. */}
-      <PageHeader title={i18n.t("admin.workspaces_title")} description={i18n.t("admin.hint")} />
+      <PageHeader title={i18n.t("admin.workspaces_title")} />
 
       <div class="flex flex-col gap-4">
-        <Show when={!view().cloud}>
-          {/* Recorded and ignored, which is worth saying out loud: the columns
-              are the same in both editions and only one of them reads them. */}
-          <Alert>
-            <AlertDescription>{i18n.t("admin.self_hosted")}</AlertDescription>
-          </Alert>
-        </Show>
-
         {/* The same strip the overview opens with, kept here too: this is the
             page somebody arrives on from a support conversation, and a table of
             workspaces with no total above it makes you count rows. */}

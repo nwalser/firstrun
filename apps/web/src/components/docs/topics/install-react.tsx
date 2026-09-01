@@ -59,7 +59,7 @@ export const topics: DocsTopic[] = [
             `event("download_clicked", { platform: "windows" });\n` +
             `error(err, { "url.path": location.pathname });\n` +
             `log({ name: "checkout_stalled", severity: 13, attributes: { step: 3 } });\n` +
-            `identify("u_42");`
+            `user("u_42");`
           }
           note={
             <>
